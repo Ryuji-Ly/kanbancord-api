@@ -2,10 +2,15 @@ package com.kanbancord_api.dto;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 public class TaskAssignmentResponse {
     private Long id;
     private Long taskId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long assignedBy;
     private LocalDateTime assignedAt;
 

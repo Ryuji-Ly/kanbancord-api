@@ -1,10 +1,11 @@
 package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.NotificationResponse;
-import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Notification;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.NotificationService;
+import com.kanbancord_api.service.ResourceValidator;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -18,21 +19,25 @@ import java.util.stream.Collectors;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
-    public NotificationController(NotificationService notificationService) {
+    public NotificationController(
+            NotificationService notificationService,
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.notificationService = notificationService;
+        this.accessValidator = accessValidator;
+        this.resourceValidator = resourceValidator;
     }
 
     @GetMapping
     public ResponseEntity<List<NotificationResponse>> getNotificationsByUserId(
             @PathVariable Long userId,
             @RequestParam(required = false) Boolean isRead,
-            @RequestParam(required = false) Long requestingUserId) {
+            @RequestParam Long requestingUserId) {
 
-        // Authorization check: requestingUserId must match userId
-        if (requestingUserId == null || !requestingUserId.equals(userId)) {
-            throw new AccessDeniedException("You can only access your own notifications");
-        }
+        accessValidator.requireSelf(requestingUserId, userId);
 
         List<Notification> notifications;
         if (isRead != null) {
@@ -52,20 +57,14 @@ public class NotificationController {
     public ResponseEntity<NotificationResponse> getNotificationById(
             @PathVariable Long userId,
             @PathVariable Long notificationId,
-            @RequestParam(required = false) Long requestingUserId) {
+            @RequestParam Long requestingUserId) {
 
-        // Authorization check: requestingUserId must match userId
-        if (requestingUserId == null || !requestingUserId.equals(userId)) {
-            throw new AccessDeniedException("You can only access your own notifications");
-        }
+        accessValidator.requireSelf(requestingUserId, userId);
 
         Notification notification = notificationService.findById(notificationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification", "notificationId", notificationId));
 
-        // Verify notification belongs to user
-        if (!notification.getUser().getUserId().equals(userId)) {
-            throw new AccessDeniedException("This notification does not belong to you");
-        }
+        resourceValidator.validateNotificationBelongsToUser(notification, userId);
 
         return ResponseEntity.ok(mapToResponse(notification));
     }
@@ -73,12 +72,9 @@ public class NotificationController {
     @GetMapping("/unread-count")
     public ResponseEntity<Long> getUnreadCount(
             @PathVariable Long userId,
-            @RequestParam(required = false) Long requestingUserId) {
+            @RequestParam Long requestingUserId) {
 
-        // Authorization check: requestingUserId must match userId
-        if (requestingUserId == null || !requestingUserId.equals(userId)) {
-            throw new AccessDeniedException("You can only access your own notifications");
-        }
+        accessValidator.requireSelf(requestingUserId, userId);
 
         return ResponseEntity.ok(notificationService.countUnreadByUserId(userId));
     }
@@ -87,20 +83,14 @@ public class NotificationController {
     public ResponseEntity<Void> markAsRead(
             @PathVariable Long userId,
             @PathVariable Long notificationId,
-            @RequestParam(required = false) Long requestingUserId) {
+            @RequestParam Long requestingUserId) {
 
-        // Authorization check: requestingUserId must match userId
-        if (requestingUserId == null || !requestingUserId.equals(userId)) {
-            throw new AccessDeniedException("You can only modify your own notifications");
-        }
+        accessValidator.requireSelf(requestingUserId, userId);
 
         Notification notification = notificationService.findById(notificationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification", "notificationId", notificationId));
 
-        // Verify notification belongs to user
-        if (!notification.getUser().getUserId().equals(userId)) {
-            throw new AccessDeniedException("This notification does not belong to you");
-        }
+        resourceValidator.validateNotificationBelongsToUser(notification, userId);
 
         notificationService.markAsRead(notificationId);
         return ResponseEntity.noContent().build();
@@ -109,12 +99,9 @@ public class NotificationController {
     @PatchMapping("/mark-all-read")
     public ResponseEntity<Void> markAllAsReadForUser(
             @PathVariable Long userId,
-            @RequestParam(required = false) Long requestingUserId) {
+            @RequestParam Long requestingUserId) {
 
-        // Authorization check: requestingUserId must match userId
-        if (requestingUserId == null || !requestingUserId.equals(userId)) {
-            throw new AccessDeniedException("You can only modify your own notifications");
-        }
+        accessValidator.requireSelf(requestingUserId, userId);
 
         notificationService.markAllAsReadForUser(userId);
         return ResponseEntity.noContent().build();

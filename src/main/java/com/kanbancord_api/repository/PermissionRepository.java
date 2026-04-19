@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PermissionRepository extends JpaRepository<Permission, Long> {
@@ -15,4 +16,16 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
 
     List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectId(
             String scopeType, Long scopeId, String subjectType, Long subjectId);
+
+    List<Permission> findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(String scopeType, Long scopeId);
+
+    List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
+            String scopeType, Long scopeId, String subjectType, Long subjectId);
+
+    Optional<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdAndKanbanPermission_PermissionId(
+            String scopeType,
+            Long scopeId,
+            String subjectType,
+            Long subjectId,
+            Integer kanbanPermissionId);
 }

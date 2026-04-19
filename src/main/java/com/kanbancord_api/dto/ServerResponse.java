@@ -2,10 +2,15 @@ package com.kanbancord_api.dto;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 public class ServerResponse {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long serverId;
     private String name;
     private String iconUrl;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long ownerId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

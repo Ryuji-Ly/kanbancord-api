@@ -7,10 +7,9 @@ import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.BoardColumn;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
-import com.kanbancord_api.service.BoardService;
-import com.kanbancord_api.service.BusinessValidationService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskService;
 import com.kanbancord_api.service.UserService;
 import jakarta.validation.Valid;
@@ -27,25 +26,22 @@ import org.springframework.web.bind.annotation.*;
 public class TaskController {
 
     private final TaskService taskService;
-    private final BoardService boardService;
     private final BoardColumnService boardColumnService;
     private final UserService userService;
-    private final ServerAccessValidator accessValidator;
-    private final BusinessValidationService businessValidation;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public TaskController(
             TaskService taskService,
-            BoardService boardService,
             BoardColumnService boardColumnService,
             UserService userService,
-            ServerAccessValidator accessValidator,
-            BusinessValidationService businessValidation) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.taskService = taskService;
-        this.boardService = boardService;
         this.boardColumnService = boardColumnService;
         this.userService = userService;
         this.accessValidator = accessValidator;
-        this.businessValidation = businessValidation;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -53,20 +49,17 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody TaskRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "CREATE_TASK");
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
         BoardColumn column = boardColumnService.findById(request.getColumnId())
                 .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
 
-        // Validate column belongs to the specified board
-        businessValidation.validateColumnBelongsToBoard(request.getColumnId(), boardId);
+        resourceValidator.validateColumnBelongsToBoard(request.getColumnId(), boardId);
 
         Task task = new Task();
         task.setBoard(board);
@@ -79,11 +72,10 @@ public class TaskController {
         task.setMetadata(request.getMetadata());
         task.setIsArchived(false);
 
-        if (request.getCreatedBy() != null) {
-            User creator = userService.findById(request.getCreatedBy())
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getCreatedBy()));
-            task.setCreatedBy(creator);
-        }
+        Long creatorId = request.getCreatedBy() != null ? request.getCreatedBy() : userId;
+        User creator = userService.findById(creatorId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", creatorId));
+        task.setCreatedBy(creator);
 
         Task created = taskService.create(task);
         return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
@@ -95,20 +87,18 @@ public class TaskController {
             @PathVariable Long boardId,
             @RequestParam(required = false) Boolean archived,
             @RequestParam(required = false) Long columnId,
-            @RequestParam(required = false) Long userId,
+            @RequestParam Long userId,
             Pageable pageable) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
-        boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        resourceValidator.requireBoardInServer(boardId, serverId);
 
         Page<Task> tasks;
         if (archived != null) {
             tasks = taskService.findByBoardIdAndArchived(boardId, archived, pageable);
         } else if (columnId != null) {
+            resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
             tasks = taskService.findByColumnIdOrdered(columnId, pageable);
         } else {
             tasks = taskService.findByBoardId(boardId, pageable);
@@ -124,14 +114,13 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
         return ResponseEntity.ok(mapToResponse(task));
     }
@@ -142,17 +131,19 @@ public class TaskController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "EDIT_TASK");
+        if (request.getColumnId() != null) {
+            accessValidator.requireServerPermission(userId, serverId, "MOVE_TASK");
         }
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
-        // Validate task is not archived before modification
-        businessValidation.validateTaskNotArchived(task);
+        resourceValidator.validateTaskNotArchived(task);
 
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
@@ -172,8 +163,7 @@ public class TaskController {
             BoardColumn column = boardColumnService.findById(request.getColumnId())
                     .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
 
-            // Validate task move to ensure column belongs to same board
-            businessValidation.validateTaskMove(task, request.getColumnId());
+            resourceValidator.validateTaskMove(task, request.getColumnId());
 
             task.setColumn(column);
         }
@@ -187,14 +177,13 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "DELETE_TASK");
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
         taskService.deleteById(task.getTaskId());
         return ResponseEntity.noContent().build();

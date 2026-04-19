@@ -7,8 +7,8 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Role;
 import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.ServerMember;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.RoleService;
-import com.kanbancord_api.service.ServerAccessValidator;
 import com.kanbancord_api.service.ServerMemberService;
 import com.kanbancord_api.service.ServerService;
 import org.springframework.http.ResponseEntity;
@@ -22,13 +22,13 @@ import java.util.stream.Collectors;
 public class ServerController {
 
     private final ServerService serverService;
-    private final ServerAccessValidator accessValidator;
+    private final AccessValidator accessValidator;
     private final RoleService roleService;
     private final ServerMemberService serverMemberService;
 
     public ServerController(
             ServerService serverService,
-            ServerAccessValidator accessValidator,
+            AccessValidator accessValidator,
             RoleService roleService,
             ServerMemberService serverMemberService) {
         this.serverService = serverService;
@@ -38,18 +38,14 @@ public class ServerController {
     }
 
     /**
-     * Get server by ID
-     * TODO: Extract userId from authenticated session
+     * Get server by ID.
      */
     @GetMapping("/{serverId}")
     public ResponseEntity<ServerResponse> getServerById(
             @PathVariable Long serverId,
-            @RequestParam(required = false) Long userId) { // TODO: Remove this param once auth is implemented
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context instead of request param
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
         Server server = serverService.findById(serverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Server", "serverId", serverId));
@@ -64,12 +60,9 @@ public class ServerController {
     @GetMapping("/{serverId}/roles")
     public ResponseEntity<List<RoleResponse>> getServerRoles(
             @PathVariable Long serverId,
-            @RequestParam(required = false) Long userId) { // TODO: Remove this param once auth is implemented
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
         List<Role> roles = roleService.findByServerIdOrderedByPosition(serverId);
         List<RoleResponse> responses = roles.stream()
@@ -86,12 +79,9 @@ public class ServerController {
     @GetMapping("/{serverId}/members")
     public ResponseEntity<List<ServerMemberResponse>> getServerMembers(
             @PathVariable Long serverId,
-            @RequestParam(required = false) Long userId) { // TODO: Remove this param once auth is implemented
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
         List<ServerMember> members = serverMemberService.findByServerId(serverId);
         List<ServerMemberResponse> responses = members.stream()

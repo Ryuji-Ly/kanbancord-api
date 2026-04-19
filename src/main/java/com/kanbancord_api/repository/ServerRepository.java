@@ -11,5 +11,7 @@ public interface ServerRepository extends JpaRepository<Server, Long> {
 
     List<Server> findByOwner_UserId(Long ownerId);
 
+    List<Server> findDistinctByMembers_User_UserId(Long userId);
+
     boolean existsByServerId(Long serverId);
 }

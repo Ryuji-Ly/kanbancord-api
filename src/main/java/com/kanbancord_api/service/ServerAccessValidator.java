@@ -11,10 +11,15 @@ public class ServerAccessValidator {
 
     private final ServerMemberRepository serverMemberRepository;
     private final ServerRepository serverRepository;
+    private final PermissionEvaluationService permissionEvaluationService;
 
-    public ServerAccessValidator(ServerMemberRepository serverMemberRepository, ServerRepository serverRepository) {
+    public ServerAccessValidator(
+            ServerMemberRepository serverMemberRepository,
+            ServerRepository serverRepository,
+            PermissionEvaluationService permissionEvaluationService) {
         this.serverMemberRepository = serverMemberRepository;
         this.serverRepository = serverRepository;
+        this.permissionEvaluationService = permissionEvaluationService;
     }
 
     /**
@@ -49,13 +54,17 @@ public class ServerAccessValidator {
     }
 
     /**
-     * Validates that a user has a specific role/permission in a server.
-     * TODO: Implement role-based permission checking when role system is complete
-     * For now, this just validates membership.
+     * Validates that a user has a specific permission in a server.
      */
     public void validateUserHasRole(Long userId, Long serverId, String requiredPermission) {
-        // TODO: Implement role-based permission checking
-        // For now, just validate membership
         validateUserInServer(userId, serverId);
+
+        if (requiredPermission == null || requiredPermission.isBlank()) {
+            return;
+        }
+
+        if (!permissionEvaluationService.isAllowed(serverId, null, userId, requiredPermission)) {
+            throw new AccessDeniedException("Missing required permission: " + requiredPermission);
+        }
     }
 }

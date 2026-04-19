@@ -2,13 +2,11 @@ package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.LabelRequest;
 import com.kanbancord_api.dto.LabelResponse;
-import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.Label;
-import com.kanbancord_api.service.BoardService;
-import com.kanbancord_api.service.BusinessValidationService;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.LabelService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,19 +22,16 @@ import java.util.stream.Collectors;
 public class LabelController {
 
     private final LabelService labelService;
-    private final BoardService boardService;
-    private final ServerAccessValidator accessValidator;
-    private final BusinessValidationService businessValidation;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public LabelController(
             LabelService labelService,
-            BoardService boardService,
-            ServerAccessValidator accessValidator,
-            BusinessValidationService businessValidation) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.labelService = labelService;
-        this.boardService = boardService;
         this.accessValidator = accessValidator;
-        this.businessValidation = businessValidation;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -44,17 +39,14 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody LabelRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "CREATE_LABEL");
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
-        // Validate label name is unique within the board
-        businessValidation.validateLabelNameUnique(request.getName(), boardId, null);
+        resourceValidator.validateLabelNameUnique(request.getName(), boardId, null);
 
         Label label = new Label();
         label.setBoard(board);
@@ -69,14 +61,11 @@ public class LabelController {
     public ResponseEntity<List<LabelResponse>> getAllLabels(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
-        boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        resourceValidator.requireBoardInServer(boardId, serverId);
 
         List<Label> labels = labelService.findByBoardId(boardId);
         List<LabelResponse> responses = labels.stream()
@@ -91,14 +80,13 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long labelId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
 
-        Label label = labelService.findByIdAndServerId(labelId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Label", "labelId", labelId));
+        Label label = resourceValidator.requireLabelInServer(labelId, serverId);
 
         return ResponseEntity.ok(mapToResponse(label));
     }
@@ -109,17 +97,16 @@ public class LabelController {
             @PathVariable Long boardId,
             @PathVariable Long labelId,
             @Valid @RequestBody LabelRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "EDIT_LABEL");
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
 
-        Label label = labelService.findByIdAndServerId(labelId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Label", "labelId", labelId));
+        Label label = resourceValidator.requireLabelInServer(labelId, serverId);
 
-        // Validate label name is unique within the board (excluding current label)
-        businessValidation.validateLabelNameUnique(request.getName(), boardId, labelId);
+        resourceValidator.validateLabelNameUnique(request.getName(), boardId, labelId);
 
         label.setName(request.getName());
         label.setColor(request.getColor());
@@ -133,14 +120,13 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long labelId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "DELETE_LABEL");
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
 
-        Label label = labelService.findByIdAndServerId(labelId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Label", "labelId", labelId));
+        Label label = resourceValidator.requireLabelInServer(labelId, serverId);
 
         labelService.deleteById(label.getLabelId());
         return ResponseEntity.noContent().build();
