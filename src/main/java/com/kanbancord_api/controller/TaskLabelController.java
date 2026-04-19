@@ -2,14 +2,12 @@ package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.TaskLabelRequest;
 import com.kanbancord_api.dto.TaskLabelResponse;
-import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Label;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskLabel;
-import com.kanbancord_api.service.LabelService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.AccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskLabelService;
-import com.kanbancord_api.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,19 +23,16 @@ import java.util.stream.Collectors;
 public class TaskLabelController {
 
     private final TaskLabelService taskLabelService;
-    private final TaskService taskService;
-    private final LabelService labelService;
-    private final ServerAccessValidator accessValidator;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public TaskLabelController(
             TaskLabelService taskLabelService,
-            TaskService taskService,
-            LabelService labelService,
-            ServerAccessValidator accessValidator) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.taskLabelService = taskLabelService;
-        this.taskService = taskService;
-        this.labelService = labelService;
         this.accessValidator = accessValidator;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -46,17 +41,16 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskLabelRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
-        Label label = labelService.findByIdAndServerId(request.getLabelId(), serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Label", "labelId", request.getLabelId()));
+        Label label = resourceValidator.requireLabelInServer(request.getLabelId(), serverId);
+        resourceValidator.validateLabelBelongsToBoard(label.getLabelId(), boardId);
 
         TaskLabel taskLabel = new TaskLabel();
         taskLabel.setTask(task);
@@ -71,14 +65,12 @@ public class TaskLabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        resourceValidator.requireTaskInServer(taskId, serverId);
 
         List<TaskLabel> taskLabels = taskLabelService.findByTaskId(taskId);
 
@@ -95,14 +87,13 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long taskLabelId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskLabel taskLabel = taskLabelService.findByIdAndServerId(taskLabelId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskLabel", "taskLabelId", taskLabelId));
+        TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, taskLabel.getTask().getTaskId());
 
         return ResponseEntity.ok(mapToResponse(taskLabel));
     }
@@ -113,14 +104,13 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long taskLabelId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskLabel taskLabel = taskLabelService.findByIdAndServerId(taskLabelId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskLabel", "taskLabelId", taskLabelId));
+        TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, taskLabel.getTask().getTaskId());
 
         taskLabelService.deleteById(taskLabel.getId());
         return ResponseEntity.noContent().build();

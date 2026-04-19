@@ -6,9 +6,9 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskComment;
 import com.kanbancord_api.model.User;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.AccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskCommentService;
-import com.kanbancord_api.service.TaskService;
 import com.kanbancord_api.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -24,19 +24,19 @@ import org.springframework.web.bind.annotation.*;
 public class TaskCommentController {
 
     private final TaskCommentService taskCommentService;
-    private final TaskService taskService;
     private final UserService userService;
-    private final ServerAccessValidator accessValidator;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public TaskCommentController(
             TaskCommentService taskCommentService,
-            TaskService taskService,
             UserService userService,
-            ServerAccessValidator accessValidator) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.taskCommentService = taskCommentService;
-        this.taskService = taskService;
         this.userService = userService;
         this.accessValidator = accessValidator;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -45,14 +45,13 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskCommentRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
         User user = userService.findById(request.getUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getUserId()));
@@ -63,9 +62,8 @@ public class TaskCommentController {
         comment.setContent(request.getContent());
 
         if (request.getReplyToId() != null) {
-            TaskComment replyTo = taskCommentService.findByIdAndServerId(request.getReplyToId(), serverId)
-                    .orElseThrow(
-                            () -> new ResourceNotFoundException("TaskComment", "commentId", request.getReplyToId()));
+            TaskComment replyTo = resourceValidator.requireCommentInServer(request.getReplyToId(), serverId);
+            resourceValidator.validatePathMatchesRequestId("taskId", taskId, replyTo.getTask().getTaskId());
             comment.setReplyTo(replyTo);
         }
 
@@ -79,15 +77,13 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @RequestParam(required = false) Boolean activeOnly,
-            @RequestParam(required = false) Long userId,
+            @RequestParam Long userId,
             Pageable pageable) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        resourceValidator.requireTaskInServer(taskId, serverId);
 
         Page<TaskComment> comments;
         if (activeOnly != null && activeOnly) {
@@ -107,14 +103,13 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskComment comment = taskCommentService.findByIdAndServerId(commentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskComment", "commentId", commentId));
+        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
         return ResponseEntity.ok(mapToResponse(comment));
     }
@@ -126,14 +121,14 @@ public class TaskCommentController {
             @PathVariable Long taskId,
             @PathVariable Long commentId,
             @Valid @RequestBody TaskCommentRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskComment comment = taskCommentService.findByIdAndServerId(commentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskComment", "commentId", commentId));
+        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
         comment.setContent(request.getContent());
 
@@ -147,14 +142,13 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskComment comment = taskCommentService.findByIdAndServerId(commentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskComment", "commentId", commentId));
+        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
         taskCommentService.deleteById(comment.getCommentId());
         return ResponseEntity.noContent().build();
@@ -166,14 +160,13 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskComment comment = taskCommentService.findByIdAndServerId(commentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskComment", "commentId", commentId));
+        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
         taskCommentService.softDelete(comment.getCommentId());
         return ResponseEntity.noContent().build();

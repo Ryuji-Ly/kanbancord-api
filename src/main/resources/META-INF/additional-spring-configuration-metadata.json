@@ -1,0 +1,34 @@
+{
+  "properties": [
+    {
+      "name": "kanbancord.internal-sync.bot-token",
+      "type": "java.lang.String",
+      "description": "Shared secret used by the Discord bot to call internal sync endpoints."
+    },
+    {
+      "name": "kanbancord.auth.jwt.secret",
+      "type": "java.lang.String",
+      "description": "HMAC signing secret used by backend access tokens."
+    },
+    {
+      "name": "kanbancord.auth.jwt.expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "Lifetime of backend access tokens in seconds."
+    },
+    {
+      "name": "kanbancord.discord.api-base-url",
+      "type": "java.lang.String",
+      "description": "Discord API base URL used for identity lookup via /users/@me."
+    },
+    {
+      "name": "kanbancord.discord.oauth.client-id",
+      "type": "java.lang.String",
+      "description": "Discord application client ID used for OAuth authorization code exchange."
+    },
+    {
+      "name": "kanbancord.discord.oauth.client-secret",
+      "type": "java.lang.String",
+      "description": "Discord application client secret used for OAuth authorization code exchange."
+    }
+  ]
+}

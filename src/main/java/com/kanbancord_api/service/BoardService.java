@@ -15,13 +15,21 @@ import java.util.Optional;
 public class BoardService {
 
     private final BoardRepository boardRepository;
+    private final PermissionBootstrapService permissionBootstrapService;
 
-    public BoardService(BoardRepository boardRepository) {
+    public BoardService(BoardRepository boardRepository, PermissionBootstrapService permissionBootstrapService) {
         this.boardRepository = boardRepository;
+        this.permissionBootstrapService = permissionBootstrapService;
     }
 
     public Board create(Board board) {
-        return boardRepository.save(board);
+        Board created = boardRepository.save(board);
+        if (created.getServer() != null && created.getServer().getServerId() != null && created.getBoardId() != null) {
+            permissionBootstrapService.initializeBoardConfigurationFromServer(
+                    created.getServer().getServerId(),
+                    created.getBoardId());
+        }
+        return created;
     }
 
     @Transactional(readOnly = true)

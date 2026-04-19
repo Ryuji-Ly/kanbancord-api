@@ -2,13 +2,11 @@ package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.BoardColumnRequest;
 import com.kanbancord_api.dto.BoardColumnResponse;
-import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.BoardColumn;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
-import com.kanbancord_api.service.BoardService;
-import com.kanbancord_api.service.BusinessValidationService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,19 +22,16 @@ import java.util.stream.Collectors;
 public class BoardColumnController {
 
     private final BoardColumnService boardColumnService;
-    private final BoardService boardService;
-    private final ServerAccessValidator accessValidator;
-    private final BusinessValidationService businessValidation;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public BoardColumnController(
             BoardColumnService boardColumnService,
-            BoardService boardService,
-            ServerAccessValidator accessValidator,
-            BusinessValidationService businessValidation) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.boardColumnService = boardColumnService;
-        this.boardService = boardService;
         this.accessValidator = accessValidator;
-        this.businessValidation = businessValidation;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -44,14 +39,12 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody BoardColumnRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "CREATE_COLUMN");
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
         BoardColumn column = new BoardColumn();
         column.setBoard(board);
@@ -68,15 +61,11 @@ public class BoardColumnController {
     public ResponseEntity<List<BoardColumnResponse>> getAllColumns(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
-        // Validate board belongs to server
-        boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        resourceValidator.requireBoardInServer(boardId, serverId);
 
         List<BoardColumn> columns = boardColumnService.findByBoardIdOrdered(boardId);
         List<BoardColumnResponse> responses = columns.stream()
@@ -91,14 +80,13 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long columnId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
-        BoardColumn column = boardColumnService.findByIdAndServerId(columnId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", columnId));
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
 
         return ResponseEntity.ok(mapToResponse(column));
     }
@@ -109,14 +97,17 @@ public class BoardColumnController {
             @PathVariable Long boardId,
             @PathVariable Long columnId,
             @Valid @RequestBody BoardColumnRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "EDIT_COLUMN");
+        if (request.getPosition() != null) {
+            accessValidator.requireServerPermission(userId, serverId, "MOVE_COLUMN");
         }
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
-        BoardColumn column = boardColumnService.findByIdAndServerId(columnId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", columnId));
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
 
         column.setName(request.getName());
         if (request.getPosition() != null) {
@@ -138,17 +129,15 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long columnId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "DELETE_COLUMN");
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
-        BoardColumn column = boardColumnService.findByIdAndServerId(columnId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", columnId));
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
 
-        // Validate column has no tasks before deletion
-        businessValidation.validateColumnHasNoTasks(columnId);
+        resourceValidator.validateColumnHasNoTasks(columnId);
 
         boardColumnService.deleteById(column.getColumnId());
         return ResponseEntity.noContent().build();

@@ -6,9 +6,9 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardService;
-import com.kanbancord_api.service.BusinessValidationService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.ServerService;
 import com.kanbancord_api.service.UserService;
 import jakarta.validation.Valid;
@@ -25,20 +25,20 @@ import org.springframework.web.bind.annotation.*;
 public class BoardController {
 
     private final BoardService boardService;
-    private final ServerAccessValidator accessValidator;
-    private final BusinessValidationService businessValidation;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
     private final ServerService serverService;
     private final UserService userService;
 
     public BoardController(
             BoardService boardService,
-            ServerAccessValidator accessValidator,
-            BusinessValidationService businessValidation,
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator,
             ServerService serverService,
             UserService userService) {
         this.boardService = boardService;
         this.accessValidator = accessValidator;
-        this.businessValidation = businessValidation;
+        this.resourceValidator = resourceValidator;
         this.serverService = serverService;
         this.userService = userService;
     }
@@ -50,18 +50,15 @@ public class BoardController {
     public ResponseEntity<BoardResponse> createBoard(
             @PathVariable Long serverId,
             @Valid @RequestBody BoardRequest request,
-            @RequestParam(required = false) Long userId) { // TODO: Get from auth context
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "CREATE_BOARD");
+        resourceValidator.validatePathMatchesRequestId("serverId", serverId, request.getServerId());
 
         Server server = serverService.findById(serverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Server", "serverId", serverId));
 
-        // Validate board name is unique within the server
-        businessValidation.validateBoardNameUnique(request.getName(), serverId, null);
+        resourceValidator.validateBoardNameUnique(request.getName(), serverId, null);
 
         Board board = new Board();
         board.setServer(server);
@@ -69,11 +66,10 @@ public class BoardController {
         board.setDescription(request.getDescription());
         board.setIsArchived(false);
 
-        if (request.getCreatedBy() != null) {
-            User creator = userService.findById(request.getCreatedBy())
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getCreatedBy()));
-            board.setCreatedBy(creator);
-        }
+        Long creatorId = request.getCreatedBy() != null ? request.getCreatedBy() : userId;
+        User creator = userService.findById(creatorId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", creatorId));
+        board.setCreatedBy(creator);
 
         Board created = boardService.create(board);
         return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
@@ -86,13 +82,10 @@ public class BoardController {
     public ResponseEntity<Page<BoardResponse>> getAllBoards(
             @PathVariable Long serverId,
             @RequestParam(required = false) Boolean archived,
-            @RequestParam(required = false) Long userId,
-            Pageable pageable) { // TODO: Get from auth context
+            @RequestParam Long userId,
+            Pageable pageable) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
 
         Page<Board> boards;
         if (archived != null) {
@@ -113,15 +106,10 @@ public class BoardController {
     public ResponseEntity<BoardResponse> getBoardById(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam(required = false) Long userId) { // TODO: Get from auth context
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
-
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        accessValidator.requireUserInServer(userId, serverId);
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
         return ResponseEntity.ok(mapToResponse(board));
     }
@@ -134,18 +122,13 @@ public class BoardController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody BoardRequest request,
-            @RequestParam(required = false) Long userId) { // TODO: Get from auth context
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "EDIT_BOARD_DETAILS");
+        resourceValidator.validatePathMatchesRequestId("serverId", serverId, request.getServerId());
+        resourceValidator.validateBoardNameUnique(request.getName(), serverId, boardId);
 
-        // Validate board name is unique within the server (excluding current board)
-        businessValidation.validateBoardNameUnique(request.getName(), serverId, boardId);
-
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
         board.setName(request.getName());
         if (request.getDescription() != null) {
@@ -163,15 +146,11 @@ public class BoardController {
     public ResponseEntity<Void> deleteBoard(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam(required = false) Long userId) { // TODO: Get from auth context
+            @RequestParam Long userId) {
 
-        // TODO: Get userId from security context
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireServerPermission(userId, serverId, "DELETE_BOARD");
 
-        Board board = boardService.findByIdAndServerId(boardId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
 
         boardService.deleteById(board.getBoardId());
         return ResponseEntity.noContent().build();

@@ -3,7 +3,11 @@ package com.kanbancord_api.dto;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 public class UserResponse {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private String username;
     private String globalName;

@@ -6,9 +6,9 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskAssignment;
 import com.kanbancord_api.model.User;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.service.AccessValidator;
+import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskAssignmentService;
-import com.kanbancord_api.service.TaskService;
 import com.kanbancord_api.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -25,19 +25,19 @@ import java.util.stream.Collectors;
 public class TaskAssignmentController {
 
     private final TaskAssignmentService taskAssignmentService;
-    private final TaskService taskService;
     private final UserService userService;
-    private final ServerAccessValidator accessValidator;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
 
     public TaskAssignmentController(
             TaskAssignmentService taskAssignmentService,
-            TaskService taskService,
             UserService userService,
-            ServerAccessValidator accessValidator) {
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator) {
         this.taskAssignmentService = taskAssignmentService;
-        this.taskService = taskService;
         this.userService = userService;
         this.accessValidator = accessValidator;
+        this.resourceValidator = resourceValidator;
     }
 
     @PostMapping
@@ -46,14 +46,13 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskAssignmentRequest request,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        Task task = taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
         User user = userService.findById(request.getUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getUserId()));
@@ -75,14 +74,12 @@ public class TaskAssignmentController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        taskService.findByIdAndServerId(taskId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Task", "taskId", taskId));
+        resourceValidator.requireTaskInServer(taskId, serverId);
 
         List<TaskAssignment> assignments = taskAssignmentService.findByTaskId(taskId);
 
@@ -99,14 +96,14 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long assignmentId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskAssignment assignment = taskAssignmentService.findByIdAndServerId(assignmentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskAssignment", "assignmentId", assignmentId));
+        TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
+
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
 
         return ResponseEntity.ok(mapToResponse(assignment));
     }
@@ -117,14 +114,14 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long assignmentId,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam Long userId) {
 
-        if (userId != null) {
-            accessValidator.validateUserInServer(userId, serverId);
-        }
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
-        TaskAssignment assignment = taskAssignmentService.findByIdAndServerId(assignmentId, serverId)
-                .orElseThrow(() -> new ResourceNotFoundException("TaskAssignment", "assignmentId", assignmentId));
+        TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
+
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
 
         taskAssignmentService.deleteById(assignment.getId());
         return ResponseEntity.noContent().build();

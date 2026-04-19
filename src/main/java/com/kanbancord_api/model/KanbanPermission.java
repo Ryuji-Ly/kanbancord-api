@@ -27,6 +27,9 @@ public class KanbanPermission {
     @Column(name = "category")
     private String category;
 
+    @Column(name = "is_system", nullable = false)
+    private Boolean isSystem = false;
+
     @OneToMany(mappedBy = "kanbanPermission", cascade = CascadeType.ALL)
     @JsonIgnore
     private Set<Permission> permissions = new HashSet<>();
@@ -74,6 +77,14 @@ public class KanbanPermission {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public Boolean getIsSystem() {
+        return isSystem;
+    }
+
+    public void setIsSystem(Boolean isSystem) {
+        this.isSystem = isSystem;
     }
 
     public Set<Permission> getPermissions() {

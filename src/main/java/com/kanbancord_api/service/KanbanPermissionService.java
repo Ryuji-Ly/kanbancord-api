@@ -43,10 +43,18 @@ public class KanbanPermissionService {
     }
 
     public KanbanPermission update(KanbanPermission permission) {
+        if (permission.getIsSystem() != null && permission.getIsSystem()) {
+            throw new IllegalStateException("System kanban permissions cannot be modified");
+        }
         return kanbanPermissionRepository.save(permission);
     }
 
     public void deleteById(Integer id) {
+        KanbanPermission permission = kanbanPermissionRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("KanbanPermission not found: " + id));
+        if (permission.getIsSystem() != null && permission.getIsSystem()) {
+            throw new IllegalStateException("System kanban permissions cannot be deleted");
+        }
         kanbanPermissionRepository.deleteById(id);
     }
 
