@@ -29,7 +29,8 @@ public class DiscordOAuthService {
         String clientSecret = discordOAuthProperties.getClientSecret();
 
         if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()) {
-            throw new AccessDeniedException("Discord OAuth is not configured");
+            throw new AccessDeniedException(
+                    "Discord OAuth is not configured. Set KANBANCORD_DISCORD_CLIENT_ID and KANBANCORD_DISCORD_CLIENT_SECRET.");
         }
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
