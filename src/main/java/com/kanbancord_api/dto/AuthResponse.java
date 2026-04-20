@@ -6,6 +6,7 @@ public class AuthResponse {
     private String accessToken;
     private long expiresIn;
     private UserResponse user;
+    private String discordAccessToken;
 
     public String getTokenType() {
         return tokenType;
@@ -37,5 +38,13 @@ public class AuthResponse {
 
     public void setUser(UserResponse user) {
         this.user = user;
+    }
+
+    public String getDiscordAccessToken() {
+        return discordAccessToken;
+    }
+
+    public void setDiscordAccessToken(String discordAccessToken) {
+        this.discordAccessToken = discordAccessToken;
     }
 }

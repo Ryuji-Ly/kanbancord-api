@@ -43,10 +43,12 @@ public class AuthController {
     @PostMapping("/discord/exchange")
     public ResponseEntity<AuthResponse> exchangeCodeAndLogin(
             @Valid @RequestBody DiscordOAuthCodeExchangeRequest request) {
-        String accessToken = discordOAuthService.exchangeCodeForAccessToken(request.getCode(),
+        String discordAccessToken = discordOAuthService.exchangeCodeForAccessToken(request.getCode(),
                 request.getRedirectUri());
-        User user = discordIdentityService.authenticateAndSyncUser(accessToken);
-        return ResponseEntity.ok(toAuthResponse(user));
+        User user = discordIdentityService.authenticateAndSyncUser(discordAccessToken);
+        AuthResponse response = toAuthResponse(user);
+        response.setDiscordAccessToken(discordAccessToken);
+        return ResponseEntity.ok(response);
     }
 
     private AuthResponse toAuthResponse(User user) {
