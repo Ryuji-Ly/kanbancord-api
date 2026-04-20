@@ -3,7 +3,7 @@
     {
       "name": "kanbancord.internal-sync.bot-token",
       "type": "java.lang.String",
-      "description": "Shared secret used by the Discord bot to call internal sync endpoints."
+      "description": "SHA-256 hex hash of the raw shared secret used by the Discord bot to call internal sync endpoints."
     },
     {
       "name": "kanbancord.auth.jwt.secret",

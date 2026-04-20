@@ -11,6 +11,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
@@ -27,7 +31,7 @@ class AccessValidatorTest {
     @BeforeEach
     void setUp() {
         InternalSyncProperties internalSyncProperties = new InternalSyncProperties();
-        internalSyncProperties.setBotToken("bot-secret");
+        internalSyncProperties.setBotToken(sha256Hex("bot-secret"));
         accessValidator = new AccessValidator(serverAccessValidator, internalSyncProperties);
     }
 
@@ -72,5 +76,18 @@ class AccessValidatorTest {
     @Test
     void requireInternalSyncAccess_allows_whenTokenMatches() {
         assertDoesNotThrow(() -> accessValidator.requireInternalSyncAccess("bot-secret"));
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte current : hash) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 }
