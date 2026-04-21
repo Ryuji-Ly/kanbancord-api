@@ -96,6 +96,7 @@ public class ServerController {
         response.setServerId(server.getServerId());
         response.setName(server.getName());
         response.setIconUrl(server.getIconUrl());
+        response.setBotPresent(Boolean.TRUE.equals(server.getBotPresent()));
         response.setOwnerId(server.getOwner().getUserId());
         response.setCreatedAt(server.getCreatedAt());
         response.setUpdatedAt(server.getUpdatedAt());

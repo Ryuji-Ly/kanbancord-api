@@ -1,0 +1,2 @@
+ALTER TABLE servers
+    ADD COLUMN bot_present BOOLEAN NOT NULL DEFAULT TRUE;
