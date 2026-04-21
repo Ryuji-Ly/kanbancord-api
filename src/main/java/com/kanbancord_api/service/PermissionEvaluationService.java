@@ -55,6 +55,15 @@ public class PermissionEvaluationService {
     }
 
     public Decision resolve(Long serverId, Long boardId, Long userId, String kanbanPermissionKey) {
+        // ADMIN grants all permissions — short-circuit before any other check.
+        if (!"ADMIN".equals(kanbanPermissionKey)) {
+            Decision adminCheck = resolveAdmin(serverId, boardId, userId);
+            if (adminCheck.allowed()) {
+                return new Decision(true, "ADMIN", adminCheck.sourceScopeType(), adminCheck.sourceScopeId(),
+                        adminCheck.sourcePermissionId());
+            }
+        }
+
         Integer permissionId = kanbanPermissionService.findByKey(kanbanPermissionKey)
                 .map(item -> item.getPermissionId())
                 .orElse(null);
@@ -91,6 +100,32 @@ public class PermissionEvaluationService {
                 SUBJECT_DISCORD_PERMISSION,
                 discordSubjects,
                 permissionId);
+        if (discordRule != null) {
+            return toDecision(discordRule, "DISCORD_PERMISSION");
+        }
+
+        return new Decision(false, "NONE", null, null, null);
+    }
+
+    private Decision resolveAdmin(Long serverId, Long boardId, Long userId) {
+        Integer adminPermId = kanbanPermissionService.findByKey("ADMIN")
+                .map(item -> item.getPermissionId())
+                .orElse(null);
+        if (adminPermId == null) {
+            return new Decision(false, "NONE", null, null, null);
+        }
+
+        MembershipContext membershipContext = buildMembershipContext(serverId, userId);
+
+        List<Long> discordSubjects = membershipContext.discordFlags().stream()
+                .map(DiscordPermissionFlag::getBit)
+                .toList();
+
+        Permission discordRule = findBestRule(
+                scopePairs(serverId, boardId),
+                SUBJECT_DISCORD_PERMISSION,
+                discordSubjects,
+                adminPermId);
         if (discordRule != null) {
             return toDecision(discordRule, "DISCORD_PERMISSION");
         }

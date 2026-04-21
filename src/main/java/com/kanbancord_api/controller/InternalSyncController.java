@@ -1,6 +1,7 @@
 package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.InternalBootstrapRequest;
+import com.kanbancord_api.dto.InternalMemberRoleSyncRequest;
 import com.kanbancord_api.dto.InternalMemberSyncRequest;
 import com.kanbancord_api.dto.InternalRoleSyncRequest;
 import com.kanbancord_api.dto.InternalServerSyncRequest;
@@ -11,6 +12,7 @@ import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.model.User;
 import com.kanbancord_api.service.AccessValidator;
+import com.kanbancord_api.service.MemberRoleService;
 import com.kanbancord_api.service.PermissionBootstrapService;
 import com.kanbancord_api.service.RoleService;
 import com.kanbancord_api.service.ServerMemberService;
@@ -20,6 +22,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,6 +46,7 @@ public class InternalSyncController {
     private final UserService userService;
     private final RoleService roleService;
     private final ServerMemberService serverMemberService;
+    private final MemberRoleService memberRoleService;
     private final PermissionBootstrapService permissionBootstrapService;
 
     public InternalSyncController(
@@ -51,12 +55,14 @@ public class InternalSyncController {
             UserService userService,
             RoleService roleService,
             ServerMemberService serverMemberService,
+            MemberRoleService memberRoleService,
             PermissionBootstrapService permissionBootstrapService) {
         this.accessValidator = accessValidator;
         this.serverService = serverService;
         this.userService = userService;
         this.roleService = roleService;
         this.serverMemberService = serverMemberService;
+        this.memberRoleService = memberRoleService;
         this.permissionBootstrapService = permissionBootstrapService;
     }
 
@@ -127,6 +133,17 @@ public class InternalSyncController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/servers/{serverId}/roles/{roleId}")
+    public ResponseEntity<Void> deleteRole(
+            @PathVariable Long serverId,
+            @PathVariable Long roleId,
+            @RequestHeader(BOT_TOKEN_HEADER) String botToken) {
+
+        accessValidator.requireInternalSyncAccess(botToken);
+        roleService.findById(roleId).ifPresent(role -> roleService.deleteById(roleId));
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/servers/{serverId}/members/{userId}")
     public ResponseEntity<Void> upsertServerMember(
             @PathVariable Long serverId,
@@ -154,9 +171,41 @@ public class InternalSyncController {
         if (request.getJoinedAt() != null) {
             member.setJoinedAt(request.getJoinedAt());
         }
-        serverMemberService.update(member);
+        member = serverMemberService.update(member);
+
+        if (request.getRoleIds() != null) {
+            memberRoleService.replaceForMember(member, request.getRoleIds());
+        }
 
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    @DeleteMapping("/servers/{serverId}/members/{userId}")
+    public ResponseEntity<Void> deleteServerMember(
+            @PathVariable Long serverId,
+            @PathVariable Long userId,
+            @RequestHeader(BOT_TOKEN_HEADER) String botToken) {
+
+        accessValidator.requireInternalSyncAccess(botToken);
+        serverMemberService.findByServerIdAndUserId(serverId, userId)
+                .ifPresent(member -> serverMemberService.deleteById(member.getId()));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/servers/{serverId}/members/{userId}/roles")
+    public ResponseEntity<Void> syncMemberRoles(
+            @PathVariable Long serverId,
+            @PathVariable Long userId,
+            @RequestHeader(BOT_TOKEN_HEADER) String botToken,
+            @Valid @RequestBody InternalMemberRoleSyncRequest request) {
+
+        accessValidator.requireInternalSyncAccess(botToken);
+
+        ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
+
+        memberRoleService.replaceForMember(member, request.getRoleIds());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/servers/{serverId}/bootstrap")
@@ -208,11 +257,16 @@ public class InternalSyncController {
             if (entry.getJoinedAt() != null) {
                 member.setJoinedAt(entry.getJoinedAt());
             }
-            serverMemberService.update(member);
+            member = serverMemberService.update(member);
+
+            if (entry.getRoleIds() != null && !entry.getRoleIds().isEmpty()) {
+                memberRoleService.replaceForMember(member, entry.getRoleIds());
+            }
         }
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
 
         return ResponseEntity.noContent().build();
     }
+
 }

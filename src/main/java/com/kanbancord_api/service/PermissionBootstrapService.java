@@ -49,21 +49,17 @@ public class PermissionBootstrapService {
     public void initializeDefaultServerConfiguration(Long serverId) {
         ensureCatalogSeeded();
 
-        // Administrator always receives immutable ALLOW for every permission key at
-        // server scope.
-        for (KanbanPermissionCatalog item : KanbanPermissionCatalog.values()) {
-            if (item.isServerScopeAllowed()) {
-                upsertPermission(
-                        SCOPE_SERVER,
-                        serverId,
-                        SUBJECT_DISCORD_PERMISSION,
-                        DiscordPermissionFlag.ADMINISTRATOR.getBit(),
-                        item.getKey(),
-                        STATE_ALLOW,
-                        10_000,
-                        true);
-            }
-        }
+        // ADMINISTRATOR always receives immutable ALLOW for ADMIN — which implies all
+        // permissions.
+        upsertPermission(
+                SCOPE_SERVER,
+                serverId,
+                SUBJECT_DISCORD_PERMISSION,
+                DiscordPermissionFlag.ADMINISTRATOR.getBit(),
+                "ADMIN",
+                STATE_ALLOW,
+                10_000,
+                true);
 
         // Baseline Discord permission mappings into Kanban capabilities.
         mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "EDIT_SERVER_DETAILS", 220, false);

@@ -180,6 +180,8 @@ public class InternalBootstrapRequest {
 
         private LocalDateTime joinedAt;
 
+        private List<Long> roleIds = new ArrayList<>();
+
         public Long getUserId() {
             return userId;
         }
@@ -226,6 +228,14 @@ public class InternalBootstrapRequest {
 
         public void setJoinedAt(LocalDateTime joinedAt) {
             this.joinedAt = joinedAt;
+        }
+
+        public List<Long> getRoleIds() {
+            return roleIds;
+        }
+
+        public void setRoleIds(List<Long> roleIds) {
+            this.roleIds = roleIds;
         }
     }
 }
