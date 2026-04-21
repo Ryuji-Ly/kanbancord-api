@@ -21,6 +21,9 @@ public class Server {
     @Column(name = "icon_url", columnDefinition = "TEXT")
     private String iconUrl;
 
+    @Column(name = "bot_present", nullable = false)
+    private Boolean botPresent = true;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
@@ -85,6 +88,14 @@ public class Server {
 
     public void setIconUrl(String iconUrl) {
         this.iconUrl = iconUrl;
+    }
+
+    public Boolean getBotPresent() {
+        return botPresent;
+    }
+
+    public void setBotPresent(Boolean botPresent) {
+        this.botPresent = botPresent;
     }
 
     public User getOwner() {

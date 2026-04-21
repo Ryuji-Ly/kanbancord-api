@@ -99,9 +99,20 @@ public class InternalSyncController {
         server.setServerId(serverId);
         server.setName(request.getName());
         server.setIconUrl(request.getIconUrl());
+        server.setBotPresent(true);
         server.setOwner(owner);
         serverService.update(server);
 
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/servers/{serverId}/presence")
+    public ResponseEntity<Void> markServerNotPresent(
+            @PathVariable Long serverId,
+            @RequestHeader(BOT_TOKEN_HEADER) String botToken) {
+
+        accessValidator.requireInternalSyncAccess(botToken);
+        serverService.setBotPresent(serverId, false);
         return ResponseEntity.noContent().build();
     }
 
@@ -227,6 +238,7 @@ public class InternalSyncController {
         server.setServerId(serverId);
         server.setName(request.getName());
         server.setIconUrl(request.getIconUrl());
+        server.setBotPresent(true);
         server.setOwner(owner);
         server = serverService.update(server);
 

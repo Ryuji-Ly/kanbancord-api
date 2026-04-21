@@ -67,6 +67,7 @@ public class MeController {
         response.setServerId(server.getServerId());
         response.setName(server.getName());
         response.setIconUrl(server.getIconUrl());
+        response.setBotPresent(Boolean.TRUE.equals(server.getBotPresent()));
         if (server.getOwner() != null) {
             response.setOwnerId(server.getOwner().getUserId());
         }

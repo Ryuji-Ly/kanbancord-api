@@ -10,6 +10,7 @@ public class ServerResponse {
     private Long serverId;
     private String name;
     private String iconUrl;
+    private Boolean botPresent;
     @JsonSerialize(using = ToStringSerializer.class)
     private Long ownerId;
     private LocalDateTime createdAt;
@@ -38,6 +39,14 @@ public class ServerResponse {
 
     public void setIconUrl(String iconUrl) {
         this.iconUrl = iconUrl;
+    }
+
+    public Boolean getBotPresent() {
+        return botPresent;
+    }
+
+    public void setBotPresent(Boolean botPresent) {
+        this.botPresent = botPresent;
     }
 
     public Long getOwnerId() {

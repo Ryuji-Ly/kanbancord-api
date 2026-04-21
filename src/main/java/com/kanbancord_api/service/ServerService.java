@@ -46,6 +46,13 @@ public class ServerService {
         return serverRepository.save(server);
     }
 
+    public void setBotPresent(Long serverId, boolean botPresent) {
+        serverRepository.findById(serverId).ifPresent(server -> {
+            server.setBotPresent(botPresent);
+            serverRepository.save(server);
+        });
+    }
+
     public void deleteById(Long id) {
         serverRepository.deleteById(id);
     }
