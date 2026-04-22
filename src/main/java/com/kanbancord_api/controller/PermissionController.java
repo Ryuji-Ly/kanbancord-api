@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -160,6 +161,30 @@ public class PermissionController {
         return ResponseEntity.ok(toResponse(updated));
     }
 
+    @PatchMapping("/{permissionId}/state")
+    public ResponseEntity<PermissionResponse> patchPermissionState(
+            @PathVariable Long serverId,
+            @PathVariable Long permissionId,
+            @RequestParam Long userId,
+            @RequestBody java.util.Map<String, String> body) {
+
+        accessValidator.requireUserInServer(userId, serverId);
+
+        Permission permission = resourceValidator.requirePermissionInServer(permissionId, serverId);
+        if (permission.getIsImmutable() != null && permission.getIsImmutable()) {
+            throw new BadRequestException("Immutable permissions cannot be modified");
+        }
+
+        String newState = body.get("state");
+        if (newState == null || (!newState.equals("ALLOW") && !newState.equals("DENY"))) {
+            throw new BadRequestException("State must be ALLOW or DENY");
+        }
+
+        permission.setState(newState);
+        Permission updated = permissionService.update(permission);
+        return ResponseEntity.ok(toResponse(updated));
+    }
+
     @DeleteMapping("/{permissionId}")
     public ResponseEntity<Void> deletePermission(
             @PathVariable Long serverId,
@@ -223,8 +248,12 @@ public class PermissionController {
         response.setScopeId(permission.getScopeId());
         response.setSubjectType(permission.getSubjectType());
         response.setSubjectId(permission.getSubjectId());
-        response.setKanbanPermissionId(permission.getKanbanPermission().getPermissionId());
-        response.setKanbanPermissionKey(permission.getKanbanPermission().getKey());
+
+        if (permission.getKanbanPermission() != null) {
+            response.setKanbanPermissionId(permission.getKanbanPermission().getPermissionId());
+            response.setKanbanPermissionKey(permission.getKanbanPermission().getKey());
+        }
+
         response.setState(permission.getState());
         response.setPriority(permission.getPriority());
         response.setIsImmutable(permission.getIsImmutable());

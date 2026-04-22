@@ -49,39 +49,79 @@ public class PermissionBootstrapService {
     public void initializeDefaultServerConfiguration(Long serverId) {
         ensureCatalogSeeded();
 
-        // ADMINISTRATOR always receives immutable ALLOW for ADMIN — which implies all
-        // permissions.
-        upsertPermission(
-                SCOPE_SERVER,
-                serverId,
-                SUBJECT_DISCORD_PERMISSION,
+        // ADMINISTRATOR → immutable ADMIN (implies everything)
+        upsertPermission(SCOPE_SERVER, serverId, SUBJECT_DISCORD_PERMISSION,
                 DiscordPermissionFlag.ADMINISTRATOR.getBit(),
-                "ADMIN",
-                STATE_ALLOW,
-                10_000,
-                true);
+                "ADMIN", STATE_ALLOW, 10_000, true);
 
-        // Baseline Discord permission mappings into Kanban capabilities.
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "EDIT_SERVER_DETAILS", 220, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "EDIT_SERVER_PERMISSIONS", 220, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "CREATE_BOARD", 200, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "EDIT_BOARD_DETAILS", 190, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_GUILD, "EDIT_BOARD_PERMISSIONS", 190, false);
+        // ── TIER 1 ── VIEW_CHANNEL (100) — basic read access ─────────────────────
+        mapPermissions(serverId, DiscordPermissionFlag.VIEW_CHANNEL, 100,
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK");
 
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, "CREATE_COLUMN", 180, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, "EDIT_COLUMN", 180, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, "DELETE_COLUMN", 180, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, "MOVE_COLUMN", 180, false);
+        // ── TIER 2 ── SEND_MESSAGES (120) — regular contributors ─────────────────
+        // Also includes all TIER 1 permissions cascaded at priority 120
+        mapPermissions(serverId, DiscordPermissionFlag.SEND_MESSAGES, 120,
+                // cascade from TIER 1
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
+                // TIER 2 own
+                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
+                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
+                "ASSIGN_TASK_SELF");
 
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.VIEW_AUDIT_LOG, "VIEW_AUDIT_LOG", 180, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_ROLES, "MANAGE_SERVER_ROLES", 170, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MODERATE_MEMBERS, "MANAGE_SERVER_MEMBERS", 170, false);
+        // ── TIER 3 ── MANAGE_MESSAGES (130) — moderators ─────────────────────────
+        // Cascades TIER 1 + TIER 2
+        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_MESSAGES, 130,
+                // cascade
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
+                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
+                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
+                "ASSIGN_TASK_SELF",
+                // TIER 3 own
+                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
+                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "ASSIGN_TASK_OTHERS");
 
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.SEND_MESSAGES, "CREATE_TASK", 120, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.SEND_MESSAGES, "CREATE_TASK_COMMENT", 120, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_MESSAGES, "EDIT_TASK", 130, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_MESSAGES, "EDIT_TASK_COMMENT", 130, false);
-        mapDiscordFlagAtServer(serverId, DiscordPermissionFlag.MANAGE_MESSAGES, "DELETE_TASK_COMMENT", 130, false);
+        // ── TIER 4 ── MANAGE_CHANNELS (180) — channel / board managers ───────────
+        // Cascades TIER 1 + 2 + 3
+        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, 180,
+                // cascade
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
+                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
+                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
+                "ASSIGN_TASK_SELF",
+                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
+                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "ASSIGN_TASK_OTHERS",
+                // TIER 4 own
+                "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
+                "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
+                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL",
+                "VIEW_AUDIT_LOG");
+
+        // ── TIER 5 ── VIEW_AUDIT_LOG (180) — audit reviewers ─────────────────────
+        mapPermissions(serverId, DiscordPermissionFlag.VIEW_AUDIT_LOG, 180,
+                // cascade TIER 1
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
+                // own
+                "VIEW_AUDIT_LOG");
+
+        // ── TIER 6 ── MANAGE_GUILD (200+) — server admins ────────────────────────
+        // Cascades all tiers
+        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_GUILD, 200,
+                // cascade all lower tiers
+                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
+                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
+                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
+                "ASSIGN_TASK_SELF",
+                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
+                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "ASSIGN_TASK_OTHERS",
+                "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
+                "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
+                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL",
+                "VIEW_AUDIT_LOG",
+                // TIER 6 own
+                "MANAGE_SERVER_PERMISSIONS", "CREATE_BOARD", "DELETE_BOARD");
     }
 
     public void initializeBoardConfigurationFromServer(Long serverId, Long boardId) {
@@ -112,6 +152,24 @@ public class PermissionBootstrapService {
                     source.getState(),
                     source.getPriority(),
                     source.getIsImmutable() != null && source.getIsImmutable());
+        }
+    }
+
+    private void mapPermissions(
+            Long serverId,
+            DiscordPermissionFlag discordFlag,
+            int priority,
+            String... kanbanPermissionKeys) {
+        for (String key : kanbanPermissionKeys) {
+            upsertPermission(
+                    SCOPE_SERVER,
+                    serverId,
+                    SUBJECT_DISCORD_PERMISSION,
+                    discordFlag.getBit(),
+                    key,
+                    STATE_ALLOW,
+                    priority,
+                    false);
         }
     }
 

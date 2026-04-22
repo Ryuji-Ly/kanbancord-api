@@ -8,15 +8,9 @@ public enum KanbanPermissionCatalog {
         ADMIN("ADMIN", "Administrator", "Grants all Kanban permissions across all scopes", "SERVER", true, true),
 
         VIEW_SERVER("VIEW_SERVER", "View Server", "View server overview and metadata", "SERVER", true, false),
-        EDIT_SERVER_DETAILS("EDIT_SERVER_DETAILS", "Edit Server Details", "Edit server-level details and settings",
-                        "SERVER", true, false),
-        EDIT_SERVER_PERMISSIONS("EDIT_SERVER_PERMISSIONS", "Edit Server Permissions",
-                        "Manage permission rules and defaults", "SERVER", true, false),
-        MANAGE_SERVER_ROLES("MANAGE_SERVER_ROLES", "Manage Server Roles", "Manage role sync and role assignments",
-                        "SERVER",
+        MANAGE_SERVER_PERMISSIONS("MANAGE_SERVER_PERMISSIONS", "Manage Server Permissions",
+                        "Configure Kanban permission rules for this server (subjects, states, overrides)", "SERVER",
                         true, false),
-        MANAGE_SERVER_MEMBERS("MANAGE_SERVER_MEMBERS", "Manage Server Members", "Manage server membership and access",
-                        "SERVER", true, false),
         VIEW_AUDIT_LOG("VIEW_AUDIT_LOG", "View Audit Log", "Read audit events", "SERVER", true, false),
 
         CREATE_BOARD("CREATE_BOARD", "Create Board", "Create new boards", "BOARD", true, false),
@@ -40,7 +34,9 @@ public enum KanbanPermissionCatalog {
         MOVE_TASK("MOVE_TASK", "Move Tasks", "Move tasks between columns", "TASK", true, true),
         DELETE_TASK("DELETE_TASK", "Delete Tasks", "Delete tasks", "TASK", true, true),
         ARCHIVE_TASK("ARCHIVE_TASK", "Archive Tasks", "Archive and restore tasks", "TASK", true, true),
-        ASSIGN_TASK("ASSIGN_TASK", "Assign Tasks", "Assign and unassign task members", "TASK", true, true),
+        ASSIGN_TASK_SELF("ASSIGN_TASK_SELF", "Assign Tasks to Self", "Assign yourself to a task", "TASK", true, true),
+        ASSIGN_TASK_OTHERS("ASSIGN_TASK_OTHERS", "Assign Tasks to Others", "Assign other members to a task", "TASK",
+                        true, true),
 
         CREATE_TASK_COMMENT("CREATE_TASK_COMMENT", "Create Task Comments", "Create comments on tasks", "COMMENT", true,
                         true),
