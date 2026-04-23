@@ -11,6 +11,7 @@ import com.kanbancord_api.permission.KanbanPermissionCatalog;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.KanbanPermissionService;
 import com.kanbancord_api.service.PermissionEvaluationService;
+import com.kanbancord_api.service.PermissionEscalationGuardService;
 import com.kanbancord_api.service.PermissionService;
 import com.kanbancord_api.service.ResourceValidator;
 import jakarta.validation.Valid;
@@ -41,18 +42,21 @@ public class PermissionController {
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
     private final PermissionEvaluationService permissionEvaluationService;
+    private final PermissionEscalationGuardService permissionEscalationGuardService;
 
     public PermissionController(
             PermissionService permissionService,
             KanbanPermissionService kanbanPermissionService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
-            PermissionEvaluationService permissionEvaluationService) {
+            PermissionEvaluationService permissionEvaluationService,
+            PermissionEscalationGuardService permissionEscalationGuardService) {
         this.permissionService = permissionService;
         this.kanbanPermissionService = kanbanPermissionService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
+        this.permissionEscalationGuardService = permissionEscalationGuardService;
     }
 
     @PostMapping
@@ -71,6 +75,13 @@ public class PermissionController {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
         validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
+        permissionEscalationGuardService.validateCreate(
+                userId,
+                serverId,
+                request.getSubjectType(),
+                request.getSubjectId(),
+                kanbanPermission.getKey(),
+                request.getState());
 
         Permission permission = new Permission();
         permission.setScopeType(request.getScopeType());
@@ -147,6 +158,14 @@ public class PermissionController {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
         validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
+        permissionEscalationGuardService.validateUpdate(
+                userId,
+                serverId,
+                permission,
+                request.getSubjectType(),
+                request.getSubjectId(),
+                kanbanPermission.getKey(),
+                request.getState());
 
         permission.setScopeType(request.getScopeType());
         permission.setScopeId(request.getScopeId());
@@ -162,7 +181,7 @@ public class PermissionController {
     }
 
     @PatchMapping("/{permissionId}/state")
-    public ResponseEntity<PermissionResponse> patchPermissionState(
+    public ResponseEntity<Void> patchPermissionState(
             @PathVariable Long serverId,
             @PathVariable Long permissionId,
             @RequestParam Long userId,
@@ -180,9 +199,11 @@ public class PermissionController {
             throw new BadRequestException("State must be ALLOW or DENY");
         }
 
+        permissionEscalationGuardService.validatePatchState(userId, serverId, permission, newState);
+
         permission.setState(newState);
-        Permission updated = permissionService.update(permission);
-        return ResponseEntity.ok(toResponse(updated));
+        permissionService.update(permission);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{permissionId}")
@@ -197,6 +218,8 @@ public class PermissionController {
         if (permission.getIsImmutable() != null && permission.getIsImmutable()) {
             throw new IllegalStateException("Immutable permissions cannot be deleted");
         }
+
+        permissionEscalationGuardService.validateDelete(userId, serverId, permission);
 
         permissionService.deleteById(permission.getId());
         return ResponseEntity.noContent().build();

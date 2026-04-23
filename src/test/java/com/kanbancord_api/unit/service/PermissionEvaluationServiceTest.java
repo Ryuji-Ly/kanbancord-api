@@ -27,7 +27,10 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +58,12 @@ class PermissionEvaluationServiceTest {
                 memberRoleService,
                 roleService,
                 new DiscordPermissionParser());
+
+        when(kanbanPermissionService.findByKey("ADMIN")).thenReturn(Optional.empty());
+        lenient()
+                .when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
+                        anyString(), anyLong(), anyString(), anyLong()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -112,6 +121,44 @@ class PermissionEvaluationServiceTest {
         assertTrue(decision.allowed());
         assertEquals("BOARD", decision.sourceScopeType());
         assertEquals(10L, decision.sourcePermissionId());
+    }
+
+    @Test
+    void resolve_withinDiscordLayer_allowWinsOverDeny_evenWhenDenyHasHigherPriority() {
+        KanbanPermission target = new KanbanPermission();
+        target.setPermissionId(2);
+        when(kanbanPermissionService.findByKey("CREATE_BOARD")).thenReturn(Optional.of(target));
+
+        ServerMember member = member(7L, 10L, 99L);
+        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
+
+        MemberRole memberRole = new MemberRole();
+        Role role = new Role();
+        role.setRoleId(88L);
+        memberRole.setRole(role);
+        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of(memberRole));
+
+        Role fullRole = new Role();
+        fullRole.setRoleId(88L);
+        fullRole.setDiscordPermissions(
+                DiscordPermissionFlag.MANAGE_GUILD.getBit() | DiscordPermissionFlag.VIEW_CHANNEL.getBit());
+        when(roleService.findById(88L)).thenReturn(Optional.of(fullRole));
+
+        // MANAGE_GUILD path: explicit DENY with higher priority
+        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
+                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.MANAGE_GUILD.getBit())))
+                .thenReturn(List.of(permission(20L, 2, "DENY", 999, "SERVER", 10L)));
+
+        // VIEW_CHANNEL path: explicit ALLOW with lower priority
+        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
+                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.VIEW_CHANNEL.getBit())))
+                .thenReturn(List.of(permission(21L, 2, "ALLOW", 100, "SERVER", 10L)));
+
+        PermissionEvaluationService.Decision decision = service.resolve(10L, null, 99L, "CREATE_BOARD");
+
+        assertTrue(decision.allowed());
+        assertEquals("DISCORD_PERMISSION", decision.sourceTier());
+        assertEquals(21L, decision.sourcePermissionId());
     }
 
     private static Permission permission(Long id, Integer kanbanPermissionId, String state, Integer priority,

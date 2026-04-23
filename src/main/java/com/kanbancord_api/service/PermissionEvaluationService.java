@@ -6,6 +6,8 @@ import com.kanbancord_api.model.Role;
 import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
 import com.kanbancord_api.permission.DiscordPermissionParser;
+import com.kanbancord_api.permission.KanbanPermissionCatalog;
+import com.kanbancord_api.permission.PermissionRank;
 import com.kanbancord_api.repository.PermissionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,9 +57,14 @@ public class PermissionEvaluationService {
     }
 
     public Decision resolve(Long serverId, Long boardId, Long userId, String kanbanPermissionKey) {
+        return resolve(serverId, boardId, userId, kanbanPermissionKey, null);
+    }
+
+    public Decision resolve(Long serverId, Long boardId, Long userId, String kanbanPermissionKey,
+            Long excludedPermissionId) {
         // ADMIN grants all permissions — short-circuit before any other check.
         if (!"ADMIN".equals(kanbanPermissionKey)) {
-            Decision adminCheck = resolveAdmin(serverId, boardId, userId);
+            Decision adminCheck = resolveAdmin(serverId, boardId, userId, excludedPermissionId);
             if (adminCheck.allowed()) {
                 return new Decision(true, "ADMIN", adminCheck.sourceScopeType(), adminCheck.sourceScopeId(),
                         adminCheck.sourcePermissionId());
@@ -77,7 +84,8 @@ public class PermissionEvaluationService {
                 scopePairs(serverId, boardId),
                 SUBJECT_USER,
                 List.of(userId),
-                permissionId);
+                permissionId,
+                excludedPermissionId);
         if (userRule != null) {
             return toDecision(userRule, "USER");
         }
@@ -86,7 +94,8 @@ public class PermissionEvaluationService {
                 scopePairs(serverId, boardId),
                 SUBJECT_ROLE,
                 membershipContext.roleIds(),
-                permissionId);
+                permissionId,
+                excludedPermissionId);
         if (roleRule != null) {
             return toDecision(roleRule, "ROLE");
         }
@@ -99,7 +108,8 @@ public class PermissionEvaluationService {
                 scopePairs(serverId, boardId),
                 SUBJECT_DISCORD_PERMISSION,
                 discordSubjects,
-                permissionId);
+                permissionId,
+                excludedPermissionId);
         if (discordRule != null) {
             return toDecision(discordRule, "DISCORD_PERMISSION");
         }
@@ -107,7 +117,7 @@ public class PermissionEvaluationService {
         return new Decision(false, "NONE", null, null, null);
     }
 
-    private Decision resolveAdmin(Long serverId, Long boardId, Long userId) {
+    private Decision resolveAdmin(Long serverId, Long boardId, Long userId, Long excludedPermissionId) {
         Integer adminPermId = kanbanPermissionService.findByKey("ADMIN")
                 .map(item -> item.getPermissionId())
                 .orElse(null);
@@ -125,7 +135,8 @@ public class PermissionEvaluationService {
                 scopePairs(serverId, boardId),
                 SUBJECT_DISCORD_PERMISSION,
                 discordSubjects,
-                adminPermId);
+                adminPermId,
+                excludedPermissionId);
         if (discordRule != null) {
             return toDecision(discordRule, "DISCORD_PERMISSION");
         }
@@ -172,7 +183,8 @@ public class PermissionEvaluationService {
             List<ScopePair> scopes,
             String subjectType,
             List<Long> subjectIds,
-            Integer kanbanPermissionId) {
+            Integer kanbanPermissionId,
+            Long excludedPermissionId) {
 
         if (subjectIds == null || subjectIds.isEmpty()) {
             return null;
@@ -185,6 +197,7 @@ public class PermissionEvaluationService {
                         .findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
                                 scope.scopeType(), scope.scopeId(), subjectType, subjectId)
                         .stream()
+                        .filter(rule -> excludedPermissionId == null || !excludedPermissionId.equals(rule.getId()))
                         .filter(rule -> rule.getKanbanPermission() != null
                                 && rule.getKanbanPermission().getPermissionId().equals(kanbanPermissionId))
                         .toList();
@@ -195,7 +208,7 @@ public class PermissionEvaluationService {
             }
         }
 
-        return candidates.stream()
+        List<Permission> sorted = candidates.stream()
                 .sorted(Comparator
                         .comparingInt(ScoredPermission::scopeRank)
                         .thenComparing((ScoredPermission item) -> item.permission().getPriority(),
@@ -203,13 +216,49 @@ public class PermissionEvaluationService {
                         .thenComparing((ScoredPermission item) -> item.permission().getId(),
                                 Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(ScoredPermission::permission)
+                .toList();
+
+        // Same-layer resolution rule: apply DENY first then ALLOW, so ALLOW wins
+        // when both states exist within this layer.
+        Permission firstAllow = sorted.stream()
+                .filter(rule -> isAllowState(rule.getState()))
                 .findFirst()
                 .orElse(null);
+        if (firstAllow != null) {
+            return firstAllow;
+        }
+
+        return sorted.stream().findFirst().orElse(null);
+    }
+
+    public PermissionRank calculateEffectiveRank(Long serverId, Long userId) {
+        return calculateEffectiveRank(serverId, userId, null);
+    }
+
+    public PermissionRank calculateEffectiveRank(Long serverId, Long userId, Long excludedPermissionId) {
+        PermissionRank best = PermissionRank.READONLY;
+
+        for (KanbanPermissionCatalog catalogItem : KanbanPermissionCatalog.values()) {
+            Decision decision = resolve(serverId, null, userId, catalogItem.getKey(), excludedPermissionId);
+            if (!decision.allowed()) {
+                continue;
+            }
+
+            PermissionRank currentRank = catalogItem.getRank();
+            if (currentRank.getWeight() > best.getWeight()) {
+                best = currentRank;
+            }
+        }
+
+        return best;
+    }
+
+    private boolean isAllowState(String state) {
+        return state != null && STATE_ALLOW.equals(state.toUpperCase(Locale.ROOT));
     }
 
     private Decision toDecision(Permission permission, String tier) {
-        boolean allow = permission.getState() != null
-                && STATE_ALLOW.equals(permission.getState().toUpperCase(Locale.ROOT));
+        boolean allow = isAllowState(permission.getState());
         return new Decision(
                 allow,
                 tier,
