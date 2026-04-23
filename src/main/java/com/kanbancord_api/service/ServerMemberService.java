@@ -34,7 +34,7 @@ public class ServerMemberService {
 
     @Transactional(readOnly = true)
     public List<ServerMember> findByServerId(Long serverId) {
-        return serverMemberRepository.findByServer_ServerId(serverId);
+        return serverMemberRepository.findByServerIdWithUser(serverId);
     }
 
     @Transactional(readOnly = true)

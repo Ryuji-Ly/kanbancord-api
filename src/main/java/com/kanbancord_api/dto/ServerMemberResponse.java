@@ -12,6 +12,8 @@ public class ServerMemberResponse {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private String nickname;
+    private String displayName;
+    private String username;
     private LocalDateTime joinedAt;
 
     // Getters and Setters
@@ -45,6 +47,22 @@ public class ServerMemberResponse {
 
     public void setNickname(String nickname) {
         this.nickname = nickname;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
     }
 
     public LocalDateTime getJoinedAt() {

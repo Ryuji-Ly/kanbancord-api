@@ -14,6 +14,7 @@ import com.kanbancord_api.service.KanbanPermissionService;
 import com.kanbancord_api.service.MemberRoleService;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.RoleService;
+import com.kanbancord_api.service.ServerService;
 import com.kanbancord_api.service.ServerMemberService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,8 @@ class PermissionEvaluationServiceTest {
     private MemberRoleService memberRoleService;
     @Mock
     private RoleService roleService;
+    @Mock
+    private ServerService serverService;
 
     private PermissionEvaluationService service;
 
@@ -57,13 +60,15 @@ class PermissionEvaluationServiceTest {
                 serverMemberService,
                 memberRoleService,
                 roleService,
-                new DiscordPermissionParser());
+                new DiscordPermissionParser(),
+                serverService);
 
         when(kanbanPermissionService.findByKey("ADMIN")).thenReturn(Optional.empty());
         lenient()
                 .when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
                         anyString(), anyLong(), anyString(), anyLong()))
                 .thenReturn(List.of());
+        lenient().when(serverService.findById(anyLong())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -159,6 +164,35 @@ class PermissionEvaluationServiceTest {
         assertTrue(decision.allowed());
         assertEquals("DISCORD_PERMISSION", decision.sourceTier());
         assertEquals(21L, decision.sourcePermissionId());
+    }
+
+    @Test
+    void resolve_ownerWithoutRoles_getsAdminViaOwnerOverride() {
+        KanbanPermission adminPermission = new KanbanPermission();
+        adminPermission.setPermissionId(99);
+        when(kanbanPermissionService.findByKey("ADMIN")).thenReturn(Optional.of(adminPermission));
+
+        ServerMember member = member(7L, 10L, 99L);
+        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
+        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of());
+
+        Server server = new Server();
+        server.setServerId(10L);
+        User owner = new User();
+        owner.setUserId(99L);
+        owner.setUsername("owner-99");
+        server.setOwner(owner);
+        when(serverService.findById(10L)).thenReturn(Optional.of(server));
+
+        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
+                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.ADMINISTRATOR.getBit())))
+                .thenReturn(List.of(permission(33L, 99, "ALLOW", 10_000, "SERVER", 10L)));
+
+        PermissionEvaluationService.Decision decision = service.resolve(10L, null, 99L, "ADMIN");
+
+        assertTrue(decision.allowed());
+        assertEquals("DISCORD_PERMISSION", decision.sourceTier());
+        assertEquals(33L, decision.sourcePermissionId());
     }
 
     private static Permission permission(Long id, Integer kanbanPermissionId, String state, Integer priority,

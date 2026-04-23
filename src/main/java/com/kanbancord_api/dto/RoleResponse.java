@@ -2,8 +2,13 @@ package com.kanbancord_api.dto;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 public class RoleResponse {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long roleId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long serverId;
     private String name;
     private Integer color;

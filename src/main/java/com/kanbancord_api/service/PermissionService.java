@@ -24,7 +24,7 @@ public class PermissionService {
 
     @Transactional(readOnly = true)
     public Optional<Permission> findById(Long id) {
-        return permissionRepository.findById(id);
+        return permissionRepository.findByIdWithKanbanPermission(id);
     }
 
     @Transactional(readOnly = true)

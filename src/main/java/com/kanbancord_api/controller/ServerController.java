@@ -122,6 +122,11 @@ public class ServerController {
         response.setServerId(member.getServer().getServerId());
         response.setUserId(member.getUser().getUserId());
         response.setNickname(member.getNickname());
+        String displayName = member.getUser().getGlobalName() != null
+                ? member.getUser().getGlobalName()
+                : member.getUser().getUsername();
+        response.setDisplayName(displayName);
+        response.setUsername(member.getUser().getUsername());
         response.setJoinedAt(member.getJoinedAt());
         return response;
     }

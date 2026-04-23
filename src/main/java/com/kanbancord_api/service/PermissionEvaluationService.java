@@ -36,6 +36,7 @@ public class PermissionEvaluationService {
     private final MemberRoleService memberRoleService;
     private final RoleService roleService;
     private final DiscordPermissionParser discordPermissionParser;
+    private final ServerService serverService;
 
     public PermissionEvaluationService(
             PermissionRepository permissionRepository,
@@ -43,13 +44,15 @@ public class PermissionEvaluationService {
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
             RoleService roleService,
-            DiscordPermissionParser discordPermissionParser) {
+            DiscordPermissionParser discordPermissionParser,
+            ServerService serverService) {
         this.permissionRepository = permissionRepository;
         this.kanbanPermissionService = kanbanPermissionService;
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
         this.roleService = roleService;
         this.discordPermissionParser = discordPermissionParser;
+        this.serverService = serverService;
     }
 
     public boolean isAllowed(Long serverId, Long boardId, Long userId, String kanbanPermissionKey) {
@@ -57,13 +60,32 @@ public class PermissionEvaluationService {
     }
 
     public Decision resolve(Long serverId, Long boardId, Long userId, String kanbanPermissionKey) {
-        return resolve(serverId, boardId, userId, kanbanPermissionKey, null);
+        return resolve(serverId, boardId, userId, kanbanPermissionKey, null, false);
     }
 
     public Decision resolve(Long serverId, Long boardId, Long userId, String kanbanPermissionKey,
             Long excludedPermissionId) {
+        return resolve(serverId, boardId, userId, kanbanPermissionKey, excludedPermissionId, false);
+    }
+
+    public Decision resolveWithoutAdminGrant(
+            Long serverId,
+            Long boardId,
+            Long userId,
+            String kanbanPermissionKey,
+            Long excludedPermissionId) {
+        return resolve(serverId, boardId, userId, kanbanPermissionKey, excludedPermissionId, true);
+    }
+
+    private Decision resolve(
+            Long serverId,
+            Long boardId,
+            Long userId,
+            String kanbanPermissionKey,
+            Long excludedPermissionId,
+            boolean skipAdminShortCircuit) {
         // ADMIN grants all permissions — short-circuit before any other check.
-        if (!"ADMIN".equals(kanbanPermissionKey)) {
+        if (!skipAdminShortCircuit && !"ADMIN".equals(kanbanPermissionKey)) {
             Decision adminCheck = resolveAdmin(serverId, boardId, userId, excludedPermissionId);
             if (adminCheck.allowed()) {
                 return new Decision(true, "ADMIN", adminCheck.sourceScopeType(), adminCheck.sourceScopeId(),
@@ -118,30 +140,11 @@ public class PermissionEvaluationService {
     }
 
     private Decision resolveAdmin(Long serverId, Long boardId, Long userId, Long excludedPermissionId) {
-        Integer adminPermId = kanbanPermissionService.findByKey("ADMIN")
-                .map(item -> item.getPermissionId())
-                .orElse(null);
-        if (adminPermId == null) {
-            return new Decision(false, "NONE", null, null, null);
-        }
-
-        MembershipContext membershipContext = buildMembershipContext(serverId, userId);
-
-        List<Long> discordSubjects = membershipContext.discordFlags().stream()
-                .map(DiscordPermissionFlag::getBit)
-                .toList();
-
-        Permission discordRule = findBestRule(
-                scopePairs(serverId, boardId),
-                SUBJECT_DISCORD_PERMISSION,
-                discordSubjects,
-                adminPermId,
-                excludedPermissionId);
-        if (discordRule != null) {
-            return toDecision(discordRule, "DISCORD_PERMISSION");
-        }
-
-        return new Decision(false, "NONE", null, null, null);
+        // Delegate to the full resolution pipeline for "ADMIN" so that USER and ROLE
+        // rules are respected with the correct USER > ROLE > DISCORD priority,
+        // consistent
+        // with how every other permission is evaluated.
+        return resolve(serverId, boardId, userId, "ADMIN", excludedPermissionId);
     }
 
     private MembershipContext buildMembershipContext(Long serverId, Long userId) {
@@ -167,6 +170,15 @@ public class PermissionEvaluationService {
         }
 
         Set<DiscordPermissionFlag> flags = discordPermissionParser.parse(aggregatedDiscordPermissions);
+
+        boolean isServerOwner = serverService.findById(serverId)
+                .map(server -> server.getOwner() != null && server.getOwner().getUserId() != null
+                        && server.getOwner().getUserId().equals(userId))
+                .orElse(false);
+        if (isServerOwner) {
+            flags.add(DiscordPermissionFlag.ADMINISTRATOR);
+        }
+
         return new MembershipContext(roleIds, flags);
     }
 
