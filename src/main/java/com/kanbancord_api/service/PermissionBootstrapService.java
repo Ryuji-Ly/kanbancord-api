@@ -173,22 +173,22 @@ public class PermissionBootstrapService {
         }
     }
 
-    private void mapDiscordFlagAtServer(
-            Long serverId,
-            DiscordPermissionFlag discordFlag,
-            String kanbanPermissionKey,
-            int priority,
-            boolean immutable) {
-        upsertPermission(
-                SCOPE_SERVER,
-                serverId,
-                SUBJECT_DISCORD_PERMISSION,
-                discordFlag.getBit(),
-                kanbanPermissionKey,
-                STATE_ALLOW,
-                priority,
-                immutable);
-    }
+//     private void mapDiscordFlagAtServer(
+//             Long serverId,
+//             DiscordPermissionFlag discordFlag,
+//             String kanbanPermissionKey,
+//             int priority,
+//             boolean immutable) {
+//         upsertPermission(
+//                 SCOPE_SERVER,
+//                 serverId,
+//                 SUBJECT_DISCORD_PERMISSION,
+//                 discordFlag.getBit(),
+//                 kanbanPermissionKey,
+//                 STATE_ALLOW,
+//                 priority,
+//                 immutable);
+//     }
 
     private void upsertPermission(
             String scopeType,
