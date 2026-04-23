@@ -14,7 +14,11 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.scopeType = :scopeType AND p.scopeId = :scopeId")
         List<Permission> findByScopeTypeAndScopeId(String scopeType, Long scopeId);
 
+        @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.subjectType = :subjectType AND p.subjectId = :subjectId")
         List<Permission> findBySubjectTypeAndSubjectId(String subjectType, Long subjectId);
+
+        @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.id = :id")
+        Optional<Permission> findByIdWithKanbanPermission(Long id);
 
         List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectId(
                         String scopeType, Long scopeId, String subjectType, Long subjectId);

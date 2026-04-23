@@ -2,12 +2,17 @@ package com.kanbancord_api.dto;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 public class PermissionResponse {
 
     private Long id;
     private String scopeType;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long scopeId;
     private String subjectType;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long subjectId;
     private Integer kanbanPermissionId;
     private String kanbanPermissionKey;
