@@ -77,6 +77,12 @@ public class ResourceValidator {
                 .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
     }
 
+    public void validateBoardNotArchived(Board board) {
+        if (board != null && Boolean.TRUE.equals(board.getIsArchived())) {
+            throw new BadRequestException("Archived boards are read-only");
+        }
+    }
+
     public BoardColumn requireColumnInServer(Long columnId, Long serverId) {
         return boardColumnService.findByIdAndServerId(columnId, serverId)
                 .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", columnId));

@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.util.List;
+
 public class BoardRequest {
 
     @NotBlank(message = "Name is required")
@@ -17,6 +19,8 @@ public class BoardRequest {
     private Long serverId;
 
     private Long createdBy;
+
+    private List<String> columnNames;
 
     // Getters and Setters
     public String getName() {
@@ -49,5 +53,13 @@ public class BoardRequest {
 
     public void setCreatedBy(Long createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public List<String> getColumnNames() {
+        return columnNames;
+    }
+
+    public void setColumnNames(List<String> columnNames) {
+        this.columnNames = columnNames;
     }
 }

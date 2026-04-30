@@ -1,35 +1,100 @@
 package com.kanbancord_api.service;
 
 import com.kanbancord_api.model.Board;
+import com.kanbancord_api.model.BoardColumn;
+import com.kanbancord_api.repository.BoardColumnRepository;
 import com.kanbancord_api.repository.BoardRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @Transactional
 public class BoardService {
 
     private final BoardRepository boardRepository;
+    private final BoardColumnRepository boardColumnRepository;
     private final PermissionBootstrapService permissionBootstrapService;
 
-    public BoardService(BoardRepository boardRepository, PermissionBootstrapService permissionBootstrapService) {
+    public BoardService(
+            BoardRepository boardRepository,
+            BoardColumnRepository boardColumnRepository,
+            PermissionBootstrapService permissionBootstrapService) {
         this.boardRepository = boardRepository;
+        this.boardColumnRepository = boardColumnRepository;
         this.permissionBootstrapService = permissionBootstrapService;
     }
 
     public Board create(Board board) {
+        return create(board, null);
+    }
+
+    public Board create(Board board, List<String> columnNames) {
         Board created = boardRepository.save(board);
+
+        createDefaultColumns(created, columnNames);
+
         if (created.getServer() != null && created.getServer().getServerId() != null && created.getBoardId() != null) {
             permissionBootstrapService.initializeBoardConfigurationFromServer(
                     created.getServer().getServerId(),
                     created.getBoardId());
         }
         return created;
+    }
+
+    private void createDefaultColumns(Board board, List<String> columnNames) {
+        if (board == null || board.getBoardId() == null) {
+            return;
+        }
+
+        List<String> effectiveNames = sanitizeColumnNames(columnNames);
+
+        List<BoardColumn> defaults = new ArrayList<>();
+        for (int i = 0; i < effectiveNames.size(); i++) {
+            String position = String.format("%d.00", i + 1);
+            defaults.add(newDefaultColumn(board, effectiveNames.get(i), position));
+        }
+
+        boardColumnRepository.saveAll(defaults);
+    }
+
+    private List<String> sanitizeColumnNames(List<String> columnNames) {
+        if (columnNames == null || columnNames.isEmpty()) {
+            return List.of("To Do", "In Progress", "Done");
+        }
+
+        Set<String> deduped = new LinkedHashSet<>();
+        for (String raw : columnNames) {
+            if (raw == null) {
+                continue;
+            }
+            String trimmed = raw.trim();
+            if (!trimmed.isEmpty()) {
+                deduped.add(trimmed);
+            }
+        }
+
+        if (deduped.isEmpty()) {
+            return List.of("To Do", "In Progress", "Done");
+        }
+
+        return new ArrayList<>(deduped);
+    }
+
+    private BoardColumn newDefaultColumn(Board board, String name, String position) {
+        BoardColumn column = new BoardColumn();
+        column.setBoard(board);
+        column.setName(name);
+        column.setPosition(new BigDecimal(position));
+        return column;
     }
 
     @Transactional(readOnly = true)

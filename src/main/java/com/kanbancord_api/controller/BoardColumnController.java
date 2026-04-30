@@ -45,6 +45,7 @@ public class BoardColumnController {
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
 
         BoardColumn column = new BoardColumn();
         column.setBoard(board);
@@ -104,7 +105,8 @@ public class BoardColumnController {
             accessValidator.requireServerPermission(userId, serverId, "MOVE_COLUMN");
         }
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
-        resourceValidator.requireBoardInServer(boardId, serverId);
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
@@ -132,7 +134,8 @@ public class BoardColumnController {
             @RequestParam Long userId) {
 
         accessValidator.requireServerPermission(userId, serverId, "DELETE_COLUMN");
-        resourceValidator.requireBoardInServer(boardId, serverId);
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);

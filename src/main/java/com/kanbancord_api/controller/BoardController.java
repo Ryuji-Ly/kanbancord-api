@@ -71,7 +71,7 @@ public class BoardController {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", creatorId));
         board.setCreatedBy(creator);
 
-        Board created = boardService.create(board);
+        Board created = boardService.create(board, request.getColumnNames());
         return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
     }
 
@@ -134,6 +134,25 @@ public class BoardController {
         if (request.getDescription() != null) {
             board.setDescription(request.getDescription());
         }
+
+        Board updated = boardService.update(board);
+        return ResponseEntity.ok(mapToResponse(updated));
+    }
+
+    /**
+     * Archive or restore a board
+     */
+    @PatchMapping("/{boardId}/archive")
+    public ResponseEntity<BoardResponse> archiveBoard(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @RequestParam Long userId,
+            @RequestParam(defaultValue = "true") Boolean archived) {
+
+        accessValidator.requireServerPermission(userId, serverId, "ARCHIVE_BOARD");
+
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        board.setIsArchived(Boolean.TRUE.equals(archived));
 
         Board updated = boardService.update(board);
         return ResponseEntity.ok(mapToResponse(updated));
