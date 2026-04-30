@@ -102,6 +102,22 @@ class ResourceValidatorTest {
     }
 
     @Test
+    void validateBoardNotArchived_throwsBadRequest_whenBoardArchived() {
+        Board board = new Board();
+        board.setIsArchived(true);
+
+        assertThrows(BadRequestException.class, () -> validator.validateBoardNotArchived(board));
+    }
+
+    @Test
+    void validateBoardNotArchived_allowsActiveBoard() {
+        Board board = new Board();
+        board.setIsArchived(false);
+
+        assertDoesNotThrow(() -> validator.validateBoardNotArchived(board));
+    }
+
+    @Test
     void validatePermissionScopeBelongsToServer_throwsBadRequest_whenServerScopeIdMismatch() {
         assertThrows(BadRequestException.class,
                 () -> validator.validatePermissionScopeBelongsToServer("SERVER", 999L, 1L));
