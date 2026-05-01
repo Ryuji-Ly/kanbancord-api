@@ -140,8 +140,6 @@ public class BoardColumnController {
 
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
 
-        resourceValidator.validateColumnHasNoTasks(columnId);
-
         boardColumnService.deleteById(column.getColumnId());
         return ResponseEntity.noContent().build();
     }
