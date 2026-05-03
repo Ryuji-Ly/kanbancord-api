@@ -1,16 +1,21 @@
 package com.kanbancord_api.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class TaskCommentResponse {
     private Long commentId;
     private Long taskId;
     private Long userId;
+    private String authorUsername;
+    private String authorGlobalName;
+    private String authorAvatarUrl;
     private String content;
     private Long replyToId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime deletedAt;
+    private List<TaskCommentEditorResponse> editedByUsers;
 
     // Getters and Setters
     public Long getCommentId() {
@@ -35,6 +40,30 @@ public class TaskCommentResponse {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public String getAuthorUsername() {
+        return authorUsername;
+    }
+
+    public void setAuthorUsername(String authorUsername) {
+        this.authorUsername = authorUsername;
+    }
+
+    public String getAuthorGlobalName() {
+        return authorGlobalName;
+    }
+
+    public void setAuthorGlobalName(String authorGlobalName) {
+        this.authorGlobalName = authorGlobalName;
+    }
+
+    public String getAuthorAvatarUrl() {
+        return authorAvatarUrl;
+    }
+
+    public void setAuthorAvatarUrl(String authorAvatarUrl) {
+        this.authorAvatarUrl = authorAvatarUrl;
     }
 
     public String getContent() {
@@ -75,5 +104,13 @@ public class TaskCommentResponse {
 
     public void setDeletedAt(LocalDateTime deletedAt) {
         this.deletedAt = deletedAt;
+    }
+
+    public List<TaskCommentEditorResponse> getEditedByUsers() {
+        return editedByUsers;
+    }
+
+    public void setEditedByUsers(List<TaskCommentEditorResponse> editedByUsers) {
+        this.editedByUsers = editedByUsers;
     }
 }

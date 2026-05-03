@@ -32,6 +32,10 @@ public class TaskComment {
     @JsonIgnore
     private Set<TaskComment> replies = new HashSet<>();
 
+    @OneToMany(mappedBy = "taskComment", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private Set<TaskCommentEdit> edits = new HashSet<>();
+
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
@@ -98,6 +102,14 @@ public class TaskComment {
 
     public void setReplies(Set<TaskComment> replies) {
         this.replies = replies;
+    }
+
+    public Set<TaskCommentEdit> getEdits() {
+        return edits;
+    }
+
+    public void setEdits(Set<TaskCommentEdit> edits) {
+        this.edits = edits;
     }
 
     public String getContent() {
