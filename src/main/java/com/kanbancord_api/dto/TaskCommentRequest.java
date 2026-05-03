@@ -9,7 +9,6 @@ public class TaskCommentRequest {
     @NotNull(message = "Task ID is required")
     private Long taskId;
 
-    @NotNull(message = "User ID is required")
     private Long userId;
 
     @NotBlank(message = "Content is required")
