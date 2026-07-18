@@ -8,6 +8,7 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.KanbanPermission;
 import com.kanbancord_api.model.Permission;
 import com.kanbancord_api.permission.KanbanPermissionCatalog;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.KanbanPermissionService;
 import com.kanbancord_api.service.PermissionEvaluationService;
@@ -30,6 +31,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -43,6 +46,7 @@ public class PermissionController {
     private final ResourceValidator resourceValidator;
     private final PermissionEvaluationService permissionEvaluationService;
     private final PermissionEscalationGuardService permissionEscalationGuardService;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public PermissionController(
             PermissionService permissionService,
@@ -50,13 +54,15 @@ public class PermissionController {
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
             PermissionEvaluationService permissionEvaluationService,
-            PermissionEscalationGuardService permissionEscalationGuardService) {
+            PermissionEscalationGuardService permissionEscalationGuardService,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.permissionService = permissionService;
         this.kanbanPermissionService = kanbanPermissionService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
         this.permissionEscalationGuardService = permissionEscalationGuardService;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     @PostMapping
@@ -94,7 +100,9 @@ public class PermissionController {
         permission.setIsImmutable(request.getIsImmutable() != null && request.getIsImmutable());
 
         Permission created = permissionService.create(permission);
-        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(created));
+        PermissionResponse response = toResponse(created);
+        publishPermissionEvent(serverId, userId, "PERMISSION_CREATED", response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
@@ -177,7 +185,9 @@ public class PermissionController {
         permission.setIsImmutable(request.getIsImmutable() != null && request.getIsImmutable());
 
         Permission updated = permissionService.update(permission);
-        return ResponseEntity.ok(toResponse(updated));
+        PermissionResponse response = toResponse(updated);
+        publishPermissionEvent(serverId, userId, "PERMISSION_UPDATED", response);
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/{permissionId}/state")
@@ -202,7 +212,8 @@ public class PermissionController {
         permissionEscalationGuardService.validatePatchState(userId, serverId, permission, newState);
 
         permission.setState(newState);
-        permissionService.update(permission);
+        Permission updated = permissionService.update(permission);
+        publishPermissionEvent(serverId, userId, "PERMISSION_UPDATED", toResponse(updated));
         return ResponseEntity.noContent().build();
     }
 
@@ -221,7 +232,9 @@ public class PermissionController {
 
         permissionEscalationGuardService.validateDelete(userId, serverId, permission);
 
+        PermissionResponse response = toResponse(permission);
         permissionService.deleteById(permission.getId());
+        publishPermissionEvent(serverId, userId, "PERMISSION_DELETED", response);
         return ResponseEntity.noContent().build();
     }
 
@@ -249,6 +262,37 @@ public class PermissionController {
         response.setSourceScopeId(decision.sourceScopeId());
         response.setSourcePermissionId(decision.sourcePermissionId());
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/evaluate-batch")
+    public ResponseEntity<Map<String, PermissionDecisionResponse>> evaluatePermissions(
+            @PathVariable Long serverId,
+            @RequestParam Long userId,
+            @RequestParam Long targetUserId,
+            @RequestParam List<String> permissionKey,
+            @RequestParam(required = false) Long boardId) {
+
+        accessValidator.requireUserInServer(userId, serverId);
+        resourceValidator.validatePermissionSubjectBelongsToServer("USER", targetUserId, serverId);
+
+        Map<String, PermissionDecisionResponse> responses = new LinkedHashMap<>();
+        for (String key : permissionKey) {
+            PermissionEvaluationService.Decision decision = permissionEvaluationService.resolve(
+                    serverId,
+                    boardId,
+                    targetUserId,
+                    key);
+
+            PermissionDecisionResponse response = new PermissionDecisionResponse();
+            response.setAllowed(decision.allowed());
+            response.setSourceTier(decision.sourceTier());
+            response.setSourceScopeType(decision.sourceScopeType());
+            response.setSourceScopeId(decision.sourceScopeId());
+            response.setSourcePermissionId(decision.sourcePermissionId());
+            responses.put(key, response);
+        }
+
+        return ResponseEntity.ok(responses);
     }
 
     private void validateScopeApplicability(String scopeType, String kanbanPermissionKey) {
@@ -283,5 +327,40 @@ public class PermissionController {
         response.setCreatedAt(permission.getCreatedAt());
         response.setUpdatedAt(permission.getUpdatedAt());
         return response;
+    }
+
+    private void publishPermissionEvent(Long serverId, Long actorUserId, String eventType,
+            PermissionResponse response) {
+        if (response == null) {
+            return;
+        }
+
+        if ("BOARD".equalsIgnoreCase(response.getScopeType()) && response.getScopeId() != null) {
+            realtimeEventPublisher.publishToServerAndBoardTopics(
+                    serverId,
+                    response.getScopeId(),
+                    realtimeEventPublisher.newEvent(
+                            eventType,
+                            "BOARD",
+                            serverId,
+                            response.getScopeId(),
+                            "PERMISSION",
+                            response.getId(),
+                            actorUserId,
+                            response));
+            return;
+        }
+
+        realtimeEventPublisher.publishToServerTopic(
+                serverId,
+                realtimeEventPublisher.newEvent(
+                        eventType,
+                        "SERVER",
+                        serverId,
+                        null,
+                        "PERMISSION",
+                        response.getId(),
+                        actorUserId,
+                        response));
     }
 }

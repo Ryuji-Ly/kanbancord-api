@@ -8,6 +8,7 @@ import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskComment;
 import com.kanbancord_api.model.TaskCommentEdit;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.repository.TaskCommentEditRepository;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
@@ -38,18 +39,21 @@ public class TaskCommentController {
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
     private final TaskCommentEditRepository taskCommentEditRepository;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public TaskCommentController(
             TaskCommentService taskCommentService,
             UserService userService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
-            TaskCommentEditRepository taskCommentEditRepository) {
+            TaskCommentEditRepository taskCommentEditRepository,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.taskCommentService = taskCommentService;
         this.userService = userService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.taskCommentEditRepository = taskCommentEditRepository;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     @PostMapping
@@ -83,7 +87,20 @@ public class TaskCommentController {
         }
 
         TaskComment created = taskCommentService.create(comment);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        TaskCommentResponse response = mapToResponse(created);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_COMMENT_CREATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_COMMENT",
+                        created.getCommentId(),
+                        userId,
+                        response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
@@ -158,7 +175,22 @@ public class TaskCommentController {
         edit.setEditor(editor);
         taskCommentEditRepository.save(edit);
 
-        return ResponseEntity.ok(mapToResponse(updated));
+        TaskComment refreshed = taskCommentService.findById(updated.getCommentId()).orElse(updated);
+        TaskCommentResponse response = mapToResponse(refreshed);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_COMMENT_UPDATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_COMMENT",
+                        updated.getCommentId(),
+                        userId,
+                        response));
+
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{commentId}")
@@ -177,7 +209,20 @@ public class TaskCommentController {
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
+        TaskCommentResponse response = mapToResponse(comment);
         taskCommentService.deleteById(comment.getCommentId());
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_COMMENT_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_COMMENT",
+                        commentId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 
@@ -197,6 +242,20 @@ public class TaskCommentController {
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
         taskCommentService.softDelete(comment.getCommentId());
+        TaskComment softDeleted = taskCommentService.findById(commentId).orElse(comment);
+        TaskCommentResponse response = mapToResponse(softDeleted);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_COMMENT_SOFT_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_COMMENT",
+                        commentId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 

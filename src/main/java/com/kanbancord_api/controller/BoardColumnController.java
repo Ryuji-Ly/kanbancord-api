@@ -4,6 +4,7 @@ import com.kanbancord_api.dto.BoardColumnRequest;
 import com.kanbancord_api.dto.BoardColumnResponse;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.BoardColumn;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
 import com.kanbancord_api.service.ResourceValidator;
@@ -24,14 +25,17 @@ public class BoardColumnController {
     private final BoardColumnService boardColumnService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public BoardColumnController(
             BoardColumnService boardColumnService,
             AccessValidator accessValidator,
-            ResourceValidator resourceValidator) {
+            ResourceValidator resourceValidator,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.boardColumnService = boardColumnService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     @PostMapping
@@ -55,7 +59,20 @@ public class BoardColumnController {
         column.setWipLimit(request.getWipLimit());
 
         BoardColumn created = boardColumnService.create(column);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        BoardColumnResponse response = mapToResponse(created);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "COLUMN_CREATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD_COLUMN",
+                        created.getColumnId(),
+                        userId,
+                        response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
@@ -123,7 +140,20 @@ public class BoardColumnController {
         }
 
         BoardColumn updated = boardColumnService.update(column);
-        return ResponseEntity.ok(mapToResponse(updated));
+        BoardColumnResponse response = mapToResponse(updated);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "COLUMN_UPDATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD_COLUMN",
+                        updated.getColumnId(),
+                        userId,
+                        response));
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{columnId}")
@@ -139,8 +169,21 @@ public class BoardColumnController {
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
+        BoardColumnResponse response = mapToResponse(column);
 
         boardColumnService.deleteById(column.getColumnId());
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "COLUMN_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD_COLUMN",
+                        columnId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 

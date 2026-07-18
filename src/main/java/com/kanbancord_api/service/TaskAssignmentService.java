@@ -43,6 +43,11 @@ public class TaskAssignmentService {
     }
 
     @Transactional(readOnly = true)
+    public List<TaskAssignment> findByBoardId(Long boardId) {
+        return taskAssignmentRepository.findByTask_Board_BoardIdOrderByTask_TaskIdAscIdAsc(boardId);
+    }
+
+    @Transactional(readOnly = true)
     public List<TaskAssignment> findByUserId(Long userId) {
         return taskAssignmentRepository.findByUser_UserId(userId);
     }

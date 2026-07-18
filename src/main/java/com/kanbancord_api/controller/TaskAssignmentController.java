@@ -6,6 +6,7 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskAssignment;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskAssignmentService;
@@ -28,16 +29,19 @@ public class TaskAssignmentController {
     private final UserService userService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public TaskAssignmentController(
             TaskAssignmentService taskAssignmentService,
             UserService userService,
             AccessValidator accessValidator,
-            ResourceValidator resourceValidator) {
+            ResourceValidator resourceValidator,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.taskAssignmentService = taskAssignmentService;
         this.userService = userService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     @PostMapping
@@ -66,7 +70,20 @@ public class TaskAssignmentController {
         taskAssignment.setAssignedBy(assignedBy);
 
         TaskAssignment created = taskAssignmentService.create(taskAssignment);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        TaskAssignmentResponse response = mapToResponse(created);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_ASSIGNMENT_CREATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_ASSIGNMENT",
+                        created.getId(),
+                        userId,
+                        response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
@@ -123,7 +140,20 @@ public class TaskAssignmentController {
 
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
 
+        TaskAssignmentResponse response = mapToResponse(assignment);
         taskAssignmentService.deleteById(assignment.getId());
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_ASSIGNMENT_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK_ASSIGNMENT",
+                        assignmentId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 

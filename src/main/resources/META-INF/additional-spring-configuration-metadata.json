@@ -16,6 +16,16 @@
       "description": "Lifetime of backend access tokens in seconds."
     },
     {
+      "name": "kanbancord.realtime.allowed-origins",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Allowed browser origins for websocket upgrades."
+    },
+    {
+      "name": "kanbancord.realtime.ticket-ttl-seconds",
+      "type": "java.lang.Long",
+      "description": "Lifetime of one-time websocket handshake tickets in seconds."
+    },
+    {
       "name": "kanbancord.discord.api-base-url",
       "type": "java.lang.String",
       "description": "Discord API base URL used for identity lookup via /users/@me."

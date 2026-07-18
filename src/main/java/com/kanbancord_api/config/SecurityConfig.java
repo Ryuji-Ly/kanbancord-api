@@ -21,7 +21,7 @@ public class SecurityConfig {
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                                 .authorizeHttpRequests(auth -> auth
                                                 .requestMatchers("/api/auth/**", "/api/internal/sync/**",
-                                                                "/actuator/health")
+                                                                "/actuator/health", "/ws/**")
                                                 .permitAll()
                                                 .anyRequest().authenticated())
                                 .httpBasic(httpBasic -> httpBasic.disable())
