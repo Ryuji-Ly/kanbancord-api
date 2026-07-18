@@ -25,13 +25,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set image name
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/kanbancord-api:latest" >> $GITHUB_ENV
+
       - name: Build Docker image
         run: |
           docker build \
-            -t ghcr.io/${{ github.repository_owner }}/kanbancord-api:latest \
+            -t $IMAGE_NAME \
             .
 
       - name: Push Docker image
         run: |
-          docker push \
-            ghcr.io/${{ github.repository_owner }}/kanbancord-api:latest
+          docker push $IMAGE_NAME
