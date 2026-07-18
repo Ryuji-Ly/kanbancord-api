@@ -14,6 +14,7 @@ public class ServerMemberResponse {
     private String nickname;
     private String displayName;
     private String username;
+    private String avatarUrl;
     private LocalDateTime joinedAt;
 
     // Getters and Setters
@@ -63,6 +64,14 @@ public class ServerMemberResponse {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 
     public LocalDateTime getJoinedAt() {

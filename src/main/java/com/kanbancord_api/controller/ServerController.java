@@ -127,6 +127,7 @@ public class ServerController {
                 : member.getUser().getUsername();
         response.setDisplayName(displayName);
         response.setUsername(member.getUser().getUsername());
+        response.setAvatarUrl(member.getUser().getAvatarUrl());
         response.setJoinedAt(member.getJoinedAt());
         return response;
     }

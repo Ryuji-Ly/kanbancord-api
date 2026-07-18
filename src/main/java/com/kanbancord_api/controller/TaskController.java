@@ -7,6 +7,7 @@ import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.BoardColumn;
 import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
 import com.kanbancord_api.service.ResourceValidator;
@@ -30,18 +31,21 @@ public class TaskController {
     private final UserService userService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public TaskController(
             TaskService taskService,
             BoardColumnService boardColumnService,
             UserService userService,
             AccessValidator accessValidator,
-            ResourceValidator resourceValidator) {
+            ResourceValidator resourceValidator,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.taskService = taskService;
         this.boardColumnService = boardColumnService;
         this.userService = userService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     @PostMapping
@@ -78,7 +82,20 @@ public class TaskController {
         task.setCreatedBy(creator);
 
         Task created = taskService.create(task);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        TaskResponse response = mapToResponse(created);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_CREATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK",
+                        created.getTaskId(),
+                        userId,
+                        response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
@@ -169,7 +186,20 @@ public class TaskController {
         }
 
         Task updated = taskService.update(task);
-        return ResponseEntity.ok(mapToResponse(updated));
+        TaskResponse response = mapToResponse(updated);
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_UPDATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK",
+                        updated.getTaskId(),
+                        userId,
+                        response));
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{taskId}")
@@ -184,8 +214,21 @@ public class TaskController {
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        TaskResponse response = mapToResponse(task);
 
         taskService.deleteById(task.getTaskId());
+        realtimeEventPublisher.publishToBoardTopic(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "TASK_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "TASK",
+                        taskId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 

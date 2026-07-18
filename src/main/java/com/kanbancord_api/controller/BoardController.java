@@ -6,6 +6,7 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardService;
 import com.kanbancord_api.service.ResourceValidator;
@@ -29,18 +30,21 @@ public class BoardController {
     private final ResourceValidator resourceValidator;
     private final ServerService serverService;
     private final UserService userService;
+    private final RealtimeEventPublisher realtimeEventPublisher;
 
     public BoardController(
             BoardService boardService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
             ServerService serverService,
-            UserService userService) {
+            UserService userService,
+            RealtimeEventPublisher realtimeEventPublisher) {
         this.boardService = boardService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.serverService = serverService;
         this.userService = userService;
+        this.realtimeEventPublisher = realtimeEventPublisher;
     }
 
     /**
@@ -72,7 +76,20 @@ public class BoardController {
         board.setCreatedBy(creator);
 
         Board created = boardService.create(board, request.getColumnNames());
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        BoardResponse response = mapToResponse(created);
+        realtimeEventPublisher.publishToServerAndBoardTopics(
+                serverId,
+                created.getBoardId(),
+                realtimeEventPublisher.newEvent(
+                        "BOARD_CREATED",
+                        "BOARD",
+                        serverId,
+                        created.getBoardId(),
+                        "BOARD",
+                        created.getBoardId(),
+                        userId,
+                        response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
@@ -136,7 +153,20 @@ public class BoardController {
         }
 
         Board updated = boardService.update(board);
-        return ResponseEntity.ok(mapToResponse(updated));
+        BoardResponse response = mapToResponse(updated);
+        realtimeEventPublisher.publishToServerAndBoardTopics(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "BOARD_UPDATED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD",
+                        boardId,
+                        userId,
+                        response));
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -155,7 +185,20 @@ public class BoardController {
         board.setIsArchived(Boolean.TRUE.equals(archived));
 
         Board updated = boardService.update(board);
-        return ResponseEntity.ok(mapToResponse(updated));
+        BoardResponse response = mapToResponse(updated);
+        realtimeEventPublisher.publishToServerAndBoardTopics(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        Boolean.TRUE.equals(archived) ? "BOARD_ARCHIVED" : "BOARD_RESTORED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD",
+                        boardId,
+                        userId,
+                        response));
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -170,8 +213,21 @@ public class BoardController {
         accessValidator.requireServerPermission(userId, serverId, "DELETE_BOARD");
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        BoardResponse response = mapToResponse(board);
 
         boardService.deleteById(board.getBoardId());
+        realtimeEventPublisher.publishToServerAndBoardTopics(
+                serverId,
+                boardId,
+                realtimeEventPublisher.newEvent(
+                        "BOARD_DELETED",
+                        "BOARD",
+                        serverId,
+                        boardId,
+                        "BOARD",
+                        boardId,
+                        userId,
+                        response));
         return ResponseEntity.noContent().build();
     }
 
