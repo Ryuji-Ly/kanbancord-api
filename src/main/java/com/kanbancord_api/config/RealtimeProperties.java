@@ -9,7 +9,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "kanbancord.realtime")
 public class RealtimeProperties {
 
-    private List<String> allowedOrigins = List.of("http://localhost:5173", "http://127.0.0.1:5173");
+    private List<String> allowedOrigins = List.of("http://localhost:5173", "http://127.0.0.1:5173", "https://kanbancord.com", "https://www.kanbancord.com");
     private long ticketTtlSeconds = 30;
 
     public List<String> getAllowedOrigins() {
