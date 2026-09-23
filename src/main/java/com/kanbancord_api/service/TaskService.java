@@ -45,11 +45,6 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<Task> findByColumnId(Long columnId) {
-        return taskRepository.findByColumn_ColumnId(columnId);
-    }
-
-    @Transactional(readOnly = true)
     public List<Task> findByColumnIdOrdered(Long columnId) {
         return taskRepository.findByColumn_ColumnIdOrderByPositionAsc(columnId);
     }
@@ -67,11 +62,6 @@ public class TaskService {
     @Transactional(readOnly = true)
     public Page<Task> findByBoardIdAndArchived(Long boardId, Boolean isArchived, Pageable pageable) {
         return taskRepository.findByBoard_BoardIdAndIsArchived(boardId, isArchived, pageable);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Task> findByCreatedBy(Long userId) {
-        return taskRepository.findByCreatedBy_UserId(userId);
     }
 
     @Transactional(readOnly = true)

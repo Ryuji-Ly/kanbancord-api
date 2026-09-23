@@ -203,10 +203,6 @@ public class ResourceValidator {
         }
     }
 
-    public void validateBoardBelongsToServer(Long boardId, Long serverId) {
-        businessValidationService.validateBoardBelongsToServer(boardId, serverId);
-    }
-
     public void validateColumnBelongsToBoard(Long columnId, Long boardId) {
         businessValidationService.validateColumnBelongsToBoard(columnId, boardId);
     }
@@ -225,10 +221,6 @@ public class ResourceValidator {
 
     public void validateTaskNotArchived(Task task) {
         businessValidationService.validateTaskNotArchived(task);
-    }
-
-    public void validateColumnHasNoTasks(Long columnId) {
-        businessValidationService.validateColumnHasNoTasks(columnId);
     }
 
     public void validateBoardNameUnique(String name, Long serverId, Long excludeBoardId) {

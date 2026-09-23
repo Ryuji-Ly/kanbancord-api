@@ -82,30 +82,6 @@ public class BusinessValidationService {
     }
 
     /**
-     * Validates that a board belongs to the specified server
-     */
-    public void validateBoardBelongsToServer(Long boardId, Long serverId) {
-        Board board = boardRepository.findById(boardId)
-                .orElseThrow(() -> new ResourceNotFoundException("Board", "boardId", boardId));
-
-        if (!board.getServer().getServerId().equals(serverId)) {
-            throw new BadRequestException(
-                    "Board ID " + boardId + " does not belong to server ID " + serverId);
-        }
-    }
-
-    /**
-     * Validates that a column has no tasks before deletion
-     */
-    public void validateColumnHasNoTasks(Long columnId) {
-        long taskCount = taskRepository.findByColumn_ColumnId(columnId).size();
-        if (taskCount > 0) {
-            throw new IllegalStateException(
-                    "Cannot delete column with " + taskCount + " tasks. Move or delete tasks first.");
-        }
-    }
-
-    /**
      * Validates board name uniqueness within a server
      */
     public void validateBoardNameUnique(String name, Long serverId, Long excludeBoardId) {
