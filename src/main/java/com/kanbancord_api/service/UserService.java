@@ -28,11 +28,6 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<User> findByUsername(String username) {
-        return userRepository.findByUsername(username);
-    }
-
-    @Transactional(readOnly = true)
     public List<User> findAll() {
         return userRepository.findAll();
     }
@@ -48,10 +43,5 @@ public class UserService {
     @Transactional(readOnly = true)
     public boolean existsById(Long id) {
         return userRepository.existsById(id);
-    }
-
-    @Transactional(readOnly = true)
-    public boolean existsByUsername(String username) {
-        return userRepository.existsByUsername(username);
     }
 }

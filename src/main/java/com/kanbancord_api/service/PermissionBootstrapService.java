@@ -17,7 +17,6 @@ import java.util.List;
 public class PermissionBootstrapService {
 
     private static final String SCOPE_SERVER = "SERVER";
-    private static final String SCOPE_BOARD = "BOARD";
     private static final String SUBJECT_DISCORD_PERMISSION = "DISCORD_PERMISSION";
     private static final String STATE_ALLOW = "ALLOW";
 
@@ -124,37 +123,6 @@ public class PermissionBootstrapService {
                 "MANAGE_SERVER_PERMISSIONS", "CREATE_BOARD", "DELETE_BOARD");
     }
 
-    public void initializeBoardConfigurationFromServer(Long serverId, Long boardId) {
-        ensureCatalogSeeded();
-
-        List<Permission> serverPermissions = permissionRepository
-                .findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_SERVER, serverId);
-
-        for (Permission source : serverPermissions) {
-            if (source.getKanbanPermission() == null) {
-                continue;
-            }
-
-            boolean boardAllowed = KanbanPermissionCatalog.fromKey(source.getKanbanPermission().getKey())
-                    .map(KanbanPermissionCatalog::isBoardScopeAllowed)
-                    .orElse(false);
-
-            if (!boardAllowed) {
-                continue;
-            }
-
-            upsertPermission(
-                    SCOPE_BOARD,
-                    boardId,
-                    source.getSubjectType(),
-                    source.getSubjectId(),
-                    source.getKanbanPermission().getKey(),
-                    source.getState(),
-                    source.getPriority(),
-                    source.getIsImmutable() != null && source.getIsImmutable());
-        }
-    }
-
     private void mapPermissions(
             Long serverId,
             DiscordPermissionFlag discordFlag,
@@ -224,23 +192,5 @@ public class PermissionBootstrapService {
         permission.setIsImmutable(existingImmutable || immutable);
 
         permissionRepository.save(permission);
-    }
-
-    public List<String> validatePermissionTablesReady() {
-        ensureCatalogSeeded();
-        List<String> issues = new ArrayList<>();
-
-        for (KanbanPermissionCatalog item : KanbanPermissionCatalog.values()) {
-            KanbanPermission permission = kanbanPermissionRepository.findByKey(item.getKey()).orElse(null);
-            if (permission == null) {
-                issues.add("Missing catalog permission: " + item.getKey());
-                continue;
-            }
-            if (permission.getIsSystem() == null || !permission.getIsSystem()) {
-                issues.add("Catalog permission is not marked system: " + item.getKey());
-            }
-        }
-
-        return issues;
     }
 }

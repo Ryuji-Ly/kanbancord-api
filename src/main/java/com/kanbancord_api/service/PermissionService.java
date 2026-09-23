@@ -37,17 +37,6 @@ public class PermissionService {
         return permissionRepository.findByScopeTypeAndScopeId(scopeType, scopeId);
     }
 
-    @Transactional(readOnly = true)
-    public List<Permission> findBySubject(String subjectType, Long subjectId) {
-        return permissionRepository.findBySubjectTypeAndSubjectId(subjectType, subjectId);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Permission> findByScopeAndSubject(String scopeType, Long scopeId, String subjectType, Long subjectId) {
-        return permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectId(
-                scopeType, scopeId, subjectType, subjectId);
-    }
-
     public Permission update(Permission permission) {
         return permissionRepository.save(permission);
     }

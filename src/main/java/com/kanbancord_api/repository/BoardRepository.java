@@ -20,8 +20,8 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
 
     Page<Board> findByServer_ServerIdAndIsArchived(Long serverId, Boolean isArchived, Pageable pageable);
 
-    List<Board> findByCreatedBy_UserId(Long userId);
-
     // Scoped query to prevent cross-server access
     Optional<Board> findByBoardIdAndServer_ServerId(Long boardId, Long serverId);
+
+    boolean existsByBoardIdAndServer_ServerId(Long boardId, Long serverId);
 }

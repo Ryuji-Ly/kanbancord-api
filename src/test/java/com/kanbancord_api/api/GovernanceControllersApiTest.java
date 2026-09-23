@@ -3,27 +3,21 @@ package com.kanbancord_api.api;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.controller.AuditLogController;
 import com.kanbancord_api.controller.KanbanPermissionController;
-import com.kanbancord_api.controller.MemberRoleController;
 import com.kanbancord_api.controller.PermissionController;
-import com.kanbancord_api.dto.AuditLogRequest;
-import com.kanbancord_api.dto.KanbanPermissionRequest;
-import com.kanbancord_api.dto.MemberRoleRequest;
 import com.kanbancord_api.dto.PermissionRequest;
+import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.GlobalExceptionHandler;
-import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.AuditLog;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.KanbanPermission;
-import com.kanbancord_api.model.MemberRole;
 import com.kanbancord_api.model.Permission;
-import com.kanbancord_api.model.Role;
 import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.model.User;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.AuditLogService;
 import com.kanbancord_api.service.KanbanPermissionService;
-import com.kanbancord_api.service.MemberRoleService;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
+import com.kanbancord_api.service.PermissionEscalationGuardService;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.PermissionService;
 import com.kanbancord_api.service.ResourceValidator;
@@ -43,6 +37,10 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,12 +48,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = {
         AuditLogController.class,
         KanbanPermissionController.class,
-        PermissionController.class,
-        MemberRoleController.class
+        PermissionController.class
 })
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
@@ -83,92 +81,59 @@ class GovernanceControllersApiTest {
         @MockitoBean
     private PermissionEvaluationService permissionEvaluationService;
         @MockitoBean
-    private MemberRoleService memberRoleService;
+    private PermissionEscalationGuardService permissionEscalationGuardService;
+        @MockitoBean
+    private RealtimeEventPublisher realtimeEventPublisher;
 
     @Test
-    void auditLogEndpoints_coverHappyAndUnhappy() throws Exception {
-        AuditLogRequest request = new AuditLogRequest();
-        request.setServerId(1L);
-        request.setBoardId(100L);
-        request.setUserId(10L);
-        request.setAction("TASK_CREATED");
-        request.setEntityType("TASK");
-        request.setEntityId(123L);
-        request.setSource("API");
-        request.setChanges(Map.of("field", "value"));
-
+    void auditLogEndpoints_areReadOnlyAndRequireViewAuditLog() throws Exception {
         AuditLog log = auditLog(900L);
-        when(serverService.findById(1L)).thenReturn(Optional.of(server(1L)));
-        when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
-        when(resourceValidator.requireBoardInServer(100L, 1L)).thenReturn(board(100L));
-        when(auditLogService.create(any(AuditLog.class))).thenReturn(log);
         when(auditLogService.findByServerIdOrdered(1L)).thenReturn(List.of(log));
         when(resourceValidator.requireAuditLogInServer(900L, 1L)).thenReturn(log);
-        when(auditLogService.update(any(AuditLog.class))).thenReturn(log);
 
-        mockMvc.perform(post("/api/servers/1/audit-logs").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.logId").value(900));
+        mockMvc.perform(get("/api/servers/1/audit-logs").with(asUser(10L)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].logId").value(900));
 
-        mockMvc.perform(get("/api/servers/1/audit-logs").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/audit-logs/900").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/audit-logs/900").param("userId", "10"))
-                .andExpect(status().isOk());
+        verify(accessValidator, times(2)).requireServerPermission(10L, 1L, "VIEW_AUDIT_LOG");
 
-        mockMvc.perform(put("/api/servers/1/audit-logs/900").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+        doThrow(new AccessDeniedException("denied"))
+                .when(accessValidator).requireServerPermission(11L, 1L, "VIEW_AUDIT_LOG");
+        mockMvc.perform(get("/api/servers/1/audit-logs").with(asUser(11L)))
+                .andExpect(status().isForbidden());
 
-        mockMvc.perform(delete("/api/servers/1/audit-logs/900").param("userId", "10"))
-                .andExpect(status().isNoContent());
-
-        request.setAction("");
-        mockMvc.perform(post("/api/servers/1/audit-logs").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+        // Audit entries are append-only and written by the server, never by clients.
+        mockMvc.perform(post("/api/servers/1/audit-logs").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(put("/api/servers/1/audit-logs/900").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(delete("/api/servers/1/audit-logs/900").with(asUser(10L)))
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
-    void kanbanPermissionEndpoints_coverHappyAndUnhappy() throws Exception {
-        KanbanPermissionRequest request = new KanbanPermissionRequest();
-        request.setKey("EDIT_TASK");
-        request.setName("Edit Task");
-        request.setCategory("TASK");
-        request.setDescription("Allows editing");
-
+    void kanbanPermissionCatalog_isReadOnly() throws Exception {
         KanbanPermission permission = kanbanPermission(11);
-        when(kanbanPermissionService.create(any(KanbanPermission.class))).thenReturn(permission);
         when(kanbanPermissionService.findAll()).thenReturn(List.of(permission));
-        when(kanbanPermissionService.findById(11)).thenReturn(Optional.of(permission));
-        when(kanbanPermissionService.update(any(KanbanPermission.class))).thenReturn(permission);
 
-        mockMvc.perform(post("/api/servers/1/permissions/catalog").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated());
+        mockMvc.perform(get("/api/servers/1/permissions/catalog").with(asUser(10L)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].key").value("EDIT_TASK"));
 
-        mockMvc.perform(get("/api/servers/1/permissions/catalog").param("userId", "10"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/servers/1/permissions/catalog/11").param("userId", "10"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(put("/api/servers/1/permissions/catalog/11").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(delete("/api/servers/1/permissions/catalog/11").param("userId", "10"))
-                .andExpect(status().isNoContent());
-
-        when(kanbanPermissionService.findById(404)).thenReturn(Optional.empty());
-        mockMvc.perform(get("/api/servers/1/permissions/catalog/404").param("userId", "10"))
-                .andExpect(status().isNotFound());
+        // The catalog is global and defined in code; server members must not be able to mutate it.
+        mockMvc.perform(post("/api/servers/1/permissions/catalog").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(put("/api/servers/1/permissions/catalog/11").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(delete("/api/servers/1/permissions/catalog/11").with(asUser(10L)))
+                .andExpect(status().is4xxClientError());
     }
 
     @Test
@@ -192,76 +157,79 @@ class GovernanceControllersApiTest {
         when(resourceValidator.requirePermissionInServer(33L, 1L)).thenReturn(permission);
         when(permissionService.update(any(Permission.class))).thenReturn(permission);
 
-        mockMvc.perform(post("/api/servers/1/permissions").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/permissions").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/permissions").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/permissions").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/permissions/33").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/permissions/33").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/servers/1/permissions/33").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/permissions/33").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/permissions/33").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/permissions/33").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         when(kanbanPermissionService.findById(999)).thenReturn(Optional.empty());
         request.setKanbanPermissionId(999);
-        mockMvc.perform(post("/api/servers/1/permissions").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/permissions").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    void memberRoleEndpoints_coverHappyAndUnhappy() throws Exception {
-        MemberRoleRequest request = new MemberRoleRequest();
-        request.setServerMemberId(55L);
-        request.setRoleId(20L);
+    void evaluatingOwnPermissions_needsOnlyMembership_othersNeedManagePermissions() throws Exception {
+        when(permissionEvaluationService.resolveAll(any(), any(), any(), any()))
+                .thenReturn(Map.of("EDIT_TASK", PermissionEvaluationService.Decision.NONE));
 
-        ServerMember serverMember = serverMember(55L);
-        Role role = role(20L);
-        MemberRole memberRole = memberRole(66L, serverMember, role);
+        mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(10L))
+                .param("permissionKey", "EDIT_TASK"))
+                .andExpect(status().isOk());
+        verify(accessValidator).requireUserInServer(10L, 1L);
+        verify(accessValidator, never()).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
 
-        when(resourceValidator.requireServerMemberInServer(55L, 1L)).thenReturn(serverMember);
-        when(resourceValidator.requireRoleInServer(20L, 1L)).thenReturn(role);
-        when(memberRoleService.create(any(MemberRole.class))).thenReturn(memberRole);
-        when(memberRoleService.findByServerMemberId(55L)).thenReturn(List.of(memberRole));
-        when(resourceValidator.requireMemberRoleInServer(66L, 1L)).thenReturn(memberRole);
-        when(memberRoleService.update(any(MemberRole.class))).thenReturn(memberRole);
+        mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(10L))
+                .param("permissionKey", "EDIT_TASK")
+                .param("targetUserId", "11"))
+                .andExpect(status().isOk());
+        verify(accessValidator).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
+        verify(permissionEvaluationService).resolveAll(1L, null, 11L, List.of("EDIT_TASK"));
 
-        mockMvc.perform(post("/api/servers/1/members/55/roles").param("userId", "10")
+        doThrow(new AccessDeniedException("denied"))
+                .when(accessValidator).requireServerPermission(12L, 1L, "MANAGE_SERVER_PERMISSIONS");
+        mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(12L))
+                .param("permissionKey", "EDIT_TASK")
+                .param("targetUserId", "11"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void createdPermissionRules_areNeverImmutable() throws Exception {
+        PermissionRequest request = new PermissionRequest();
+        request.setScopeType("SERVER");
+        request.setScopeId(1L);
+        request.setSubjectType("ROLE");
+        request.setSubjectId(20L);
+        request.setKanbanPermissionId(11);
+        request.setState("DENY");
+        request.setPriority(100);
+        request.setIsImmutable(true);
+
+        when(kanbanPermissionService.findById(11)).thenReturn(Optional.of(kanbanPermission(11)));
+        when(permissionService.create(any(Permission.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(post("/api/servers/1/permissions").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated());
-
-        mockMvc.perform(get("/api/servers/1/members/55/roles").param("userId", "10"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/servers/1/members/55/roles/66").param("userId", "10"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(put("/api/servers/1/members/55/roles/66").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(delete("/api/servers/1/members/55/roles/66").param("userId", "10"))
-                .andExpect(status().isNoContent());
-
-        when(resourceValidator.requireRoleInServer(999L, 1L))
-                .thenThrow(new ResourceNotFoundException("Role", "roleId", 999L));
-        request.setRoleId(999L);
-        mockMvc.perform(post("/api/servers/1/members/55/roles").param("userId", "10")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isImmutable").value(false));
     }
 
     private static User user(Long id) {
@@ -318,29 +286,5 @@ class GovernanceControllersApiTest {
         permission.setState("ALLOW");
         permission.setPriority(10);
         return permission;
-    }
-
-    private static ServerMember serverMember(Long id) {
-        ServerMember member = new ServerMember();
-        member.setId(id);
-        member.setServer(server(1L));
-        member.setUser(user(10L));
-        return member;
-    }
-
-    private static Role role(Long id) {
-        Role role = new Role();
-        role.setRoleId(id);
-        role.setServer(server(1L));
-        role.setName("role");
-        return role;
-    }
-
-    private static MemberRole memberRole(Long id, ServerMember serverMember, Role role) {
-        MemberRole memberRole = new MemberRole();
-        memberRole.setId(id);
-        memberRole.setServerMember(serverMember);
-        memberRole.setRole(role);
-        return memberRole;
     }
 }

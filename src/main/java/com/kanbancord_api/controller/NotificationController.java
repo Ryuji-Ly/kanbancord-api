@@ -5,7 +5,8 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.Notification;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.NotificationService;
-import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -35,7 +36,7 @@ public class NotificationController {
     public ResponseEntity<List<NotificationResponse>> getNotificationsByUserId(
             @PathVariable Long userId,
             @RequestParam(required = false) Boolean isRead,
-            @RequestParam Long requestingUserId) {
+            @CurrentUser Long requestingUserId) {
 
         accessValidator.requireSelf(requestingUserId, userId);
 
@@ -57,7 +58,7 @@ public class NotificationController {
     public ResponseEntity<NotificationResponse> getNotificationById(
             @PathVariable Long userId,
             @PathVariable Long notificationId,
-            @RequestParam Long requestingUserId) {
+            @CurrentUser Long requestingUserId) {
 
         accessValidator.requireSelf(requestingUserId, userId);
 
@@ -72,7 +73,7 @@ public class NotificationController {
     @GetMapping("/unread-count")
     public ResponseEntity<Long> getUnreadCount(
             @PathVariable Long userId,
-            @RequestParam Long requestingUserId) {
+            @CurrentUser Long requestingUserId) {
 
         accessValidator.requireSelf(requestingUserId, userId);
 
@@ -83,7 +84,7 @@ public class NotificationController {
     public ResponseEntity<Void> markAsRead(
             @PathVariable Long userId,
             @PathVariable Long notificationId,
-            @RequestParam Long requestingUserId) {
+            @CurrentUser Long requestingUserId) {
 
         accessValidator.requireSelf(requestingUserId, userId);
 
@@ -99,7 +100,7 @@ public class NotificationController {
     @PatchMapping("/mark-all-read")
     public ResponseEntity<Void> markAllAsReadForUser(
             @PathVariable Long userId,
-            @RequestParam Long requestingUserId) {
+            @CurrentUser Long requestingUserId) {
 
         accessValidator.requireSelf(requestingUserId, userId);
 

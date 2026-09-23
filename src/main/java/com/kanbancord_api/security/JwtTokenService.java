@@ -3,6 +3,8 @@ package com.kanbancord_api.security;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.config.AuthJwtProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
@@ -17,6 +19,8 @@ import java.util.Optional;
 @Service
 public class JwtTokenService {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtTokenService.class);
+    private static final int MIN_SECRET_BYTES = 32;
     private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
 
@@ -26,6 +30,23 @@ public class JwtTokenService {
     public JwtTokenService(AuthJwtProperties authJwtProperties, ObjectMapper objectMapper) {
         this.authJwtProperties = authJwtProperties;
         this.objectMapper = objectMapper;
+        validateSecret(authJwtProperties.getSecret());
+    }
+
+    /**
+     * HS256 secrets shorter than 256 bits can be brute-forced offline from any issued token, so refuse
+     * to start with one. An empty secret is allowed at startup (login simply fails) so tooling and
+     * tests can boot without auth configured.
+     */
+    private static void validateSecret(String secret) {
+        if (secret == null || secret.isBlank()) {
+            log.warn("kanbancord.auth.jwt.secret is not set; user login is disabled");
+            return;
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "kanbancord.auth.jwt.secret must be at least " + MIN_SECRET_BYTES + " bytes");
+        }
     }
 
     public String issueToken(Long userId) {

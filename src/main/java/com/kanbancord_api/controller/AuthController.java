@@ -1,7 +1,6 @@
 package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.AuthResponse;
-import com.kanbancord_api.dto.DiscordLoginRequest;
 import com.kanbancord_api.dto.DiscordOAuthCodeExchangeRequest;
 import com.kanbancord_api.dto.UserResponse;
 import com.kanbancord_api.model.User;
@@ -32,12 +31,6 @@ public class AuthController {
         this.discordIdentityService = discordIdentityService;
         this.discordOAuthService = discordOAuthService;
         this.jwtTokenService = jwtTokenService;
-    }
-
-    @PostMapping("/discord/login")
-    public ResponseEntity<AuthResponse> discordLogin(@Valid @RequestBody DiscordLoginRequest request) {
-        User user = discordIdentityService.authenticateAndSyncUser(request.getAccessToken());
-        return ResponseEntity.ok(toAuthResponse(user));
     }
 
     @PostMapping("/discord/exchange")

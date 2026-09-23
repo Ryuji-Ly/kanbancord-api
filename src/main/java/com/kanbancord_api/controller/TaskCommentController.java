@@ -13,7 +13,8 @@ import com.kanbancord_api.repository.TaskCommentEditRepository;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskCommentService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -63,10 +64,9 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskCommentRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
-        accessValidator.requireServerPermission(userId, serverId, "CREATE_TASK_COMMENT");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_TASK_COMMENT");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
@@ -109,10 +109,10 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @RequestParam(required = false) Boolean activeOnly,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             Pageable pageable) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         resourceValidator.requireTaskInServer(taskId, serverId);
@@ -135,9 +135,9 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
@@ -154,15 +154,15 @@ public class TaskCommentController {
             @PathVariable Long taskId,
             @PathVariable Long commentId,
             @Valid @RequestBody TaskCommentRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
-        accessValidator.requireServerPermission(userId, serverId, "EDIT_TASK_COMMENT");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
+        accessValidator.requireBoardPermission(userId, serverId, boardId,
+                isAuthor(comment, userId) ? "CREATE_TASK_COMMENT" : "EDIT_TASK_COMMENT");
 
         comment.setContent(request.getContent());
 
@@ -200,14 +200,14 @@ public class TaskCommentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
-        accessValidator.requireServerPermission(userId, serverId, "DELETE_TASK_COMMENT");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
+        accessValidator.requireBoardPermission(userId, serverId, boardId,
+                isAuthor(comment, userId) ? "CREATE_TASK_COMMENT" : "DELETE_TASK_COMMENT");
 
         TaskCommentResponse response = mapToResponse(comment);
         taskCommentService.deleteById(comment.getCommentId());
@@ -226,37 +226,12 @@ public class TaskCommentController {
         return ResponseEntity.noContent().build();
     }
 
-    @PatchMapping("/{commentId}/soft-delete")
-    @Transactional
-    public ResponseEntity<Void> softDeleteComment(
-            @PathVariable Long serverId,
-            @PathVariable Long boardId,
-            @PathVariable Long taskId,
-            @PathVariable Long commentId,
-            @RequestParam Long userId) {
-
-        accessValidator.requireUserInServer(userId, serverId);
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
-
-        taskCommentService.softDelete(comment.getCommentId());
-        TaskComment softDeleted = taskCommentService.findById(commentId).orElse(comment);
-        TaskCommentResponse response = mapToResponse(softDeleted);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_COMMENT_SOFT_DELETED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_COMMENT",
-                        commentId,
-                        userId,
-                        response));
-        return ResponseEntity.noContent().build();
+    /**
+     * Authors manage their own comments with the same permission that lets them comment at all;
+     * EDIT_TASK_COMMENT / DELETE_TASK_COMMENT are moderation permissions for other people's comments.
+     */
+    private static boolean isAuthor(TaskComment comment, Long userId) {
+        return comment.getUser() != null && userId.equals(comment.getUser().getUserId());
     }
 
     private TaskCommentResponse mapToResponse(TaskComment comment) {

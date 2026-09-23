@@ -23,8 +23,6 @@ public interface TaskCommentRepository extends JpaRepository<TaskComment, Long> 
 
     List<TaskComment> findByUser_UserId(Long userId);
 
-    List<TaskComment> findByReplyTo_CommentId(Long parentCommentId);
-
     // Scoped query to prevent cross-server access
     @Query("SELECT c FROM TaskComment c WHERE c.commentId = :commentId AND c.task.board.server.serverId = :serverId")
     Optional<TaskComment> findByCommentIdAndServerId(Long commentId, Long serverId);

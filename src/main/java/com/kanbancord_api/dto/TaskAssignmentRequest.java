@@ -10,7 +10,7 @@ public class TaskAssignmentRequest {
     @NotNull(message = "User ID is required")
     private Long userId;
 
-    @NotNull(message = "Assigned by ID is required")
+    /** Ignored: the assigner is always the authenticated user. Kept for client compatibility. */
     private Long assignedBy;
 
     // Getters and Setters

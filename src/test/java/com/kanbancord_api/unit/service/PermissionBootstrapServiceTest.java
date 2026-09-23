@@ -15,11 +15,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
@@ -64,57 +62,6 @@ class PermissionBootstrapServiceTest {
                         && Boolean.TRUE.equals(permission.getIsImmutable()));
 
         assertTrue(hasImmutableAdminRule);
-    }
-
-    @Test
-    void initializeBoardConfigurationFromServer_copiesOnlyBoardApplicablePermissions() {
-        Map<String, KanbanPermission> catalog = buildCatalog();
-        when(kanbanPermissionRepository.findByKey(any())).thenAnswer(invocation -> {
-            String key = invocation.getArgument(0, String.class);
-            return Optional.ofNullable(catalog.get(key));
-        });
-
-        Permission createBoardServerRule = new Permission();
-        createBoardServerRule.setScopeType("SERVER");
-        createBoardServerRule.setScopeId(1L);
-        createBoardServerRule.setSubjectType("DISCORD_PERMISSION");
-        createBoardServerRule.setSubjectId(DiscordPermissionFlag.MANAGE_GUILD.getBit());
-        createBoardServerRule.setKanbanPermission(catalog.get("CREATE_BOARD"));
-        createBoardServerRule.setState("ALLOW");
-        createBoardServerRule.setPriority(100);
-
-        Permission editTaskServerRule = new Permission();
-        editTaskServerRule.setScopeType("SERVER");
-        editTaskServerRule.setScopeId(1L);
-        editTaskServerRule.setSubjectType("DISCORD_PERMISSION");
-        editTaskServerRule.setSubjectId(DiscordPermissionFlag.MANAGE_MESSAGES.getBit());
-        editTaskServerRule.setKanbanPermission(catalog.get("EDIT_TASK"));
-        editTaskServerRule.setState("ALLOW");
-        editTaskServerRule.setPriority(100);
-
-        when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", 1L))
-                .thenReturn(List.of(createBoardServerRule, editTaskServerRule));
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdAndKanbanPermission_PermissionId(
-                any(), any(), any(), any(), any())).thenReturn(Optional.empty());
-
-        service.initializeBoardConfigurationFromServer(1L, 99L);
-
-        ArgumentCaptor<Permission> saved = ArgumentCaptor.forClass(Permission.class);
-        verify(permissionRepository, atLeastOnce()).save(saved.capture());
-
-        boolean hasBoardEditTask = saved.getAllValues().stream()
-                .anyMatch(permission -> "BOARD".equals(permission.getScopeType())
-                        && Long.valueOf(99L).equals(permission.getScopeId())
-                        && permission.getKanbanPermission() != null
-                        && "EDIT_TASK".equals(permission.getKanbanPermission().getKey()));
-
-        boolean hasBoardCreateBoard = saved.getAllValues().stream()
-                .anyMatch(permission -> "BOARD".equals(permission.getScopeType())
-                        && permission.getKanbanPermission() != null
-                        && "CREATE_BOARD".equals(permission.getKanbanPermission().getKey()));
-
-        assertTrue(hasBoardEditTask);
-        assertFalse(hasBoardCreateBoard);
     }
 
     private static Map<String, KanbanPermission> buildCatalog() {

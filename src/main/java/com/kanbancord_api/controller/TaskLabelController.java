@@ -7,7 +7,8 @@ import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskLabel;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.TaskLabelService;
+import com.kanbancord_api.service.TaskLabelService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,9 +42,9 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskLabelRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "APPLY_LABEL_TO_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
@@ -65,9 +66,9 @@ public class TaskLabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         resourceValidator.requireTaskInServer(taskId, serverId);
@@ -87,9 +88,9 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long taskLabelId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
@@ -104,9 +105,9 @@ public class TaskLabelController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long taskLabelId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "REMOVE_LABEL_FROM_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
