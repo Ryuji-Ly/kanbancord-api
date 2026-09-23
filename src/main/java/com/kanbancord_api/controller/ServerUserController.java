@@ -6,7 +6,8 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.model.User;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -40,22 +41,22 @@ public class ServerUserController {
     public ResponseEntity<UserResponse> getUserByIdInServer(
             @PathVariable Long serverId,
             @PathVariable Long targetUserId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "VIEW_SERVER");
         resourceValidator.validatePermissionSubjectBelongsToServer("USER", targetUserId, serverId);
 
         User user = userService.findById(targetUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", targetUserId));
 
-        return ResponseEntity.ok(mapToResponse(user));
+        return ResponseEntity.ok(mapToResponse(user, targetUserId.equals(userId)));
     }
 
     @PutMapping("/{targetUserId}")
     public ResponseEntity<UserResponse> updateUserInServer(
             @PathVariable Long serverId,
             @PathVariable Long targetUserId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @Valid @RequestBody UserUpdateRequest request) {
 
         accessValidator.requireUserInServer(userId, serverId);
@@ -76,16 +77,19 @@ public class ServerUserController {
         }
 
         User updated = userService.update(user);
-        return ResponseEntity.ok(mapToResponse(updated));
+        return ResponseEntity.ok(mapToResponse(updated, true));
     }
 
-    private UserResponse mapToResponse(User user) {
+    /** Preferences are private to their owner and only included when a user reads themselves. */
+    private UserResponse mapToResponse(User user, boolean includePreferences) {
         UserResponse response = new UserResponse();
         response.setUserId(user.getUserId());
         response.setUsername(user.getUsername());
         response.setGlobalName(user.getGlobalName());
         response.setAvatarUrl(user.getAvatarUrl());
-        response.setPreferences(user.getPreferences());
+        if (includePreferences) {
+            response.setPreferences(user.getPreferences());
+        }
         response.setCreatedAt(user.getCreatedAt());
         response.setUpdatedAt(user.getUpdatedAt());
         return response;

@@ -10,7 +10,8 @@ import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskAssignmentService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -50,19 +51,23 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskAssignmentRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
+        accessValidator.requireBoardPermission(userId, serverId, boardId, assignPermissionFor(userId, request.getUserId()));
+        resourceValidator.validatePermissionSubjectBelongsToServer("USER", request.getUserId(), serverId);
+
         User user = userService.findById(request.getUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getUserId()));
 
-        User assignedBy = userService.findById(request.getAssignedBy())
-                .orElseThrow(() -> new ResourceNotFoundException("User", "assignedBy", request.getAssignedBy()));
+        // The assigner is always the authenticated user; request.assignedBy is ignored.
+        User assignedBy = userService.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
 
         TaskAssignment taskAssignment = new TaskAssignment();
         taskAssignment.setTask(task);
@@ -91,9 +96,9 @@ public class TaskAssignmentController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         resourceValidator.requireTaskInServer(taskId, serverId);
@@ -113,9 +118,9 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long assignmentId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
@@ -131,14 +136,16 @@ public class TaskAssignmentController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long assignmentId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
 
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
+        accessValidator.requireBoardPermission(userId, serverId, boardId,
+                assignPermissionFor(userId, assignment.getUser().getUserId()));
 
         TaskAssignmentResponse response = mapToResponse(assignment);
         taskAssignmentService.deleteById(assignment.getId());
@@ -155,6 +162,11 @@ public class TaskAssignmentController {
                         userId,
                         response));
         return ResponseEntity.noContent().build();
+    }
+
+    /** Assigning or unassigning yourself needs ASSIGN_TASK_SELF; anyone else needs ASSIGN_TASK_OTHERS. */
+    private static String assignPermissionFor(Long actorUserId, Long assigneeUserId) {
+        return actorUserId.equals(assigneeUserId) ? "ASSIGN_TASK_SELF" : "ASSIGN_TASK_OTHERS";
     }
 
     private TaskAssignmentResponse mapToResponse(TaskAssignment assignment) {

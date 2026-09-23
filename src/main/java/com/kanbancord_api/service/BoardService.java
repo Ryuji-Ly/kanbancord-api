@@ -22,15 +22,12 @@ public class BoardService {
 
     private final BoardRepository boardRepository;
     private final BoardColumnRepository boardColumnRepository;
-    private final PermissionBootstrapService permissionBootstrapService;
 
     public BoardService(
             BoardRepository boardRepository,
-            BoardColumnRepository boardColumnRepository,
-            PermissionBootstrapService permissionBootstrapService) {
+            BoardColumnRepository boardColumnRepository) {
         this.boardRepository = boardRepository;
         this.boardColumnRepository = boardColumnRepository;
-        this.permissionBootstrapService = permissionBootstrapService;
     }
 
     public Board create(Board board) {
@@ -42,11 +39,8 @@ public class BoardService {
 
         createDefaultColumns(created, columnNames);
 
-        if (created.getServer() != null && created.getServer().getServerId() != null && created.getBoardId() != null) {
-            permissionBootstrapService.initializeBoardConfigurationFromServer(
-                    created.getServer().getServerId(),
-                    created.getBoardId());
-        }
+        // No permission rules are created: a new board inherits the server's rules until someone
+        // overrides them at board scope.
         return created;
     }
 
@@ -125,11 +119,6 @@ public class BoardService {
     @Transactional(readOnly = true)
     public Page<Board> findByServerIdAndArchived(Long serverId, Boolean isArchived, Pageable pageable) {
         return boardRepository.findByServer_ServerIdAndIsArchived(serverId, isArchived, pageable);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Board> findByCreatedBy(Long userId) {
-        return boardRepository.findByCreatedBy_UserId(userId);
     }
 
     @Transactional(readOnly = true)

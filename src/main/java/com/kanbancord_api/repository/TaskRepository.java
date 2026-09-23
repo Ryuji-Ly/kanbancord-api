@@ -17,8 +17,6 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
 
     Page<Task> findByBoard_BoardId(Long boardId, Pageable pageable);
 
-    List<Task> findByColumn_ColumnId(Long columnId);
-
     List<Task> findByColumn_ColumnIdOrderByPositionAsc(Long columnId);
 
     Page<Task> findByColumn_ColumnIdOrderByPositionAsc(Long columnId, Pageable pageable);
@@ -26,8 +24,6 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     List<Task> findByBoard_BoardIdAndIsArchived(Long boardId, Boolean isArchived);
 
     Page<Task> findByBoard_BoardIdAndIsArchived(Long boardId, Boolean isArchived, Pageable pageable);
-
-    List<Task> findByCreatedBy_UserId(Long userId);
 
     // Scoped query to prevent cross-server access
     @Query("SELECT t FROM Task t WHERE t.taskId = :taskId AND t.board.server.serverId = :serverId")

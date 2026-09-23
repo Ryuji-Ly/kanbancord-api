@@ -2,20 +2,25 @@ package com.kanbancord_api.unit.service;
 
 import com.kanbancord_api.config.InternalSyncProperties;
 import com.kanbancord_api.exception.AccessDeniedException;
-import com.kanbancord_api.exception.BadRequestException;
+import com.kanbancord_api.exception.UnauthenticatedException;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ServerAccessValidator;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -35,31 +40,70 @@ class AccessValidatorTest {
         accessValidator = new AccessValidator(serverAccessValidator, internalSyncProperties);
     }
 
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
-    void requireUserInServer_throwsBadRequest_whenUserIdIsNull() {
-        assertThrows(BadRequestException.class, () -> accessValidator.requireUserInServer(null, 1L));
+    void requireUserInServer_rejectsUnauthenticatedCaller_evenWhenUserIdSupplied() {
+        assertThrows(UnauthenticatedException.class, () -> accessValidator.requireUserInServer(10L, 20L));
         verifyNoInteractions(serverAccessValidator);
     }
 
     @Test
-    void requireUserInServer_delegatesToServerValidator_whenInputsAreValid() {
-        accessValidator.requireUserInServer(10L, 20L);
+    void requireUserInServer_usesAuthenticatedUser() {
+        authenticateAs(10L);
+
+        accessValidator.requireUserInServer(null, 20L);
 
         verify(serverAccessValidator).validateUserInServer(10L, 20L);
     }
 
     @Test
-    void requireSelf_throwsBadRequest_whenRequestingUserIdIsNull() {
-        assertThrows(BadRequestException.class, () -> accessValidator.requireSelf(null, 1L));
+    void requireUserInServer_rejectsMismatchedUserId() {
+        authenticateAs(10L);
+
+        assertThrows(AccessDeniedException.class, () -> accessValidator.requireUserInServer(11L, 20L));
+        verifyNoInteractions(serverAccessValidator);
+    }
+
+    @Test
+    void requireBoardPermission_delegatesWithBoardScope() {
+        authenticateAs(10L);
+
+        accessValidator.requireBoardPermission(10L, 20L, 30L, "EDIT_TASK");
+
+        verify(serverAccessValidator).validateUserHasPermission(10L, 20L, 30L, "EDIT_TASK");
+    }
+
+    @Test
+    void requireServerPermission_delegatesWithoutBoardScope() {
+        authenticateAs(10L);
+
+        accessValidator.requireServerPermission(10L, 20L, "CREATE_BOARD");
+
+        verify(serverAccessValidator).validateUserHasPermission(10L, 20L, null, "CREATE_BOARD");
+    }
+
+    @Test
+    void requireAuthenticatedUserId_returnsPrincipal() {
+        authenticateAs(42L);
+
+        assertEquals(42L, accessValidator.requireAuthenticatedUserId());
     }
 
     @Test
     void requireSelf_throwsAccessDenied_whenUsersDoNotMatch() {
+        authenticateAs(1L);
+
         assertThrows(AccessDeniedException.class, () -> accessValidator.requireSelf(1L, 2L));
     }
 
     @Test
     void requireSelf_allows_whenUsersMatch() {
+        authenticateAs(2L);
+
         assertDoesNotThrow(() -> accessValidator.requireSelf(2L, 2L));
     }
 
@@ -76,6 +120,11 @@ class AccessValidatorTest {
     @Test
     void requireInternalSyncAccess_allows_whenTokenMatches() {
         assertDoesNotThrow(() -> accessValidator.requireInternalSyncAccess("bot-secret"));
+    }
+
+    private static void authenticateAs(Long userId) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userId, null, List.of()));
     }
 
     private String sha256Hex(String value) {

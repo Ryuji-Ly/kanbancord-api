@@ -14,7 +14,8 @@ import com.kanbancord_api.service.KanbanPermissionService;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.PermissionEscalationGuardService;
 import com.kanbancord_api.service.PermissionService;
-import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -68,7 +69,7 @@ public class PermissionController {
     @PostMapping
     public ResponseEntity<PermissionResponse> createPermission(
             @PathVariable Long serverId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @Valid @RequestBody PermissionRequest request) {
 
         accessValidator.requireUserInServer(userId, serverId);
@@ -81,23 +82,10 @@ public class PermissionController {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
         validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
-        permissionEscalationGuardService.validateCreate(
-                userId,
-                serverId,
-                request.getSubjectType(),
-                request.getSubjectId(),
-                kanbanPermission.getKey(),
-                request.getState());
 
         Permission permission = new Permission();
-        permission.setScopeType(request.getScopeType());
-        permission.setScopeId(request.getScopeId());
-        permission.setSubjectType(request.getSubjectType());
-        permission.setSubjectId(request.getSubjectId());
-        permission.setKanbanPermission(kanbanPermission);
-        permission.setState(request.getState());
-        permission.setPriority(request.getPriority());
-        permission.setIsImmutable(request.getIsImmutable() != null && request.getIsImmutable());
+        applyRequest(permission, request, kanbanPermission);
+        permissionEscalationGuardService.validateChange(userId, serverId, null, permission);
 
         Permission created = permissionService.create(permission);
         PermissionResponse response = toResponse(created);
@@ -108,7 +96,7 @@ public class PermissionController {
     @GetMapping
     public ResponseEntity<List<PermissionResponse>> getPermissions(
             @PathVariable Long serverId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @RequestParam(required = false) String scopeType,
             @RequestParam(required = false) Long scopeId) {
 
@@ -135,7 +123,7 @@ public class PermissionController {
     public ResponseEntity<PermissionResponse> getPermissionById(
             @PathVariable Long serverId,
             @PathVariable Long permissionId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
         accessValidator.requireUserInServer(userId, serverId);
 
@@ -147,7 +135,7 @@ public class PermissionController {
     public ResponseEntity<PermissionResponse> updatePermission(
             @PathVariable Long serverId,
             @PathVariable Long permissionId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @Valid @RequestBody PermissionRequest request) {
 
         accessValidator.requireUserInServer(userId, serverId);
@@ -166,23 +154,12 @@ public class PermissionController {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
         validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
-        permissionEscalationGuardService.validateUpdate(
-                userId,
-                serverId,
-                permission,
-                request.getSubjectType(),
-                request.getSubjectId(),
-                kanbanPermission.getKey(),
-                request.getState());
 
-        permission.setScopeType(request.getScopeType());
-        permission.setScopeId(request.getScopeId());
-        permission.setSubjectType(request.getSubjectType());
-        permission.setSubjectId(request.getSubjectId());
-        permission.setKanbanPermission(kanbanPermission);
-        permission.setState(request.getState());
-        permission.setPriority(request.getPriority());
-        permission.setIsImmutable(request.getIsImmutable() != null && request.getIsImmutable());
+        Permission after = copyOf(permission);
+        applyRequest(after, request, kanbanPermission);
+        permissionEscalationGuardService.validateChange(userId, serverId, copyOf(permission), after);
+
+        applyRequest(permission, request, kanbanPermission);
 
         Permission updated = permissionService.update(permission);
         PermissionResponse response = toResponse(updated);
@@ -194,7 +171,7 @@ public class PermissionController {
     public ResponseEntity<Void> patchPermissionState(
             @PathVariable Long serverId,
             @PathVariable Long permissionId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @RequestBody java.util.Map<String, String> body) {
 
         accessValidator.requireUserInServer(userId, serverId);
@@ -209,7 +186,9 @@ public class PermissionController {
             throw new BadRequestException("State must be ALLOW or DENY");
         }
 
-        permissionEscalationGuardService.validatePatchState(userId, serverId, permission, newState);
+        Permission after = copyOf(permission);
+        after.setState(newState);
+        permissionEscalationGuardService.validateChange(userId, serverId, copyOf(permission), after);
 
         permission.setState(newState);
         Permission updated = permissionService.update(permission);
@@ -221,7 +200,7 @@ public class PermissionController {
     public ResponseEntity<Void> deletePermission(
             @PathVariable Long serverId,
             @PathVariable Long permissionId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
         accessValidator.requireUserInServer(userId, serverId);
 
@@ -230,7 +209,7 @@ public class PermissionController {
             throw new IllegalStateException("Immutable permissions cannot be deleted");
         }
 
-        permissionEscalationGuardService.validateDelete(userId, serverId, permission);
+        permissionEscalationGuardService.validateChange(userId, serverId, copyOf(permission), null);
 
         PermissionResponse response = toResponse(permission);
         permissionService.deleteById(permission.getId());
@@ -241,58 +220,93 @@ public class PermissionController {
     @GetMapping("/evaluate")
     public ResponseEntity<PermissionDecisionResponse> evaluatePermission(
             @PathVariable Long serverId,
-            @RequestParam Long userId,
-            @RequestParam Long targetUserId,
+            @CurrentUser Long userId,
+            @RequestParam(required = false) Long targetUserId,
             @RequestParam String permissionKey,
             @RequestParam(required = false) Long boardId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
-        resourceValidator.validatePermissionSubjectBelongsToServer("USER", targetUserId, serverId);
+        Long subjectUserId = authorizeEvaluation(userId, serverId, targetUserId, boardId);
 
         PermissionEvaluationService.Decision decision = permissionEvaluationService.resolve(
                 serverId,
                 boardId,
-                targetUserId,
+                subjectUserId,
                 permissionKey);
 
+        return ResponseEntity.ok(toDecisionResponse(decision));
+    }
+
+    @GetMapping("/evaluate-batch")
+    public ResponseEntity<Map<String, PermissionDecisionResponse>> evaluatePermissions(
+            @PathVariable Long serverId,
+            @CurrentUser Long userId,
+            @RequestParam(required = false) Long targetUserId,
+            @RequestParam List<String> permissionKey,
+            @RequestParam(required = false) Long boardId) {
+
+        Long subjectUserId = authorizeEvaluation(userId, serverId, targetUserId, boardId);
+
+        Map<String, PermissionDecisionResponse> responses = new LinkedHashMap<>();
+        permissionEvaluationService.resolveAll(serverId, boardId, subjectUserId, permissionKey)
+                .forEach((key, decision) -> responses.put(key, toDecisionResponse(decision)));
+
+        return ResponseEntity.ok(responses);
+    }
+
+    /**
+     * Anyone may evaluate their own permissions; evaluating another member's requires
+     * MANAGE_SERVER_PERMISSIONS. Returns the user whose permissions are evaluated.
+     */
+    private Long authorizeEvaluation(Long userId, Long serverId, Long targetUserId, Long boardId) {
+        Long subjectUserId = targetUserId != null ? targetUserId : userId;
+        if (subjectUserId.equals(userId)) {
+            accessValidator.requireUserInServer(userId, serverId);
+        } else {
+            accessValidator.requireServerPermission(userId, serverId, "MANAGE_SERVER_PERMISSIONS");
+            resourceValidator.validatePermissionSubjectBelongsToServer("USER", subjectUserId, serverId);
+        }
+        if (boardId != null) {
+            resourceValidator.requireBoardInServer(boardId, serverId);
+        }
+        return subjectUserId;
+    }
+
+    private static PermissionDecisionResponse toDecisionResponse(PermissionEvaluationService.Decision decision) {
         PermissionDecisionResponse response = new PermissionDecisionResponse();
         response.setAllowed(decision.allowed());
         response.setSourceTier(decision.sourceTier());
         response.setSourceScopeType(decision.sourceScopeType());
         response.setSourceScopeId(decision.sourceScopeId());
         response.setSourcePermissionId(decision.sourcePermissionId());
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    @GetMapping("/evaluate-batch")
-    public ResponseEntity<Map<String, PermissionDecisionResponse>> evaluatePermissions(
-            @PathVariable Long serverId,
-            @RequestParam Long userId,
-            @RequestParam Long targetUserId,
-            @RequestParam List<String> permissionKey,
-            @RequestParam(required = false) Long boardId) {
+    private static void applyRequest(Permission permission, PermissionRequest request,
+            KanbanPermission kanbanPermission) {
+        permission.setScopeType(request.getScopeType());
+        permission.setScopeId(request.getScopeId());
+        permission.setSubjectType(request.getSubjectType());
+        permission.setSubjectId(request.getSubjectId());
+        permission.setKanbanPermission(kanbanPermission);
+        permission.setState(request.getState());
+        permission.setPriority(request.getPriority());
+        // Immutable rules are system-owned (seeded defaults); clients can never create or keep them.
+        permission.setIsImmutable(false);
+    }
 
-        accessValidator.requireUserInServer(userId, serverId);
-        resourceValidator.validatePermissionSubjectBelongsToServer("USER", targetUserId, serverId);
-
-        Map<String, PermissionDecisionResponse> responses = new LinkedHashMap<>();
-        for (String key : permissionKey) {
-            PermissionEvaluationService.Decision decision = permissionEvaluationService.resolve(
-                    serverId,
-                    boardId,
-                    targetUserId,
-                    key);
-
-            PermissionDecisionResponse response = new PermissionDecisionResponse();
-            response.setAllowed(decision.allowed());
-            response.setSourceTier(decision.sourceTier());
-            response.setSourceScopeType(decision.sourceScopeType());
-            response.setSourceScopeId(decision.sourceScopeId());
-            response.setSourcePermissionId(decision.sourcePermissionId());
-            responses.put(key, response);
-        }
-
-        return ResponseEntity.ok(responses);
+    /** A detached copy, so the guard can compare the stored rule with the proposed one. */
+    private static Permission copyOf(Permission source) {
+        Permission copy = new Permission();
+        copy.setId(source.getId());
+        copy.setScopeType(source.getScopeType());
+        copy.setScopeId(source.getScopeId());
+        copy.setSubjectType(source.getSubjectType());
+        copy.setSubjectId(source.getSubjectId());
+        copy.setKanbanPermission(source.getKanbanPermission());
+        copy.setState(source.getState());
+        copy.setPriority(source.getPriority());
+        copy.setIsImmutable(source.getIsImmutable());
+        return copy;
     }
 
     private void validateScopeApplicability(String scopeType, String kanbanPermissionKey) {

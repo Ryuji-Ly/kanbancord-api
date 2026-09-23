@@ -12,7 +12,8 @@ import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,6 +21,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/servers/{serverId}/boards/{boardId}/tasks")
@@ -53,9 +56,9 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody TaskRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "CREATE_TASK");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_TASK");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -76,9 +79,9 @@ public class TaskController {
         task.setMetadata(request.getMetadata());
         task.setIsArchived(false);
 
-        Long creatorId = request.getCreatedBy() != null ? request.getCreatedBy() : userId;
-        User creator = userService.findById(creatorId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", creatorId));
+        // The creator is always the authenticated user; request.createdBy is ignored.
+        User creator = userService.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
         task.setCreatedBy(creator);
 
         Task created = taskService.create(task);
@@ -104,10 +107,10 @@ public class TaskController {
             @PathVariable Long boardId,
             @RequestParam(required = false) Boolean archived,
             @RequestParam(required = false) Long columnId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             Pageable pageable) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
 
         resourceValidator.requireBoardInServer(boardId, serverId);
 
@@ -131,9 +134,9 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
@@ -148,17 +151,28 @@ public class TaskController {
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "EDIT_TASK");
-        if (request.getColumnId() != null) {
-            accessValidator.requireServerPermission(userId, serverId, "MOVE_TASK");
-        }
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+
+        // Require only the permissions for what actually changes: moving a task must not need
+        // EDIT_TASK, and editing a task in place must not need MOVE_TASK.
+        boolean contentChanged = contentChanged(task, request);
+        boolean moved = moved(task, request);
+        if (!contentChanged && !moved) {
+            accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
+            return ResponseEntity.ok(mapToResponse(task));
+        }
+        if (contentChanged) {
+            accessValidator.requireBoardPermission(userId, serverId, boardId, "EDIT_TASK");
+        }
+        if (moved) {
+            accessValidator.requireBoardPermission(userId, serverId, boardId, "MOVE_TASK");
+        }
 
         resourceValidator.validateTaskNotArchived(task);
 
@@ -207,9 +221,9 @@ public class TaskController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "DELETE_TASK");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "DELETE_TASK");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
@@ -230,6 +244,22 @@ public class TaskController {
                         userId,
                         response));
         return ResponseEntity.noContent().build();
+    }
+
+    private static boolean contentChanged(Task task, TaskRequest request) {
+        return !Objects.equals(task.getTitle(), request.getTitle())
+                || !Objects.equals(task.getDescription(), request.getDescription())
+                || (request.getPriority() != null && !request.getPriority().equals(task.getPriority()))
+                || (request.getDueDate() != null && !request.getDueDate().equals(task.getDueDate()))
+                || (request.getMetadata() != null && !request.getMetadata().equals(task.getMetadata()));
+    }
+
+    private static boolean moved(Task task, TaskRequest request) {
+        boolean columnChanged = request.getColumnId() != null
+                && !request.getColumnId().equals(task.getColumn().getColumnId());
+        boolean positionChanged = request.getPosition() != null
+                && (task.getPosition() == null || request.getPosition().compareTo(task.getPosition()) != 0);
+        return columnChanged || positionChanged;
     }
 
     private TaskResponse mapToResponse(Task task) {
