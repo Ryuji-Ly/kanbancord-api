@@ -46,11 +46,6 @@ public class MemberRoleService {
     }
 
     @Transactional(readOnly = true)
-    public List<MemberRole> findByRoleId(Long roleId) {
-        return memberRoleRepository.findByRole_RoleId(roleId);
-    }
-
-    @Transactional(readOnly = true)
     public Optional<MemberRole> findByServerMemberIdAndRoleId(Long serverMemberId, Long roleId) {
         return memberRoleRepository.findByServerMember_IdAndRole_RoleId(serverMemberId, roleId);
     }
@@ -61,14 +56,6 @@ public class MemberRoleService {
 
     public void deleteById(Long id) {
         memberRoleRepository.deleteById(id);
-    }
-
-    public void deleteByServerMemberIdAndRoleId(Long serverMemberId, Long roleId) {
-        memberRoleRepository.deleteByServerMember_IdAndRole_RoleId(serverMemberId, roleId);
-    }
-
-    public void deleteByServerMemberId(Long serverMemberId) {
-        memberRoleRepository.deleteByServerMember_Id(serverMemberId);
     }
 
     /**
