@@ -15,6 +15,7 @@ import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.PermissionBootstrapService;
 import com.kanbancord_api.service.RoleService;
 import com.kanbancord_api.service.ServerMemberService;
+import com.kanbancord_api.service.MemberRoleService;
 import com.kanbancord_api.service.ServerService;
 import com.kanbancord_api.service.UserService;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,8 @@ class InternalSyncControllerApiTest {
     private ServerMemberService serverMemberService;
     @MockitoBean
     private PermissionBootstrapService permissionBootstrapService;
+    @MockitoBean
+    private MemberRoleService memberRoleService;
 
     @Test
     void upsertServer_returnsNoContent_onHappyPath() throws Exception {

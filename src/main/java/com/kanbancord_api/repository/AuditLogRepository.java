@@ -17,6 +17,4 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     List<AuditLog> findByUser_UserId(Long userId);
 
     List<AuditLog> findByServer_ServerIdOrderByCreatedAtDesc(Long serverId);
-
-    List<AuditLog> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 }

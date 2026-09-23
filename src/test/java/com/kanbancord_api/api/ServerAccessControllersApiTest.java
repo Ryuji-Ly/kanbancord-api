@@ -41,6 +41,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = { ServerController.class, ServerUserController.class, NotificationController.class })
 @AutoConfigureMockMvc(addFilters = false)
@@ -73,7 +74,7 @@ class ServerAccessControllersApiTest {
         Server server = server(1L, "Main", user(10L, "owner"));
         when(serverService.findById(1L)).thenReturn(Optional.of(server));
 
-        mockMvc.perform(get("/api/servers/1").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1").with(asUser(10L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.serverId").value(1));
     }
@@ -82,9 +83,9 @@ class ServerAccessControllersApiTest {
     void getServerById_returnsForbidden_unhappyPath() throws Exception {
         doThrow(new AccessDeniedException("Forbidden"))
                 .when(accessValidator)
-                .requireUserInServer(99L, 1L);
+                .requireServerPermission(99L, 1L, "VIEW_SERVER");
 
-        mockMvc.perform(get("/api/servers/1").param("userId", "99"))
+        mockMvc.perform(get("/api/servers/1").with(asUser(99L)))
                 .andExpect(status().isForbidden());
     }
 
@@ -93,7 +94,7 @@ class ServerAccessControllersApiTest {
         Role role = role(5L, 1L);
         when(roleService.findByServerIdOrderedByPosition(1L)).thenReturn(List.of(role));
 
-        mockMvc.perform(get("/api/servers/1/roles").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/roles").with(asUser(10L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].roleId").value(5));
     }
@@ -103,7 +104,7 @@ class ServerAccessControllersApiTest {
         ServerMember member = member(20L, 1L, 10L);
         when(serverMemberService.findByServerId(1L)).thenReturn(List.of(member));
 
-        mockMvc.perform(get("/api/servers/1/members").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/members").with(asUser(10L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(20));
     }
@@ -113,7 +114,7 @@ class ServerAccessControllersApiTest {
         User target = user(30L, "target");
         when(userService.findById(30L)).thenReturn(Optional.of(target));
 
-        mockMvc.perform(get("/api/servers/1/users/30").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/users/30").with(asUser(10L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(30));
     }
@@ -122,7 +123,7 @@ class ServerAccessControllersApiTest {
     void getUserByIdInServer_returnsNotFound_unhappyPath() throws Exception {
         when(userService.findById(404L)).thenReturn(Optional.empty());
 
-        mockMvc.perform(get("/api/servers/1/users/404").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/users/404").with(asUser(10L)))
                 .andExpect(status().isNotFound());
     }
 
@@ -138,7 +139,7 @@ class ServerAccessControllersApiTest {
         when(userService.update(any(User.class))).thenReturn(existing);
 
         mockMvc.perform(put("/api/servers/1/users/30")
-                .param("userId", "30")
+                .with(asUser(30L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -155,7 +156,7 @@ class ServerAccessControllersApiTest {
                 .requireSelf(99L, 30L);
 
         mockMvc.perform(put("/api/servers/1/users/30")
-                .param("userId", "99")
+                .with(asUser(99L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -166,7 +167,7 @@ class ServerAccessControllersApiTest {
         Notification notification = notification(1L, 30L);
         when(notificationService.findByUserIdOrdered(30L)).thenReturn(List.of(notification));
 
-        mockMvc.perform(get("/api/users/30/notifications").param("requestingUserId", "30"))
+        mockMvc.perform(get("/api/users/30/notifications").with(asUser(30L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].notificationId").value(1));
     }
@@ -176,7 +177,7 @@ class ServerAccessControllersApiTest {
         Notification notification = notification(2L, 30L);
         when(notificationService.findById(2L)).thenReturn(Optional.of(notification));
 
-        mockMvc.perform(get("/api/users/30/notifications/2").param("requestingUserId", "30"))
+        mockMvc.perform(get("/api/users/30/notifications/2").with(asUser(30L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.notificationId").value(2));
     }
@@ -185,7 +186,7 @@ class ServerAccessControllersApiTest {
     void getNotificationById_returnsNotFound_unhappyPath() throws Exception {
         when(notificationService.findById(404L)).thenReturn(Optional.empty());
 
-        mockMvc.perform(get("/api/users/30/notifications/404").param("requestingUserId", "30"))
+        mockMvc.perform(get("/api/users/30/notifications/404").with(asUser(30L)))
                 .andExpect(status().isNotFound());
     }
 
@@ -193,7 +194,7 @@ class ServerAccessControllersApiTest {
     void getUnreadCount_returnsOk_happyPath() throws Exception {
         when(notificationService.countUnreadByUserId(30L)).thenReturn(3L);
 
-        mockMvc.perform(get("/api/users/30/notifications/unread-count").param("requestingUserId", "30"))
+        mockMvc.perform(get("/api/users/30/notifications/unread-count").with(asUser(30L)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(3));
     }
@@ -203,7 +204,7 @@ class ServerAccessControllersApiTest {
         Notification notification = notification(7L, 30L);
         when(notificationService.findById(7L)).thenReturn(Optional.of(notification));
 
-        mockMvc.perform(patch("/api/users/30/notifications/7/mark-read").param("requestingUserId", "30"))
+        mockMvc.perform(patch("/api/users/30/notifications/7/mark-read").with(asUser(30L)))
                 .andExpect(status().isNoContent());
 
         verify(notificationService).markAsRead(7L);
@@ -211,7 +212,7 @@ class ServerAccessControllersApiTest {
 
     @Test
     void markAllAsReadForUser_returnsNoContent_happyPath() throws Exception {
-        mockMvc.perform(patch("/api/users/30/notifications/mark-all-read").param("requestingUserId", "30"))
+        mockMvc.perform(patch("/api/users/30/notifications/mark-all-read").with(asUser(30L)))
                 .andExpect(status().isNoContent());
 
         verify(notificationService).markAllAsReadForUser(30L);

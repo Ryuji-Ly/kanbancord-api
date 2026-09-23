@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,11 +21,11 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.id = :id")
         Optional<Permission> findByIdWithKanbanPermission(Long id);
 
-        List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectId(
-                        String scopeType, Long scopeId, String subjectType, Long subjectId);
-
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.scopeType = :scopeType AND p.scopeId = :scopeId ORDER BY p.priority DESC, p.id DESC")
         List<Permission> findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(String scopeType, Long scopeId);
+
+        @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.scopeType = :scopeType AND p.scopeId IN :scopeIds")
+        List<Permission> findByScopeTypeAndScopeIdIn(String scopeType, Collection<Long> scopeIds);
 
         List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
                         String scopeType, Long scopeId, String subjectType, Long subjectId);

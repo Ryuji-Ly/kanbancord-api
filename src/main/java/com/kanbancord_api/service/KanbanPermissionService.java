@@ -18,10 +18,6 @@ public class KanbanPermissionService {
         this.kanbanPermissionRepository = kanbanPermissionRepository;
     }
 
-    public KanbanPermission create(KanbanPermission permission) {
-        return kanbanPermissionRepository.save(permission);
-    }
-
     @Transactional(readOnly = true)
     public Optional<KanbanPermission> findById(Integer id) {
         return kanbanPermissionRepository.findById(id);
@@ -40,22 +36,6 @@ public class KanbanPermissionService {
     @Transactional(readOnly = true)
     public List<KanbanPermission> findByCategory(String category) {
         return kanbanPermissionRepository.findByCategory(category);
-    }
-
-    public KanbanPermission update(KanbanPermission permission) {
-        if (permission.getIsSystem() != null && permission.getIsSystem()) {
-            throw new IllegalStateException("System kanban permissions cannot be modified");
-        }
-        return kanbanPermissionRepository.save(permission);
-    }
-
-    public void deleteById(Integer id) {
-        KanbanPermission permission = kanbanPermissionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("KanbanPermission not found: " + id));
-        if (permission.getIsSystem() != null && permission.getIsSystem()) {
-            throw new IllegalStateException("System kanban permissions cannot be deleted");
-        }
-        kanbanPermissionRepository.deleteById(id);
     }
 
     @Transactional(readOnly = true)

@@ -4,7 +4,8 @@ import com.kanbancord_api.dto.TaskAssignmentResponse;
 import com.kanbancord_api.model.TaskAssignment;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.TaskAssignmentService;
+import com.kanbancord_api.service.TaskAssignmentService;
+import com.kanbancord_api.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,9 +38,9 @@ public class BoardTaskAssignmentController {
     public ResponseEntity<List<TaskAssignmentResponse>> getAssignmentsByBoardId(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
         resourceValidator.requireBoardInServer(boardId, serverId);
 
         List<TaskAssignmentResponse> responses = taskAssignmentService.findByBoardId(boardId).stream()

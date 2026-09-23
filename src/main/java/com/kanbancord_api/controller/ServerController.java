@@ -10,7 +10,8 @@ import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.RoleService;
 import com.kanbancord_api.service.ServerMemberService;
-import com.kanbancord_api.service.ServerService;
+import com.kanbancord_api.service.ServerService;
+import com.kanbancord_api.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,9 +44,9 @@ public class ServerController {
     @GetMapping("/{serverId}")
     public ResponseEntity<ServerResponse> getServerById(
             @PathVariable Long serverId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "VIEW_SERVER");
 
         Server server = serverService.findById(serverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Server", "serverId", serverId));
@@ -60,9 +61,9 @@ public class ServerController {
     @GetMapping("/{serverId}/roles")
     public ResponseEntity<List<RoleResponse>> getServerRoles(
             @PathVariable Long serverId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "VIEW_SERVER");
 
         List<Role> roles = roleService.findByServerIdOrderedByPosition(serverId);
         List<RoleResponse> responses = roles.stream()
@@ -79,9 +80,9 @@ public class ServerController {
     @GetMapping("/{serverId}/members")
     public ResponseEntity<List<ServerMemberResponse>> getServerMembers(
             @PathVariable Long serverId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "VIEW_SERVER");
 
         List<ServerMember> members = serverMemberService.findByServerId(serverId);
         List<ServerMemberResponse> responses = members.stream()

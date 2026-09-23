@@ -2,7 +2,10 @@ package com.kanbancord_api.exception;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -16,6 +19,8 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
         ErrorResponse error = new ErrorResponse(
@@ -23,6 +28,15 @@ public class GlobalExceptionHandler {
                 ex.getMessage(),
                 LocalDateTime.now());
         return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<ErrorResponse> handleUnauthenticated(UnauthenticatedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.UNAUTHORIZED.value(),
+                ex.getMessage(),
+                LocalDateTime.now());
+        return new ResponseEntity<>(error, HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -97,12 +111,22 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+        // Framework errors (405 method not allowed, 400 missing parameter, 415, ...) carry
+        // their own status; keep it rather than masking them as 500s.
+        if (ex instanceof org.springframework.web.ErrorResponse frameworkError) {
+            HttpStatusCode status = frameworkError.getStatusCode();
+            ErrorResponse error = new ErrorResponse(
+                    status.value(),
+                    ex.getMessage(),
+                    LocalDateTime.now());
+            return new ResponseEntity<>(error, status);
+        }
+
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "An unexpected error occurred",
                 LocalDateTime.now());
-        // Log the exception details for debugging
-        ex.printStackTrace();
+        log.error("Unhandled exception", ex);
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 

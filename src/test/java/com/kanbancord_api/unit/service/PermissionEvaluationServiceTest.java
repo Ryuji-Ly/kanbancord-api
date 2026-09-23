@@ -1,226 +1,401 @@
 package com.kanbancord_api.unit.service;
 
 import com.kanbancord_api.model.KanbanPermission;
-import com.kanbancord_api.model.MemberRole;
 import com.kanbancord_api.model.Permission;
 import com.kanbancord_api.model.Role;
-import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.ServerMember;
-import com.kanbancord_api.model.User;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
 import com.kanbancord_api.permission.DiscordPermissionParser;
+import com.kanbancord_api.permission.PermissionRank;
+import com.kanbancord_api.repository.MemberRoleRepository;
 import com.kanbancord_api.repository.PermissionRepository;
-import com.kanbancord_api.service.KanbanPermissionService;
-import com.kanbancord_api.service.MemberRoleService;
+import com.kanbancord_api.repository.ServerMemberRepository;
+import com.kanbancord_api.repository.ServerRepository;
 import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.RoleService;
-import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.ServerMemberService;
+import com.kanbancord_api.service.PermissionEvaluationService.Decision;
+import com.kanbancord_api.service.PermissionResolver;
+import com.kanbancord_api.service.PermissionSnapshot;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class PermissionEvaluationServiceTest {
 
-    @Mock
-    private PermissionRepository permissionRepository;
-    @Mock
-    private KanbanPermissionService kanbanPermissionService;
-    @Mock
-    private ServerMemberService serverMemberService;
-    @Mock
-    private MemberRoleService memberRoleService;
-    @Mock
-    private RoleService roleService;
-    @Mock
-    private ServerService serverService;
+    private static final long USER = 99L;
+    private static final long ROLE = 88L;
+    private static final long OTHER_ROLE = 77L;
+    private static final long SERVER = 10L;
+    private static final long BOARD = 55L;
+    private static final long VIEW_CHANNEL = DiscordPermissionFlag.VIEW_CHANNEL.getBit();
+    private static final long MANAGE_MESSAGES = DiscordPermissionFlag.MANAGE_MESSAGES.getBit();
 
-    private PermissionEvaluationService service;
+    /** Resolution rules, exercised directly on in-memory snapshots. */
+    @Nested
+    class Resolver {
 
-    @BeforeEach
-    void setUp() {
-        service = new PermissionEvaluationService(
-                permissionRepository,
-                kanbanPermissionService,
-                serverMemberService,
-                memberRoleService,
-                roleService,
-                new DiscordPermissionParser(),
-                serverService);
+        // ── Within a layer, DENY beats ALLOW ──────────────────────────────────
 
-        when(kanbanPermissionService.findByKey("ADMIN")).thenReturn(Optional.empty());
-        lenient()
-                .when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                        anyString(), anyLong(), anyString(), anyLong()))
-                .thenReturn(List.of());
-        lenient().when(serverService.findById(anyLong())).thenReturn(Optional.empty());
+        @Test
+        void discordLayer_denyBeatsAllow() {
+            PermissionSnapshot snapshot = snapshot(Set.of(), Set.of(VIEW_CHANNEL, MANAGE_MESSAGES), List.of(), List.of(
+                    serverRule(1L, "EDIT_TASK", "ALLOW", "DISCORD_PERMISSION", MANAGE_MESSAGES),
+                    serverRule(2L, "EDIT_TASK", "DENY", "DISCORD_PERMISSION", VIEW_CHANNEL)));
+
+            Decision decision = resolve(snapshot, "EDIT_TASK");
+
+            assertFalse(decision.allowed());
+            assertEquals(2L, decision.sourcePermissionId());
+        }
+
+        @Test
+        void roleLayer_denyBeatsAllow_acrossRoles() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE, OTHER_ROLE), Set.of(), List.of(), List.of(
+                    serverRule(1L, "CREATE_TASK", "ALLOW", "ROLE", ROLE),
+                    serverRule(2L, "CREATE_TASK", "DENY", "ROLE", OTHER_ROLE)));
+
+            assertFalse(resolve(snapshot, "CREATE_TASK").allowed());
+        }
+
+        // ── Layer order: Discord bits → roles → user, later overrides earlier ────
+
+        @Test
+        void roleLayer_overridesDiscordLayer_inBothDirections() {
+            PermissionSnapshot allowedByRole = snapshot(Set.of(ROLE), Set.of(VIEW_CHANNEL), List.of(), List.of(
+                    serverRule(1L, "EDIT_TASK", "DENY", "DISCORD_PERMISSION", VIEW_CHANNEL),
+                    serverRule(2L, "EDIT_TASK", "ALLOW", "ROLE", ROLE)));
+            assertTrue(resolve(allowedByRole, "EDIT_TASK").allowed());
+
+            PermissionSnapshot deniedByRole = snapshot(Set.of(ROLE), Set.of(VIEW_CHANNEL), List.of(), List.of(
+                    serverRule(1L, "EDIT_TASK", "ALLOW", "DISCORD_PERMISSION", VIEW_CHANNEL),
+                    serverRule(2L, "EDIT_TASK", "DENY", "ROLE", ROLE)));
+            Decision decision = resolve(deniedByRole, "EDIT_TASK");
+            assertFalse(decision.allowed());
+            assertEquals("ROLE", decision.sourceTier());
+        }
+
+        @Test
+        void userLayer_overridesRoleAndDiscordLayers() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(MANAGE_MESSAGES), List.of(), List.of(
+                    serverRule(1L, "EDIT_TASK", "ALLOW", "DISCORD_PERMISSION", MANAGE_MESSAGES),
+                    serverRule(2L, "EDIT_TASK", "ALLOW", "ROLE", ROLE),
+                    serverRule(3L, "EDIT_TASK", "DENY", "USER", USER)));
+
+            Decision decision = resolve(snapshot, "EDIT_TASK");
+
+            assertFalse(decision.allowed());
+            assertEquals("USER", decision.sourceTier());
+            assertEquals(3L, decision.sourcePermissionId());
+        }
+
+        @Test
+        void priority_doesNotAffectResolution() {
+            Permission highPriorityAllow = serverRule(1L, "EDIT_TASK", "ALLOW", "ROLE", ROLE);
+            highPriorityAllow.setPriority(10_000);
+            Permission lowPriorityDeny = serverRule(2L, "EDIT_TASK", "DENY", "ROLE", OTHER_ROLE);
+            lowPriorityDeny.setPriority(1);
+
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE, OTHER_ROLE), Set.of(), List.of(),
+                    List.of(highPriorityAllow, lowPriorityDeny));
+
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+        }
+
+        // ── Board scope overrides server scope ─────────────────────────────────
+
+        @Test
+        void boardWithoutRulesForKey_inheritsServerResult() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(),
+                    List.of(boardRule(10L, "OTHER_KEY", "DENY", "ROLE", ROLE)),
+                    List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
+
+            Decision decision = resolve(snapshot, "VIEW_BOARD");
+
+            assertTrue(decision.allowed());
+            assertEquals("SERVER", decision.sourceScopeType());
+        }
+
+        @Test
+        void boardRule_overridesServerRule_forSameSubject() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(),
+                    List.of(boardRule(10L, "VIEW_BOARD", "DENY", "ROLE", ROLE)),
+                    List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
+
+            Decision decision = resolve(snapshot, "VIEW_BOARD");
+
+            assertFalse(decision.allowed());
+            assertEquals("BOARD", decision.sourceScopeType());
+        }
+
+        @Test
+        void boardDiscordRule_overridesServerUserRule() {
+            // Board scope always wins over server scope, even against a server-level USER rule.
+            PermissionSnapshot snapshot = snapshot(Set.of(), Set.of(VIEW_CHANNEL),
+                    List.of(boardRule(10L, "EDIT_TASK", "DENY", "DISCORD_PERMISSION", VIEW_CHANNEL)),
+                    List.of(serverRule(1L, "EDIT_TASK", "ALLOW", "USER", USER)));
+
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+        }
+
+        @Test
+        void boardLayers_followSameOrder_userOverridesRole() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(),
+                    List.of(
+                            boardRule(10L, "VIEW_BOARD", "DENY", "ROLE", ROLE),
+                            boardRule(11L, "VIEW_BOARD", "ALLOW", "USER", USER)),
+                    List.of());
+
+            assertTrue(resolve(snapshot, "VIEW_BOARD").allowed());
+        }
+
+        @Test
+        void privateBoard_hidesBoardFromEveryoneExceptAllowedRole() {
+            List<Permission> serverRules = List.of(
+                    serverRule(1L, "VIEW_BOARD", "ALLOW", "DISCORD_PERMISSION", VIEW_CHANNEL));
+            List<Permission> boardRules = List.of(
+                    boardRule(10L, "VIEW_BOARD", "DENY", "DISCORD_PERMISSION", VIEW_CHANNEL),
+                    boardRule(11L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE));
+
+            PermissionSnapshot regularMember = snapshot(Set.of(), Set.of(VIEW_CHANNEL), boardRules, serverRules);
+            PermissionSnapshot staffMember = snapshot(Set.of(ROLE), Set.of(VIEW_CHANNEL), boardRules, serverRules);
+
+            assertFalse(resolve(regularMember, "VIEW_BOARD").allowed());
+            assertTrue(resolve(staffMember, "VIEW_BOARD").allowed());
+            // Outside that board (server scope) the same member still has VIEW_BOARD.
+            assertTrue(resolve(regularMember.withBoardRules(List.of()), "VIEW_BOARD").allowed());
+        }
+
+        // ── ADMIN, membership and defaults ─────────────────────────────────────
+
+        @Test
+        void adminGrant_allowsEveryKey_evenOverDenies() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(),
+                    List.of(boardRule(10L, "DELETE_BOARD", "DENY", "ROLE", ROLE)),
+                    List.of(
+                            serverRule(30L, "ADMIN", "ALLOW", "ROLE", ROLE),
+                            serverRule(31L, "DELETE_BOARD", "DENY", "USER", USER)));
+
+            Decision decision = resolve(snapshot, "DELETE_BOARD");
+
+            assertTrue(decision.allowed());
+            assertEquals("ADMIN", decision.sourceTier());
+            assertEquals(30L, decision.sourcePermissionId());
+        }
+
+        @Test
+        void nonMember_getsNoRoleOrDiscordGrants() {
+            PermissionSnapshot snapshot = new PermissionSnapshot(
+                    USER,
+                    false,
+                    Set.of(ROLE),
+                    Set.of(DiscordPermissionFlag.ADMINISTRATOR.getBit()),
+                    List.of(),
+                    List.of(
+                            serverRule(50L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE),
+                            serverRule(51L, "ADMIN", "ALLOW", "DISCORD_PERMISSION",
+                                    DiscordPermissionFlag.ADMINISTRATOR.getBit())));
+
+            assertFalse(resolve(snapshot, "VIEW_BOARD").allowed());
+        }
+
+        @Test
+        void noMatchingRule_isDenied() {
+            assertEquals(Decision.NONE, resolve(snapshot(Set.of(), Set.of(), List.of(), List.of()), "EDIT_TASK"));
+        }
+
+        @Test
+        void unknownState_isTreatedAsDeny() {
+            PermissionSnapshot snapshot = snapshot(Set.of(), Set.of(), List.of(),
+                    List.of(serverRule(1L, "EDIT_TASK", "MAYBE", "USER", USER)));
+
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+        }
+
+        // ── Simulated changes and rank ─────────────────────────────────────────
+
+        @Test
+        void withRuleChange_replacesRemovesAndAddsRules() {
+            Permission allow = serverRule(1L, "EDIT_TASK", "ALLOW", "USER", USER);
+            Permission deny = serverRule(1L, "EDIT_TASK", "DENY", "USER", USER);
+            PermissionSnapshot snapshot = snapshot(Set.of(), Set.of(), List.of(), List.of(allow));
+
+            assertFalse(resolve(snapshot.withRuleChange(allow, deny), "EDIT_TASK").allowed());
+            assertFalse(resolve(snapshot.withRuleChange(allow, null), "EDIT_TASK").allowed());
+            assertTrue(resolve(snapshot.withRuleChange(null,
+                    boardRule(null, "VIEW_BOARD", "ALLOW", "USER", USER)), "VIEW_BOARD").allowed());
+        }
+
+        @Test
+        void effectiveRank_isHighestAllowedCatalogRank() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(), List.of(), List.of(
+                    serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE),
+                    serverRule(2L, "EDIT_BOARD_PERMISSIONS", "ALLOW", "ROLE", ROLE)));
+
+            assertEquals(PermissionRank.BOARD_MANAGE, PermissionResolver.effectiveRank(snapshot));
+        }
     }
 
-    @Test
-    void resolve_prefersUserRule_overRoleAndDiscord() {
-        KanbanPermission key = new KanbanPermission();
-        key.setPermissionId(1);
-        when(kanbanPermissionService.findByKey("EDIT_TASK")).thenReturn(Optional.of(key));
+    /** Snapshot loading: what the service reads from the database. */
+    @Nested
+    @ExtendWith(MockitoExtension.class)
+    class Loading {
 
-        ServerMember member = member(7L, 10L, 99L);
-        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
+        @Mock
+        private PermissionRepository permissionRepository;
+        @Mock
+        private ServerMemberRepository serverMemberRepository;
+        @Mock
+        private MemberRoleRepository memberRoleRepository;
+        @Mock
+        private ServerRepository serverRepository;
 
-        MemberRole memberRole = new MemberRole();
+        private PermissionEvaluationService service;
+
+        @BeforeEach
+        void setUp() {
+            service = new PermissionEvaluationService(
+                    permissionRepository,
+                    serverMemberRepository,
+                    memberRoleRepository,
+                    serverRepository,
+                    new DiscordPermissionParser());
+            lenient().when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(
+                    eq("SERVER"), eq(SERVER))).thenReturn(List.of());
+        }
+
+        @Test
+        void owner_withoutRoles_getsAdministratorFlag() {
+            memberWithRoles();
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.of(USER));
+
+            PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
+
+            assertTrue(snapshot.member());
+            assertTrue(snapshot.discordFlagBits().contains(DiscordPermissionFlag.ADMINISTRATOR.getBit()));
+        }
+
+        @Test
+        void discordFlags_areAggregatedAcrossRoles() {
+            memberWithRoles(role(1L, VIEW_CHANNEL), role(2L, MANAGE_MESSAGES));
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.of(1234L));
+
+            PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
+
+            assertEquals(Set.of(1L, 2L), snapshot.roleIds());
+            assertEquals(Set.of(VIEW_CHANNEL, MANAGE_MESSAGES), snapshot.discordFlagBits());
+        }
+
+        @Test
+        void nonMember_loadsNoRolesAndNoBoardRulesAtServerScope() {
+            when(serverMemberRepository.findByServer_ServerIdAndUser_UserId(SERVER, USER))
+                    .thenReturn(Optional.empty());
+
+            PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
+
+            assertFalse(snapshot.member());
+            assertTrue(snapshot.roleIds().isEmpty());
+            verify(permissionRepository, never()).findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(
+                    eq("BOARD"), eq(BOARD));
+        }
+
+        @Test
+        void resolveAll_evaluatesManyKeysFromOneSnapshot() {
+            memberWithRoles(role(ROLE, 0L));
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
+            when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", SERVER))
+                    .thenReturn(List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
+            when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("BOARD", BOARD))
+                    .thenReturn(List.of(boardRule(2L, "EDIT_TASK", "ALLOW", "ROLE", ROLE)));
+
+            Map<String, Decision> decisions = service.resolveAll(SERVER, BOARD, USER,
+                    List.of("VIEW_BOARD", "EDIT_TASK", "DELETE_BOARD"));
+
+            assertTrue(decisions.get("VIEW_BOARD").allowed());
+            assertTrue(decisions.get("EDIT_TASK").allowed());
+            assertFalse(decisions.get("DELETE_BOARD").allowed());
+            verify(serverMemberRepository).findByServer_ServerIdAndUser_UserId(SERVER, USER);
+        }
+
+        @Test
+        void filterAllowedBoards_appliesEachBoardsOverrides() {
+            memberWithRoles(role(ROLE, 0L));
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
+            when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", SERVER))
+                    .thenReturn(List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
+            Permission hideBoardTwo = boardRule(2L, "VIEW_BOARD", "DENY", "ROLE", ROLE);
+            hideBoardTwo.setScopeId(2L);
+            when(permissionRepository.findByScopeTypeAndScopeIdIn(eq("BOARD"), anyCollection()))
+                    .thenReturn(List.of(hideBoardTwo));
+
+            Set<Long> visible = service.filterAllowedBoards(SERVER, List.of(1L, 2L, 3L), USER, "VIEW_BOARD");
+
+            assertEquals(Set.of(1L, 3L), visible);
+        }
+
+        private void memberWithRoles(Role... roles) {
+            ServerMember member = new ServerMember();
+            member.setId(7L);
+            when(serverMemberRepository.findByServer_ServerIdAndUser_UserId(SERVER, USER))
+                    .thenReturn(Optional.of(member));
+            when(memberRoleRepository.findRolesByServerMemberId(7L)).thenReturn(List.of(roles));
+        }
+    }
+
+    private static Decision resolve(PermissionSnapshot snapshot, String key) {
+        return PermissionResolver.resolve(snapshot, key);
+    }
+
+    private static PermissionSnapshot snapshot(
+            Set<Long> roleIds, Set<Long> discordBits, List<Permission> boardRules, List<Permission> serverRules) {
+        return new PermissionSnapshot(USER, true, roleIds, discordBits, boardRules, serverRules);
+    }
+
+    private static Role role(Long id, long discordPermissions) {
         Role role = new Role();
-        role.setRoleId(88L);
-        memberRole.setRole(role);
-        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of(memberRole));
-
-        Role fullRole = new Role();
-        fullRole.setRoleId(88L);
-        fullRole.setDiscordPermissions(DiscordPermissionFlag.ADMINISTRATOR.getBit());
-        when(roleService.findById(88L)).thenReturn(Optional.of(fullRole));
-
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("SERVER"), eq(10L), eq("USER"), eq(99L)))
-                .thenReturn(List.of(permission(4L, 1, "DENY", 100, "SERVER", 10L)));
-
-        PermissionEvaluationService.Decision decision = service.resolve(10L, null, 99L, "EDIT_TASK");
-
-        assertFalse(decision.allowed());
-        assertEquals("USER", decision.sourceTier());
-        assertEquals(4L, decision.sourcePermissionId());
+        role.setRoleId(id);
+        role.setDiscordPermissions(discordPermissions);
+        return role;
     }
 
-    @Test
-    void resolve_prefersBoardScopedRule_overServerScopedRule_withinSameTier() {
-        KanbanPermission key = new KanbanPermission();
-        key.setPermissionId(1);
-        when(kanbanPermissionService.findByKey("VIEW_BOARD")).thenReturn(Optional.of(key));
-
-        ServerMember member = member(7L, 10L, 99L);
-        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
-
-        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of());
-
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("BOARD"), eq(55L), eq("USER"), eq(99L)))
-                .thenReturn(List.of(permission(10L, 1, "ALLOW", 10, "BOARD", 55L)));
-
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("SERVER"), eq(10L), eq("USER"), eq(99L)))
-                .thenReturn(List.of(permission(11L, 1, "DENY", 999, "SERVER", 10L)));
-
-        PermissionEvaluationService.Decision decision = service.resolve(10L, 55L, 99L, "VIEW_BOARD");
-
-        assertTrue(decision.allowed());
-        assertEquals("BOARD", decision.sourceScopeType());
-        assertEquals(10L, decision.sourcePermissionId());
+    private static Permission serverRule(Long id, String key, String state, String subjectType, Long subjectId) {
+        return rule(id, key, state, "SERVER", SERVER, subjectType, subjectId);
     }
 
-    @Test
-    void resolve_withinDiscordLayer_allowWinsOverDeny_evenWhenDenyHasHigherPriority() {
-        KanbanPermission target = new KanbanPermission();
-        target.setPermissionId(2);
-        when(kanbanPermissionService.findByKey("CREATE_BOARD")).thenReturn(Optional.of(target));
-
-        ServerMember member = member(7L, 10L, 99L);
-        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
-
-        MemberRole memberRole = new MemberRole();
-        Role role = new Role();
-        role.setRoleId(88L);
-        memberRole.setRole(role);
-        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of(memberRole));
-
-        Role fullRole = new Role();
-        fullRole.setRoleId(88L);
-        fullRole.setDiscordPermissions(
-                DiscordPermissionFlag.MANAGE_GUILD.getBit() | DiscordPermissionFlag.VIEW_CHANNEL.getBit());
-        when(roleService.findById(88L)).thenReturn(Optional.of(fullRole));
-
-        // MANAGE_GUILD path: explicit DENY with higher priority
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.MANAGE_GUILD.getBit())))
-                .thenReturn(List.of(permission(20L, 2, "DENY", 999, "SERVER", 10L)));
-
-        // VIEW_CHANNEL path: explicit ALLOW with lower priority
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.VIEW_CHANNEL.getBit())))
-                .thenReturn(List.of(permission(21L, 2, "ALLOW", 100, "SERVER", 10L)));
-
-        PermissionEvaluationService.Decision decision = service.resolve(10L, null, 99L, "CREATE_BOARD");
-
-        assertTrue(decision.allowed());
-        assertEquals("DISCORD_PERMISSION", decision.sourceTier());
-        assertEquals(21L, decision.sourcePermissionId());
+    private static Permission boardRule(Long id, String key, String state, String subjectType, Long subjectId) {
+        return rule(id, key, state, "BOARD", BOARD, subjectType, subjectId);
     }
 
-    @Test
-    void resolve_ownerWithoutRoles_getsAdminViaOwnerOverride() {
-        KanbanPermission adminPermission = new KanbanPermission();
-        adminPermission.setPermissionId(99);
-        when(kanbanPermissionService.findByKey("ADMIN")).thenReturn(Optional.of(adminPermission));
-
-        ServerMember member = member(7L, 10L, 99L);
-        when(serverMemberService.findByServerIdAndUserId(10L, 99L)).thenReturn(Optional.of(member));
-        when(memberRoleService.findByServerMemberId(7L)).thenReturn(List.of());
-
-        Server server = new Server();
-        server.setServerId(10L);
-        User owner = new User();
-        owner.setUserId(99L);
-        owner.setUsername("owner-99");
-        server.setOwner(owner);
-        when(serverService.findById(10L)).thenReturn(Optional.of(server));
-
-        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
-                eq("SERVER"), eq(10L), eq("DISCORD_PERMISSION"), eq(DiscordPermissionFlag.ADMINISTRATOR.getBit())))
-                .thenReturn(List.of(permission(33L, 99, "ALLOW", 10_000, "SERVER", 10L)));
-
-        PermissionEvaluationService.Decision decision = service.resolve(10L, null, 99L, "ADMIN");
-
-        assertTrue(decision.allowed());
-        assertEquals("DISCORD_PERMISSION", decision.sourceTier());
-        assertEquals(33L, decision.sourcePermissionId());
-    }
-
-    private static Permission permission(Long id, Integer kanbanPermissionId, String state, Integer priority,
-            String scopeType, Long scopeId) {
+    static Permission rule(Long id, String key, String state, String scopeType, Long scopeId,
+            String subjectType, Long subjectId) {
         KanbanPermission kanbanPermission = new KanbanPermission();
-        kanbanPermission.setPermissionId(kanbanPermissionId);
+        kanbanPermission.setKey(key);
 
         Permission permission = new Permission();
         permission.setId(id);
         permission.setKanbanPermission(kanbanPermission);
         permission.setState(state);
-        permission.setPriority(priority);
+        permission.setPriority(100);
         permission.setScopeType(scopeType);
         permission.setScopeId(scopeId);
+        permission.setSubjectType(subjectType);
+        permission.setSubjectId(subjectId);
         return permission;
-    }
-
-    private static ServerMember member(Long memberId, Long serverId, Long userId) {
-        Server server = new Server();
-        server.setServerId(serverId);
-        User user = new User();
-        user.setUserId(userId);
-        user.setUsername("user-" + userId);
-
-        ServerMember member = new ServerMember();
-        member.setId(memberId);
-        member.setServer(server);
-        member.setUser(user);
-        return member;
     }
 }

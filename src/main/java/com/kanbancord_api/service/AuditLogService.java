@@ -54,19 +54,6 @@ public class AuditLogService {
     }
 
     @Transactional(readOnly = true)
-    public List<AuditLog> findByDateRange(LocalDateTime start, LocalDateTime end) {
-        return auditLogRepository.findByCreatedAtBetween(start, end);
-    }
-
-    public AuditLog update(AuditLog auditLog) {
-        return auditLogRepository.save(auditLog);
-    }
-
-    public void deleteById(Long id) {
-        auditLogRepository.deleteById(id);
-    }
-
-    @Transactional(readOnly = true)
     public boolean existsById(Long id) {
         return auditLogRepository.existsById(id);
     }

@@ -35,6 +35,9 @@ import com.kanbancord_api.service.ServerService;
 import com.kanbancord_api.service.TaskAssignmentService;
 import com.kanbancord_api.service.TaskCommentService;
 import com.kanbancord_api.service.TaskLabelService;
+import com.kanbancord_api.realtime.RealtimeEventPublisher;
+import com.kanbancord_api.repository.TaskCommentEditRepository;
+import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.TaskService;
 import com.kanbancord_api.service.UserService;
 import org.junit.jupiter.api.Test;
@@ -44,6 +47,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -52,16 +56,21 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = {
         BoardController.class,
@@ -103,6 +112,12 @@ class WorkItemControllersApiTest {
     private AccessValidator accessValidator;
         @MockitoBean
     private ResourceValidator resourceValidator;
+        @MockitoBean
+    private RealtimeEventPublisher realtimeEventPublisher;
+        @MockitoBean
+    private TaskCommentEditRepository taskCommentEditRepository;
+        @MockitoBean
+    private PermissionEvaluationService permissionEvaluationService;
 
     @Test
     void boardEndpoints_coverHappyAndUnhappy() throws Exception {
@@ -114,34 +129,41 @@ class WorkItemControllersApiTest {
         Board board = board(100L);
         when(serverService.findById(1L)).thenReturn(Optional.of(server(1L)));
         when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
-        when(boardService.create(any(Board.class))).thenReturn(board);
-        when(boardService.findByServerId(1L, PageRequest.of(0, 20))).thenReturn(new PageImpl<>(List.of(board)));
+        when(boardService.create(any(Board.class), any())).thenReturn(board);
+        Board hiddenBoard = board(101L);
+        when(boardService.findByServerId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(board, hiddenBoard)));
+        when(permissionEvaluationService.filterAllowedBoards(eq(1L), any(), eq(10L), eq("VIEW_BOARD")))
+                .thenReturn(Set.of(100L));
         when(resourceValidator.requireBoardInServer(100L, 1L)).thenReturn(board);
         when(boardService.update(any(Board.class))).thenReturn(board);
 
-        mockMvc.perform(post("/api/servers/1/boards").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(create)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.boardId").value(100));
 
-        mockMvc.perform(get("/api/servers/1/boards").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards").with(asUser(10L)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].boardId").value(100))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+
+        mockMvc.perform(get("/api/servers/1/boards/100").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100").param("userId", "10"))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(put("/api/servers/1/boards/100").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/boards/100").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(create)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         when(serverService.findById(999L)).thenReturn(Optional.empty());
         create.setServerId(999L);
-        mockMvc.perform(post("/api/servers/999/boards").param("userId", "10")
+        mockMvc.perform(post("/api/servers/999/boards").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(create)))
                 .andExpect(status().isNotFound());
@@ -165,27 +187,27 @@ class WorkItemControllersApiTest {
         when(resourceValidator.requireColumnInServer(200L, 1L)).thenReturn(column);
         when(boardColumnService.update(any(BoardColumn.class))).thenReturn(column);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/columns").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/columns").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/columns").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/columns").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/columns/200").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/columns/200").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/servers/1/boards/100/columns/200").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/boards/100/columns/200").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/columns/200").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/columns/200").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         request.setName("");
-        mockMvc.perform(post("/api/servers/1/boards/100/columns").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/columns").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -207,27 +229,27 @@ class WorkItemControllersApiTest {
         when(resourceValidator.requireLabelInServer(300L, 1L)).thenReturn(label);
         when(labelService.update(any(Label.class))).thenReturn(label);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/labels").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/labels").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/labels").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/labels/300").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/labels/300").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/servers/1/boards/100/labels/300").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/boards/100/labels/300").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/labels/300").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/labels/300").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         request.setColor("bad");
-        mockMvc.perform(post("/api/servers/1/boards/100/labels").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -254,28 +276,28 @@ class WorkItemControllersApiTest {
         when(resourceValidator.requireTaskInServer(400L, 1L)).thenReturn(task);
         when(taskService.update(any(Task.class))).thenReturn(task);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         when(boardColumnService.findById(999L)).thenReturn(Optional.empty());
         request.setColumnId(999L);
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
@@ -298,23 +320,23 @@ class WorkItemControllersApiTest {
         when(taskAssignmentService.findByTaskId(400L)).thenReturn(List.of(assignment));
         when(resourceValidator.requireAssignmentInServer(500L, 1L)).thenReturn(assignment);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/assignments").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/assignments/500").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/assignments/500").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/assignments/500").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/assignments/500").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         when(userService.findById(99L)).thenReturn(Optional.empty());
         request.setUserId(99L);
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
@@ -331,36 +353,33 @@ class WorkItemControllersApiTest {
         TaskComment comment = comment(600L, task, user(11L));
 
         when(resourceValidator.requireTaskInServer(400L, 1L)).thenReturn(task);
-        when(userService.findById(11L)).thenReturn(Optional.of(user(11L)));
+        when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
         when(taskCommentService.create(any(TaskComment.class))).thenReturn(comment);
         when(taskCommentService.findByTaskId(400L, PageRequest.of(0, 20))).thenReturn(new PageImpl<>(List.of(comment)));
         when(resourceValidator.requireCommentInServer(600L, 1L)).thenReturn(comment);
         when(taskCommentService.update(any(TaskComment.class))).thenReturn(comment);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/comments").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/comments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/comments").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/comments").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/comments/600").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/600").param("userId", "10")
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/600").param("userId", "10"))
-                .andExpect(status().isNoContent());
-
-        mockMvc.perform(patch("/api/servers/1/boards/100/tasks/400/comments/600/soft-delete").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         request.setContent("");
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/comments").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/comments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -382,27 +401,200 @@ class WorkItemControllersApiTest {
         when(taskLabelService.findByTaskId(400L)).thenReturn(List.of(taskLabel));
         when(resourceValidator.requireTaskLabelInServer(700L, 1L)).thenReturn(taskLabel);
 
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/labels").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/labels").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/labels").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/labels/700").param("userId", "10"))
+        mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/labels/700").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/labels/700").param("userId", "10"))
+        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/labels/700").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
         when(resourceValidator.requireLabelInServer(999L, 1L))
                 .thenThrow(new ResourceNotFoundException("Label", "labelId", 999L));
         request.setLabelId(999L);
-        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/labels").param("userId", "10")
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
+    }
+
+    // ── Authorization rules ────────────────────────────────────────────────────
+
+    @Test
+    void unauthenticatedRequest_isRejectedWith401() throws Exception {
+        mockMvc.perform(get("/api/servers/1/boards/100"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(accessValidator);
+    }
+
+    @Test
+    void createTask_ignoresClientSuppliedCreator() throws Exception {
+        Board board = board(100L);
+        BoardColumn column = column(200L, board);
+        TaskRequest request = new TaskRequest();
+        request.setTitle("New task");
+        request.setBoardId(100L);
+        request.setColumnId(200L);
+        request.setCreatedBy(99L);
+
+        when(resourceValidator.requireBoardInServer(100L, 1L)).thenReturn(board);
+        when(boardColumnService.findById(200L)).thenReturn(Optional.of(column));
+        when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
+        when(taskService.create(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.createdBy").value("10"));
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK");
+        verify(userService, never()).findById(99L);
+    }
+
+    @Test
+    void updateTask_moveOnly_requiresMoveTaskButNotEditTask() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        stubTaskUpdate(board, task);
+
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(taskUpdate("Task", 201L))))
+                .andExpect(status().isOk());
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
+        verify(accessValidator, never()).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
+    }
+
+    @Test
+    void updateTask_editInPlace_requiresEditTaskButNotMoveTask() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        stubTaskUpdate(board, task);
+
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(taskUpdate("Renamed", 200L))))
+                .andExpect(status().isOk());
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
+        verify(accessValidator, never()).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
+    }
+
+    @Test
+    void updateTask_withoutChanges_onlyRequiresViewAndDoesNotWrite() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        stubTaskUpdate(board, task);
+
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(taskUpdate("Task", 200L))))
+                .andExpect(status().isOk());
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "VIEW_TASK");
+        verify(taskService, never()).update(any(Task.class));
+        verify(realtimeEventPublisher, never()).publishToBoardTopic(any(), any(), any());
+    }
+
+    @Test
+    void assignTask_toSelf_requiresAssignSelf_andRecordsActorAsAssigner() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        stubAssignment(task);
+        TaskAssignmentRequest request = new TaskAssignmentRequest();
+        request.setTaskId(400L);
+        request.setUserId(10L);
+        request.setAssignedBy(77L);
+
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.assignedBy").value("10"));
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_SELF");
+        verify(userService, never()).findById(77L);
+    }
+
+    @Test
+    void assignTask_toSomeoneElse_requiresAssignOthers_andServerMembership() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        stubAssignment(task);
+        TaskAssignmentRequest request = new TaskAssignmentRequest();
+        request.setTaskId(400L);
+        request.setUserId(11L);
+
+        mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_OTHERS");
+        verify(resourceValidator).validatePermissionSubjectBelongsToServer("USER", 11L, 1L);
+    }
+
+    @Test
+    void editingOwnComment_requiresCommentPermission_othersRequireModeration() throws Exception {
+        Board board = board(100L);
+        Task task = task(400L, board, column(200L, board));
+        TaskComment own = comment(600L, task, user(10L));
+        TaskComment others = comment(601L, task, user(11L));
+        when(resourceValidator.requireCommentInServer(600L, 1L)).thenReturn(own);
+        when(resourceValidator.requireCommentInServer(601L, 1L)).thenReturn(others);
+        when(taskCommentService.update(any(TaskComment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
+        TaskCommentRequest request = new TaskCommentRequest();
+        request.setTaskId(400L);
+        request.setContent("edited");
+
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK_COMMENT");
+
+        mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK_COMMENT");
+
+        mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L)))
+                .andExpect(status().isNoContent());
+        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "DELETE_TASK_COMMENT");
+    }
+
+    private void stubTaskUpdate(Board board, Task task) {
+        when(resourceValidator.requireBoardInServer(100L, 1L)).thenReturn(board);
+        when(resourceValidator.requireTaskInServer(400L, 1L)).thenReturn(task);
+        when(boardColumnService.findById(200L)).thenReturn(Optional.of(column(200L, board)));
+        when(boardColumnService.findById(201L)).thenReturn(Optional.of(column(201L, board)));
+        when(taskService.update(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    private static TaskRequest taskUpdate(String title, Long columnId) {
+        TaskRequest request = new TaskRequest();
+        request.setTitle(title);
+        request.setBoardId(100L);
+        request.setColumnId(columnId);
+        return request;
+    }
+
+    private void stubAssignment(Task task) {
+        when(resourceValidator.requireTaskInServer(400L, 1L)).thenReturn(task);
+        when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
+        when(userService.findById(11L)).thenReturn(Optional.of(user(11L)));
+        when(taskAssignmentService.create(any(TaskAssignment.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private static User user(Long id) {

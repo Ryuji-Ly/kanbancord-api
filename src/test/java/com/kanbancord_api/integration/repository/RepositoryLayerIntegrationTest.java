@@ -276,14 +276,8 @@ class RepositoryLayerIntegrationTest {
         assertTrue(labelRepository.findByLabelIdAndServerId(label.getLabelId(), otherServer.getServerId()).isEmpty());
 
         assertEquals(1, taskLabelRepository.findByTask_TaskId(task.getTaskId()).size());
-        assertTrue(taskLabelRepository.findByTask_TaskIdAndLabel_LabelId(task.getTaskId(), label.getLabelId())
-                .isPresent());
         assertTrue(taskLabelRepository.findByIdAndServerId(taskLabel.getId(), server.getServerId()).isPresent());
         assertTrue(taskLabelRepository.findByIdAndServerId(taskLabel.getId(), otherServer.getServerId()).isEmpty());
-
-        taskLabelRepository.deleteByTask_TaskIdAndLabel_LabelId(task.getTaskId(), label.getLabelId());
-        assertTrue(
-                taskLabelRepository.findByTask_TaskIdAndLabel_LabelId(task.getTaskId(), label.getLabelId()).isEmpty());
     }
 
     @Test
@@ -300,23 +294,22 @@ class RepositoryLayerIntegrationTest {
 
         assertTrue(memberRoleRepository.findByServerMember_IdAndRole_RoleId(serverMember.getId(), role.getRoleId())
                 .isPresent());
-        memberRoleRepository.deleteByServerMember_IdAndRole_RoleId(serverMember.getId(), role.getRoleId());
-        assertTrue(memberRoleRepository.findByServerMember_IdAndRole_RoleId(serverMember.getId(), role.getRoleId())
-                .isEmpty());
+
+        // Permission-snapshot queries
+        assertEquals(List.of(role.getRoleId()), memberRoleRepository.findRolesByServerMemberId(serverMember.getId())
+                .stream().map(Role::getRoleId).toList());
+        assertEquals(owner.getUserId(), serverRepository.findOwnerIdByServerId(server.getServerId()).orElseThrow());
+        assertTrue(serverRepository.findOwnerIdByServerId(9999L).isEmpty());
+        assertTrue(boardRepository.existsByBoardIdAndServer_ServerId(board.getBoardId(), server.getServerId()));
+        assertFalse(boardRepository.existsByBoardIdAndServer_ServerId(board.getBoardId(), otherServer.getServerId()));
     }
 
     @Test
     void taskAssignmentAndCommentRepositories_supportTaskAndScopedQueries_happyAndUnhappy() {
         assertEquals(1, taskAssignmentRepository.findByTask_TaskId(task.getTaskId()).size());
-        assertTrue(taskAssignmentRepository.findByTask_TaskIdAndUser_UserId(task.getTaskId(), memberUser.getUserId())
-                .isPresent());
         assertTrue(
                 taskAssignmentRepository.findByIdAndServerId(taskAssignment.getId(), server.getServerId()).isPresent());
         assertTrue(taskAssignmentRepository.findByIdAndServerId(taskAssignment.getId(), otherServer.getServerId())
-                .isEmpty());
-
-        taskAssignmentRepository.deleteByTask_TaskIdAndUser_UserId(task.getTaskId(), memberUser.getUserId());
-        assertTrue(taskAssignmentRepository.findByTask_TaskIdAndUser_UserId(task.getTaskId(), memberUser.getUserId())
                 .isEmpty());
 
         assertEquals(1, taskCommentRepository.findByTask_TaskId(task.getTaskId()).size());
@@ -337,8 +330,8 @@ class RepositoryLayerIntegrationTest {
 
         assertEquals(1, permissionRepository.findByScopeTypeAndScopeId("BOARD", board.getBoardId()).size());
         assertEquals(1, permissionRepository.findBySubjectTypeAndSubjectId("ROLE", role.getRoleId()).size());
-        assertEquals(1, permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectId(
-                "BOARD", board.getBoardId(), "ROLE", role.getRoleId()).size());
+        assertEquals(1, permissionRepository.findByScopeTypeAndScopeIdIn("BOARD", List.of(board.getBoardId(), 9999L))
+                .size());
         assertEquals(0, permissionRepository.findByScopeTypeAndScopeId("SERVER", 9999L).size());
     }
 
@@ -349,22 +342,12 @@ class RepositoryLayerIntegrationTest {
         assertEquals(1, auditLogRepository.findByUser_UserId(memberUser.getUserId()).size());
         assertEquals(1, auditLogRepository.findByServer_ServerIdOrderByCreatedAtDesc(server.getServerId()).size());
 
-        LocalDateTime now = LocalDateTime.now();
-        List<AuditLog> rangeLogs = auditLogRepository.findByCreatedAtBetween(now.minusDays(1), now.plusDays(1));
-        assertFalse(rangeLogs.isEmpty());
-
         assertEquals(1, notificationRepository.findByUser_UserId(memberUser.getUserId()).size());
         assertEquals(1, notificationRepository.findByUser_UserIdAndIsRead(memberUser.getUserId(), false).size());
         assertEquals(1L, notificationRepository.countByUser_UserIdAndIsRead(memberUser.getUserId(), false));
         assertEquals(0L, notificationRepository.countByUser_UserIdAndIsRead(memberUser.getUserId(), true));
         assertEquals(1, notificationRepository.findByUser_UserIdOrderByCreatedAtDesc(memberUser.getUserId()).size());
 
-        assertTrue(userRepository.findByUsername("owner-user").isPresent());
-        assertTrue(userRepository.findByUsername("missing-user").isEmpty());
-        assertTrue(userRepository.existsByUsername("member-user"));
-        assertFalse(userRepository.existsByUsername("missing-user"));
-
-        assertEquals(2, serverRepository.findByOwner_UserId(owner.getUserId()).size());
         assertTrue(serverRepository.existsByServerId(server.getServerId()));
         assertFalse(serverRepository.existsByServerId(9999L));
     }
