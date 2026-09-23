@@ -2,15 +2,13 @@ package com.kanbancord_api.service;
 
 import com.kanbancord_api.config.InternalSyncProperties;
 import com.kanbancord_api.exception.AccessDeniedException;
-import com.kanbancord_api.exception.BadRequestException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.kanbancord_api.exception.UnauthenticatedException;
+import com.kanbancord_api.security.CurrentUserArgumentResolver;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Optional;
 
 @Service
 public class AccessValidator {
@@ -26,24 +24,32 @@ public class AccessValidator {
     }
 
     public void requireUserInServer(Long userId, Long serverId) {
-        Long effectiveUserId = validateAndResolveUserId(userId, "userId");
-        serverAccessValidator.validateUserInServer(effectiveUserId, serverId);
+        serverAccessValidator.validateUserInServer(requireActor(userId), serverId);
     }
 
+    /**
+     * Requires a server-scoped permission. Use {@link #requireBoardPermission} for anything that
+     * happens inside a board so board-level overrides are honoured.
+     */
     public void requireServerPermission(Long userId, Long serverId, String permissionKey) {
-        Long effectiveUserId = validateAndResolveUserId(userId, "userId");
-        serverAccessValidator.validateUserHasRole(effectiveUserId, serverId, permissionKey);
+        serverAccessValidator.validateUserHasPermission(requireActor(userId), serverId, null, permissionKey);
+    }
+
+    /**
+     * Requires a permission evaluated in the context of a board, so board-scoped rules override
+     * server-scoped ones. The caller must already have verified that {@code boardId} belongs to
+     * {@code serverId}.
+     */
+    public void requireBoardPermission(Long userId, Long serverId, Long boardId, String permissionKey) {
+        serverAccessValidator.validateUserHasPermission(requireActor(userId), serverId, boardId, permissionKey);
     }
 
     public Long requireAuthenticatedUserId() {
-        return getAuthenticatedUserId()
-                .orElseThrow(() -> new AccessDeniedException("Authentication required"));
+        return CurrentUserArgumentResolver.currentUserId().orElseThrow(UnauthenticatedException::new);
     }
 
     public void requireSelf(Long requestingUserId, Long targetUserId) {
-        Long effectiveUserId = validateAndResolveUserId(requestingUserId, "requestingUserId");
-
-        if (!effectiveUserId.equals(targetUserId)) {
+        if (!requireActor(requestingUserId).equals(targetUserId)) {
             throw new AccessDeniedException("You can only access your own resources");
         }
     }
@@ -67,6 +73,18 @@ public class AccessValidator {
         }
     }
 
+    /**
+     * Returns the authenticated user's id. The id passed in by the caller must match it; identity is
+     * never taken from the request.
+     */
+    private Long requireActor(Long claimedUserId) {
+        Long authenticatedUserId = requireAuthenticatedUserId();
+        if (claimedUserId != null && !claimedUserId.equals(authenticatedUserId)) {
+            throw new AccessDeniedException("Authenticated user does not match requested userId");
+        }
+        return authenticatedUserId;
+    }
+
     private byte[] decodeSha256Hex(String value) {
         String normalized = value.trim();
         if (!normalized.matches("(?i)^[0-9a-f]{64}$")) {
@@ -86,46 +104,6 @@ public class AccessValidator {
             return digest.digest(value.getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 algorithm is not available", ex);
-        }
-    }
-
-    private Long validateAndResolveUserId(Long providedUserId, String fieldName) {
-        Optional<Long> authenticatedUserId = getAuthenticatedUserId();
-        if (authenticatedUserId.isPresent()) {
-            Long authUserId = authenticatedUserId.get();
-            if (providedUserId != null && !providedUserId.equals(authUserId)) {
-                throw new AccessDeniedException("Authenticated user does not match requested userId");
-            }
-            return authUserId;
-        }
-
-        if (providedUserId == null) {
-            throw new BadRequestException(fieldName + " is required");
-        }
-        return providedUserId;
-    }
-
-    private Optional<Long> getAuthenticatedUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return Optional.empty();
-        }
-
-        Object principal = authentication.getPrincipal();
-        if (principal == null || "anonymousUser".equals(principal)) {
-            return Optional.empty();
-        }
-
-        try {
-            if (principal instanceof Long userId) {
-                return Optional.of(userId);
-            }
-            if (principal instanceof String value) {
-                return Optional.of(Long.parseLong(value));
-            }
-            return Optional.of(Long.parseLong(authentication.getName()));
-        } catch (NumberFormatException ex) {
-            return Optional.empty();
         }
     }
 }

@@ -6,7 +6,8 @@ import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.Label;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.LabelService;
-import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,9 +40,9 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody LabelRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "CREATE_LABEL");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -61,9 +62,9 @@ public class LabelController {
     public ResponseEntity<List<LabelResponse>> getAllLabels(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
 
         resourceValidator.requireBoardInServer(boardId, serverId);
 
@@ -80,9 +81,9 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long labelId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
 
@@ -97,9 +98,9 @@ public class LabelController {
             @PathVariable Long boardId,
             @PathVariable Long labelId,
             @Valid @RequestBody LabelRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "EDIT_LABEL");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "EDIT_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
@@ -120,9 +121,9 @@ public class LabelController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long labelId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "DELETE_LABEL");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "DELETE_LABEL");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
 

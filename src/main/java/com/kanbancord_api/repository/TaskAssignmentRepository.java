@@ -17,10 +17,6 @@ public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, 
 
     List<TaskAssignment> findByUser_UserId(Long userId);
 
-    Optional<TaskAssignment> findByTask_TaskIdAndUser_UserId(Long taskId, Long userId);
-
-    void deleteByTask_TaskIdAndUser_UserId(Long taskId, Long userId);
-
     // Scoped query to prevent cross-server access
     @Query("SELECT a FROM TaskAssignment a WHERE a.id = :assignmentId AND a.task.board.server.serverId = :serverId")
     Optional<TaskAssignment> findByIdAndServerId(Long assignmentId, Long serverId);

@@ -65,25 +65,12 @@ public class TaskCommentService {
         return taskCommentRepository.findByUser_UserId(userId);
     }
 
-    @Transactional(readOnly = true)
-    public List<TaskComment> findReplies(Long parentCommentId) {
-        return taskCommentRepository.findByReplyTo_CommentId(parentCommentId);
-    }
-
     public TaskComment update(TaskComment comment) {
         return taskCommentRepository.save(comment);
     }
 
     public void deleteById(Long id) {
         taskCommentRepository.deleteById(id);
-    }
-
-    public void softDelete(Long id) {
-        Optional<TaskComment> comment = taskCommentRepository.findById(id);
-        comment.ifPresent(c -> {
-            c.setDeletedAt(LocalDateTime.now());
-            taskCommentRepository.save(c);
-        });
     }
 
     @Transactional(readOnly = true)

@@ -42,25 +42,11 @@ public class TaskLabelService {
         return taskLabelRepository.findByTask_TaskId(taskId);
     }
 
-    @Transactional(readOnly = true)
-    public List<TaskLabel> findByLabelId(Long labelId) {
-        return taskLabelRepository.findByLabel_LabelId(labelId);
-    }
-
-    @Transactional(readOnly = true)
-    public Optional<TaskLabel> findByTaskIdAndLabelId(Long taskId, Long labelId) {
-        return taskLabelRepository.findByTask_TaskIdAndLabel_LabelId(taskId, labelId);
-    }
-
     public TaskLabel update(TaskLabel taskLabel) {
         return taskLabelRepository.save(taskLabel);
     }
 
     public void deleteById(Long id) {
         taskLabelRepository.deleteById(id);
-    }
-
-    public void deleteByTaskIdAndLabelId(Long taskId, Long labelId) {
-        taskLabelRepository.deleteByTask_TaskIdAndLabel_LabelId(taskId, labelId);
     }
 }

@@ -9,16 +9,22 @@ import com.kanbancord_api.model.User;
 import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardService;
+import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/servers/{serverId}/boards")
@@ -31,6 +37,7 @@ public class BoardController {
     private final ServerService serverService;
     private final UserService userService;
     private final RealtimeEventPublisher realtimeEventPublisher;
+    private final PermissionEvaluationService permissionEvaluationService;
 
     public BoardController(
             BoardService boardService,
@@ -38,13 +45,15 @@ public class BoardController {
             ResourceValidator resourceValidator,
             ServerService serverService,
             UserService userService,
-            RealtimeEventPublisher realtimeEventPublisher) {
+            RealtimeEventPublisher realtimeEventPublisher,
+            PermissionEvaluationService permissionEvaluationService) {
         this.boardService = boardService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.serverService = serverService;
         this.userService = userService;
         this.realtimeEventPublisher = realtimeEventPublisher;
+        this.permissionEvaluationService = permissionEvaluationService;
     }
 
     /**
@@ -54,7 +63,7 @@ public class BoardController {
     public ResponseEntity<BoardResponse> createBoard(
             @PathVariable Long serverId,
             @Valid @RequestBody BoardRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
         accessValidator.requireServerPermission(userId, serverId, "CREATE_BOARD");
         resourceValidator.validatePathMatchesRequestId("serverId", serverId, request.getServerId());
@@ -70,9 +79,9 @@ public class BoardController {
         board.setDescription(request.getDescription());
         board.setIsArchived(false);
 
-        Long creatorId = request.getCreatedBy() != null ? request.getCreatedBy() : userId;
-        User creator = userService.findById(creatorId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", creatorId));
+        // The creator is always the authenticated user; request.createdBy is ignored.
+        User creator = userService.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
         board.setCreatedBy(creator);
 
         Board created = boardService.create(board, request.getColumnNames());
@@ -99,21 +108,29 @@ public class BoardController {
     public ResponseEntity<Page<BoardResponse>> getAllBoards(
             @PathVariable Long serverId,
             @RequestParam(required = false) Boolean archived,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             Pageable pageable) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireServerPermission(userId, serverId, "VIEW_SERVER");
 
-        Page<Board> boards;
-        if (archived != null) {
-            boards = boardService.findByServerIdAndArchived(serverId, archived, pageable);
-        } else {
-            boards = boardService.findByServerId(serverId, pageable);
-        }
+        // Visibility is evaluated per board (board-level overrides can hide a board), so filter the
+        // full list first and paginate afterwards. Servers hold few boards, so this stays cheap.
+        Pageable unpaged = Pageable.unpaged(pageable.getSort());
+        List<Board> boards = archived != null
+                ? boardService.findByServerIdAndArchived(serverId, archived, unpaged).getContent()
+                : boardService.findByServerId(serverId, unpaged).getContent();
 
-        Page<BoardResponse> responses = boards.map(this::mapToResponse);
+        Set<Long> visibleBoardIds = permissionEvaluationService.filterAllowedBoards(
+                serverId,
+                boards.stream().map(Board::getBoardId).toList(),
+                userId,
+                "VIEW_BOARD");
+        List<BoardResponse> visible = boards.stream()
+                .filter(board -> visibleBoardIds.contains(board.getBoardId()))
+                .map(this::mapToResponse)
+                .toList();
 
-        return ResponseEntity.ok(responses);
+        return ResponseEntity.ok(page(visible, pageable));
     }
 
     /**
@@ -123,10 +140,10 @@ public class BoardController {
     public ResponseEntity<BoardResponse> getBoardById(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
 
         return ResponseEntity.ok(mapToResponse(board));
     }
@@ -139,13 +156,12 @@ public class BoardController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody BoardRequest request,
-            @RequestParam Long userId) {
-
-        accessValidator.requireServerPermission(userId, serverId, "EDIT_BOARD_DETAILS");
-        resourceValidator.validatePathMatchesRequestId("serverId", serverId, request.getServerId());
-        resourceValidator.validateBoardNameUnique(request.getName(), serverId, boardId);
+            @CurrentUser Long userId) {
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "EDIT_BOARD_DETAILS");
+        resourceValidator.validatePathMatchesRequestId("serverId", serverId, request.getServerId());
+        resourceValidator.validateBoardNameUnique(request.getName(), serverId, boardId);
 
         board.setName(request.getName());
         if (request.getDescription() != null) {
@@ -176,12 +192,11 @@ public class BoardController {
     public ResponseEntity<BoardResponse> archiveBoard(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId,
+            @CurrentUser Long userId,
             @RequestParam(defaultValue = "true") Boolean archived) {
 
-        accessValidator.requireServerPermission(userId, serverId, "ARCHIVE_BOARD");
-
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "ARCHIVE_BOARD");
         board.setIsArchived(Boolean.TRUE.equals(archived));
 
         Board updated = boardService.update(board);
@@ -208,11 +223,10 @@ public class BoardController {
     public ResponseEntity<Void> deleteBoard(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId) {
-
-        accessValidator.requireServerPermission(userId, serverId, "DELETE_BOARD");
+            @CurrentUser Long userId) {
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "DELETE_BOARD");
         BoardResponse response = mapToResponse(board);
 
         boardService.deleteById(board.getBoardId());
@@ -229,6 +243,15 @@ public class BoardController {
                         userId,
                         response));
         return ResponseEntity.noContent().build();
+    }
+
+    private static <T> Page<T> page(List<T> items, Pageable pageable) {
+        if (pageable.isUnpaged()) {
+            return new PageImpl<>(items, pageable, items.size());
+        }
+        int from = (int) Math.min(pageable.getOffset(), items.size());
+        int to = Math.min(from + pageable.getPageSize(), items.size());
+        return new PageImpl<>(items.subList(from, to), pageable, items.size());
     }
 
     private BoardResponse mapToResponse(Board board) {

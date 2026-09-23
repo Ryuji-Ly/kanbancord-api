@@ -52,20 +52,11 @@ public class TaskAssignmentService {
         return taskAssignmentRepository.findByUser_UserId(userId);
     }
 
-    @Transactional(readOnly = true)
-    public Optional<TaskAssignment> findByTaskIdAndUserId(Long taskId, Long userId) {
-        return taskAssignmentRepository.findByTask_TaskIdAndUser_UserId(taskId, userId);
-    }
-
     public TaskAssignment update(TaskAssignment taskAssignment) {
         return taskAssignmentRepository.save(taskAssignment);
     }
 
     public void deleteById(Long id) {
         taskAssignmentRepository.deleteById(id);
-    }
-
-    public void deleteByTaskIdAndUserId(Long taskId, Long userId) {
-        taskAssignmentRepository.deleteByTask_TaskIdAndUser_UserId(taskId, userId);
     }
 }

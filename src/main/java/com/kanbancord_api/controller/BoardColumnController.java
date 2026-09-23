@@ -7,7 +7,8 @@ import com.kanbancord_api.model.BoardColumn;
 import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
-import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,9 +44,9 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @Valid @RequestBody BoardColumnRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "CREATE_COLUMN");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_COLUMN");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -79,9 +80,9 @@ public class BoardColumnController {
     public ResponseEntity<List<BoardColumnResponse>> getAllColumns(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
 
         resourceValidator.requireBoardInServer(boardId, serverId);
 
@@ -98,9 +99,9 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long columnId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireUserInServer(userId, serverId);
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
 
@@ -115,11 +116,11 @@ public class BoardColumnController {
             @PathVariable Long boardId,
             @PathVariable Long columnId,
             @Valid @RequestBody BoardColumnRequest request,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "EDIT_COLUMN");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "EDIT_COLUMN");
         if (request.getPosition() != null) {
-            accessValidator.requireServerPermission(userId, serverId, "MOVE_COLUMN");
+            accessValidator.requireBoardPermission(userId, serverId, boardId, "MOVE_COLUMN");
         }
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -161,9 +162,9 @@ public class BoardColumnController {
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long columnId,
-            @RequestParam Long userId) {
+            @CurrentUser Long userId) {
 
-        accessValidator.requireServerPermission(userId, serverId, "DELETE_COLUMN");
+        accessValidator.requireBoardPermission(userId, serverId, boardId, "DELETE_COLUMN");
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateBoardNotArchived(board);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);

@@ -1,7 +1,6 @@
 package com.kanbancord_api.realtime;
 
 import com.kanbancord_api.exception.AccessDeniedException;
-import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.ServerAccessValidator;
 import org.springframework.stereotype.Service;
 
@@ -20,13 +19,9 @@ public class RealtimeDestinationAuthorizationService {
     private static final Set<String> ALLOWED_SEND_DESTINATIONS = Set.of("/app/session/ping");
 
     private final ServerAccessValidator serverAccessValidator;
-    private final ResourceValidator resourceValidator;
 
-    public RealtimeDestinationAuthorizationService(
-            ServerAccessValidator serverAccessValidator,
-            ResourceValidator resourceValidator) {
+    public RealtimeDestinationAuthorizationService(ServerAccessValidator serverAccessValidator) {
         this.serverAccessValidator = serverAccessValidator;
-        this.resourceValidator = resourceValidator;
     }
 
     public AuthorizedSubscription authorizeSubscribe(Long userId, String destination) {
@@ -42,15 +37,15 @@ public class RealtimeDestinationAuthorizationService {
         if (boardMatcher.matches()) {
             Long serverId = Long.parseLong(boardMatcher.group(1));
             Long boardId = Long.parseLong(boardMatcher.group(2));
-            serverAccessValidator.validateUserInServer(userId, serverId);
-            resourceValidator.requireBoardInServer(boardId, serverId);
+            // Board events carry task contents; only users who can view the board may subscribe.
+            serverAccessValidator.validateUserHasPermission(userId, serverId, boardId, "VIEW_BOARD");
             return new AuthorizedSubscription(null, destination, "BOARD", serverId, boardId, Instant.now());
         }
 
         Matcher serverMatcher = SERVER_TOPIC_PATTERN.matcher(destination);
         if (serverMatcher.matches()) {
             Long serverId = Long.parseLong(serverMatcher.group(1));
-            serverAccessValidator.validateUserInServer(userId, serverId);
+            serverAccessValidator.validateUserHasPermission(userId, serverId, null, "VIEW_SERVER");
             return new AuthorizedSubscription(null, destination, "SERVER", serverId, null, Instant.now());
         }
 

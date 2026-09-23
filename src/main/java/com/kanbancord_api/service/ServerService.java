@@ -33,11 +33,6 @@ public class ServerService {
     }
 
     @Transactional(readOnly = true)
-    public List<Server> findByOwnerId(Long ownerId) {
-        return serverRepository.findByOwner_UserId(ownerId);
-    }
-
-    @Transactional(readOnly = true)
     public List<Server> findByMemberUserId(Long userId) {
         return serverRepository.findDistinctByMembers_User_UserId(userId);
     }
