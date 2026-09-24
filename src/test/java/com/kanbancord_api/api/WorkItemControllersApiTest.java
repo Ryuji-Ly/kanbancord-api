@@ -41,6 +41,7 @@ import com.kanbancord_api.command.TaskAssignmentCommands;
 import com.kanbancord_api.command.TaskCommands;
 import com.kanbancord_api.command.TaskCommentCommands;
 import com.kanbancord_api.event.DomainEvent;
+import com.kanbancord_api.query.BoardSnapshotQuery;
 import com.kanbancord_api.repository.TaskCommentEditRepository;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.TaskService;
@@ -98,7 +99,8 @@ import static com.kanbancord_api.api.ApiTestAuth.asUser;
         ColumnCommands.class,
         TaskCommands.class,
         TaskAssignmentCommands.class,
-        TaskCommentCommands.class
+        TaskCommentCommands.class,
+        BoardSnapshotQuery.class
 })
 @RecordApplicationEvents
 class WorkItemControllersApiTest {

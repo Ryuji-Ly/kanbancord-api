@@ -1,5 +1,7 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.service.PermissionEvaluationService;
+
 public class PermissionDecisionResponse {
 
     private boolean allowed;
@@ -46,5 +48,15 @@ public class PermissionDecisionResponse {
 
     public void setSourcePermissionId(Long sourcePermissionId) {
         this.sourcePermissionId = sourcePermissionId;
+    }
+
+    public static PermissionDecisionResponse from(PermissionEvaluationService.Decision decision) {
+        PermissionDecisionResponse response = new PermissionDecisionResponse();
+        response.setAllowed(decision.allowed());
+        response.setSourceTier(decision.sourceTier());
+        response.setSourceScopeType(decision.sourceScopeType());
+        response.setSourceScopeId(decision.sourceScopeId());
+        response.setSourcePermissionId(decision.sourcePermissionId());
+        return response;
     }
 }

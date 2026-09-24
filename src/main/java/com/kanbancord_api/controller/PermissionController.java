@@ -172,7 +172,7 @@ public class PermissionController {
                 subjectUserId,
                 permissionKey);
 
-        return ResponseEntity.ok(toDecisionResponse(decision));
+        return ResponseEntity.ok(PermissionDecisionResponse.from(decision));
     }
 
     @GetMapping("/evaluate-batch")
@@ -187,7 +187,7 @@ public class PermissionController {
 
         Map<String, PermissionDecisionResponse> responses = new LinkedHashMap<>();
         permissionEvaluationService.resolveAll(serverId, boardId, subjectUserId, permissionKey)
-                .forEach((key, decision) -> responses.put(key, toDecisionResponse(decision)));
+                .forEach((key, decision) -> responses.put(key, PermissionDecisionResponse.from(decision)));
 
         return ResponseEntity.ok(responses);
     }
@@ -208,15 +208,5 @@ public class PermissionController {
             resourceValidator.requireBoardInServer(boardId, serverId);
         }
         return subjectUserId;
-    }
-
-    private static PermissionDecisionResponse toDecisionResponse(PermissionEvaluationService.Decision decision) {
-        PermissionDecisionResponse response = new PermissionDecisionResponse();
-        response.setAllowed(decision.allowed());
-        response.setSourceTier(decision.sourceTier());
-        response.setSourceScopeType(decision.sourceScopeType());
-        response.setSourceScopeId(decision.sourceScopeId());
-        response.setSourcePermissionId(decision.sourcePermissionId());
-        return response;
     }
 }
