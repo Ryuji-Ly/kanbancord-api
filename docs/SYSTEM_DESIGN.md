@@ -320,6 +320,9 @@ src/
 - JWTs could not be revoked, and the app and Discord tokens were kept in `localStorage` (3.2).
 - Realtime subscriptions survived losing access until the client reconnected. Permission,
   role and membership changes now end them and tell the client (`SUBSCRIPTION_REVOKED`).
+- Labels, and changes synced from Discord (server, roles, members), were not announced over realtime.
+  They now are; Discord sync events are announced but not audited. Changes that concern one user
+  (profile, notifications, sessions) go to that user's own queue, `/user/queue/me`.
 
 **Open:**
 

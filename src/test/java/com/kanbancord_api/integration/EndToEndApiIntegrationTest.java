@@ -355,6 +355,84 @@ class EndToEndApiIntegrationTest {
         assertFalse(member.failure.isDone(), "losing access to one topic keeps the connection open");
     }
 
+    @Test
+    void realtime_labelChanges_reachTheBoard_andTheSnapshotCarriesLabels() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Labelled");
+        long task = w.createTask(MOD, board, w.column(board, "Todo"), "Tag me");
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(w.topic(board));
+        Thread.sleep(500);
+
+        long label = call("POST", w.boardPath(board, "/labels"), OWNER,
+                Map.of("boardId", board, "name", "bug", "color", "#ff0000")).expect(201).json().get("labelId").asLong();
+        assertEquals("LABEL_CREATED", member.next().get("eventType"));
+        call("PUT", w.boardPath(board, "/labels/" + label), OWNER,
+                Map.of("boardId", board, "name", "defect", "color", "#ff0000")).expect(200);
+        assertEquals("LABEL_UPDATED", member.next().get("eventType"));
+        long taskLabel = call("POST", w.boardPath(board, "/tasks/" + task + "/labels"), OWNER,
+                Map.of("taskId", task, "labelId", label)).expect(201).json().get("id").asLong();
+        assertEquals("TASK_LABEL_ADDED", member.next().get("eventType"));
+
+        JsonNode snapshot = w.snapshot(MEMBER, board);
+        assertEquals("defect", snapshot.get("labels").get(0).get("name").asText());
+        assertEquals(label, snapshot.get("taskLabels").get(0).get("labelId").asLong());
+
+        call("DELETE", w.boardPath(board, "/tasks/" + task + "/labels/" + taskLabel), OWNER, null).expect(204);
+        assertEquals("TASK_LABEL_REMOVED", member.next().get("eventType"));
+        call("DELETE", w.boardPath(board, "/labels/" + label), OWNER, null).expect(204);
+        assertEquals("LABEL_DELETED", member.next().get("eventType"));
+        assertTrue(auditLog(w).stream().anyMatch(e -> "LABEL_DELETED".equals(e.get("action").asText())),
+                "label changes are audited like every other change");
+    }
+
+    @Test
+    void realtime_discordSyncChanges_areAnnouncedOnTheServerTopic_butNotAudited() throws Exception {
+        World w = bootstrapServer();
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe("/topic/servers/" + w.serverId);
+        Thread.sleep(500);
+        int auditEntries = auditLog(w).size();
+
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/roles/" + w.modsRole,
+                Map.of("name", "Moderators", "position", 2, "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES)));
+        Map<?, ?> role = member.next();
+        assertEquals("ROLE_SYNCED", role.get("eventType"));
+        assertEquals("ROLE", role.get("entityType"));
+
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/members/" + MEMBER + "/roles",
+                Map.of("roleIds", List.of(w.membersRole, w.modsRole))));
+        assertEquals("MEMBER_SYNCED", member.next().get("eventType"));
+
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId,
+                Map.of("name", "Renamed", "ownerId", OWNER, "ownerUsername", "owner")));
+        assertEquals("SERVER_SYNCED", member.next().get("eventType"));
+
+        assertEquals(auditEntries, auditLog(w).size(), "the audit log records what people did in KanbanCord");
+    }
+
+    @Test
+    void realtime_userQueue_reachesOnlyThatUser() throws Exception {
+        World w = bootstrapServer();
+        RealtimeProbe mine = RealtimeProbe.connect(this, MEMBER);
+        mine.subscribe("/user/queue/me");
+        RealtimeProbe someoneElse = RealtimeProbe.connect(this, MOD);
+        someoneElse.subscribe("/user/queue/me");
+        Thread.sleep(500);
+
+        call("PUT", w.path("/users/" + MEMBER), MEMBER, Map.of("preferences", Map.of("theme", "dark"))).expect(200);
+        Map<?, ?> event = mine.next();
+        assertEquals("PROFILE_UPDATED", event.get("eventType"));
+        assertEquals("dark", ((Map<?, ?>) ((Map<?, ?>) event.get("payload")).get("preferences")).get("theme"));
+
+        userSessionService.start(MEMBER, "another device");
+        assertEquals("SESSIONS_CHANGED", mine.next().get("eventType"));
+
+        List<Map<?, ?>> leaked = someoneElse.drain();
+        assertTrue(leaked.isEmpty(), leaked.toString());
+    }
+
     // ── Sessions ─────────────────────────────────────────────────────────────
 
     @Test

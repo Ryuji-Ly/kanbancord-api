@@ -19,8 +19,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Writes every change to the audit log in the same transaction as the change itself, so a change is
- * never stored without its audit entry (or the other way round).
+ * Writes every change made in KanbanCord to the audit log in the same transaction as the change
+ * itself, so a change is never stored without its audit entry (or the other way round). Changes
+ * synced from Discord are not recorded.
  */
 @Component
 public class AuditLogRecorder {
@@ -41,6 +42,9 @@ public class AuditLogRecorder {
 
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT, fallbackExecution = true)
     public void onDomainEvent(DomainEvent event) {
+        if (event.type().fromDiscordSync()) {
+            return;
+        }
         AuditLog log = new AuditLog();
         log.setServer(entityManager.getReference(Server.class, event.serverId()));
         // A deleted board cannot be referenced; its id stays in the recorded changes.

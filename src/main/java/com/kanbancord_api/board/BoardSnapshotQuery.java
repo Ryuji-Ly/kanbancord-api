@@ -2,6 +2,10 @@ package com.kanbancord_api.board;
 
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
+import com.kanbancord_api.label.LabelResponse;
+import com.kanbancord_api.label.LabelService;
+import com.kanbancord_api.label.TaskLabelResponse;
+import com.kanbancord_api.label.TaskLabelService;
 import com.kanbancord_api.permission.KanbanPermissionCatalog;
 import com.kanbancord_api.permission.PermissionDecisionResponse;
 import com.kanbancord_api.permission.PermissionEvaluationService;
@@ -33,6 +37,8 @@ public class BoardSnapshotQuery {
     private final BoardColumnService boardColumnService;
     private final TaskService taskService;
     private final TaskAssignmentService taskAssignmentService;
+    private final LabelService labelService;
+    private final TaskLabelService taskLabelService;
 
     public BoardSnapshotQuery(
             Authorizer authorizer,
@@ -40,18 +46,22 @@ public class BoardSnapshotQuery {
             PermissionEvaluationService permissionEvaluationService,
             BoardColumnService boardColumnService,
             TaskService taskService,
-            TaskAssignmentService taskAssignmentService) {
+            TaskAssignmentService taskAssignmentService,
+            LabelService labelService,
+            TaskLabelService taskLabelService) {
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
         this.boardColumnService = boardColumnService;
         this.taskService = taskService;
         this.taskAssignmentService = taskAssignmentService;
+        this.labelService = labelService;
+        this.taskLabelService = taskLabelService;
     }
 
     /**
-     * Requires VIEW_BOARD. Tasks and assignments are included only with VIEW_TASK; without it the
-     * lists are empty, as the separate endpoints would refuse them.
+     * Requires VIEW_BOARD. Tasks, assignments and the labels on tasks are included only with VIEW_TASK;
+     * without it the lists are empty, as the separate endpoints would refuse them.
      */
     public BoardSnapshotResponse load(Long serverId, Long boardId, Long actorUserId) {
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -72,6 +82,12 @@ public class BoardSnapshotQuery {
                 ? taskAssignmentService.findByBoardId(boardId).stream().map(TaskAssignmentResponse::from).toList()
                 : List.of();
 
-        return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, permissions);
+        List<LabelResponse> labels = labelService.findByBoardId(boardId).stream().map(LabelResponse::from).toList();
+        List<TaskLabelResponse> taskLabels = canViewTasks
+                ? taskLabelService.findByBoardId(boardId).stream().map(TaskLabelResponse::from).toList()
+                : List.of();
+
+        return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, labels, taskLabels,
+                permissions);
     }
 }

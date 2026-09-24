@@ -3,7 +3,6 @@ package com.kanbancord_api.label;
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.security.CurrentUser;
-import com.kanbancord_api.task.Task;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,14 +18,17 @@ import java.util.stream.Collectors;
 public class TaskLabelController {
 
     private final TaskLabelService taskLabelService;
+    private final TaskLabelCommands taskLabelCommands;
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
 
     public TaskLabelController(
             TaskLabelService taskLabelService,
+            TaskLabelCommands taskLabelCommands,
             Authorizer authorizer,
             ResourceValidator resourceValidator) {
         this.taskLabelService = taskLabelService;
+        this.taskLabelCommands = taskLabelCommands;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
     }
@@ -38,22 +40,8 @@ public class TaskLabelController {
             @PathVariable Long taskId,
             @Valid @RequestBody TaskLabelRequest request,
             @CurrentUser Long userId) {
-
-        authorizer.requireBoardPermission(userId, serverId, boardId, "APPLY_LABEL_TO_TASK");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
-
-        Label label = resourceValidator.requireLabelInServer(request.getLabelId(), serverId);
-        resourceValidator.validateLabelBelongsToBoard(label.getLabelId(), boardId);
-
-        TaskLabel taskLabel = new TaskLabel();
-        taskLabel.setTask(task);
-        taskLabel.setLabel(label);
-
-        TaskLabel created = taskLabelService.create(taskLabel);
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(created));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(taskLabelCommands.add(serverId, boardId, taskId, userId, request));
     }
 
     @GetMapping
@@ -71,7 +59,7 @@ public class TaskLabelController {
         List<TaskLabel> taskLabels = taskLabelService.findByTaskId(taskId);
 
         List<TaskLabelResponse> responses = taskLabels.stream()
-                .map(this::mapToResponse)
+                .map(TaskLabelResponse::from)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
@@ -91,7 +79,7 @@ public class TaskLabelController {
         TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, taskLabel.getTask().getTaskId());
 
-        return ResponseEntity.ok(mapToResponse(taskLabel));
+        return ResponseEntity.ok(TaskLabelResponse.from(taskLabel));
     }
 
     @DeleteMapping("/{taskLabelId}")
@@ -101,23 +89,7 @@ public class TaskLabelController {
             @PathVariable Long taskId,
             @PathVariable Long taskLabelId,
             @CurrentUser Long userId) {
-
-        authorizer.requireBoardPermission(userId, serverId, boardId, "REMOVE_LABEL_FROM_TASK");
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, taskLabel.getTask().getTaskId());
-
-        taskLabelService.deleteById(taskLabel.getId());
+        taskLabelCommands.remove(serverId, boardId, taskId, taskLabelId, userId);
         return ResponseEntity.noContent().build();
-    }
-
-    private TaskLabelResponse mapToResponse(TaskLabel taskLabel) {
-        TaskLabelResponse response = new TaskLabelResponse();
-        response.setId(taskLabel.getId());
-        response.setTaskId(taskLabel.getTask().getTaskId());
-        response.setLabelId(taskLabel.getLabel().getLabelId());
-        response.setAddedAt(taskLabel.getAddedAt());
-        return response;
     }
 }
