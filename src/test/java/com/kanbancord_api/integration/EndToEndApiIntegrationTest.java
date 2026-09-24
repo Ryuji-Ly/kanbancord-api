@@ -196,6 +196,18 @@ class EndToEndApiIntegrationTest {
         assertTrue(call("POST", "/api/servers/" + w.serverId + "/members/1/roles", OWNER, Map.of()).status() >= 400);
         assertEquals(403, call("GET", w.path("/audit-logs"), MEMBER, null).status());
 
+        // CORS: configured origins get a preflight grant, anything else does not.
+        HttpResponse<String> allowedPreflight = preflight(w.path("/boards"), "https://kanbancord.com", "GET");
+        assertEquals("https://kanbancord.com",
+                allowedPreflight.headers().firstValue("Access-Control-Allow-Origin").orElse(null));
+        // The web client archives boards and toggles rule states with PATCH.
+        HttpResponse<String> patchPreflight = preflight(w.path("/boards/" + board + "/archive"),
+                "https://kanbancord.com", "PATCH");
+        assertEquals(200, patchPreflight.statusCode());
+        assertTrue(patchPreflight.headers().firstValue("Access-Control-Allow-Methods").orElse("").contains("PATCH"));
+        HttpResponse<String> foreignPreflight = preflight(w.path("/boards"), "https://evil.example", "GET");
+        assertTrue(foreignPreflight.headers().firstValue("Access-Control-Allow-Origin").isEmpty());
+
         JsonNode health = call("GET", "/actuator/health", null, null).expect(200).json();
         assertEquals("UP", health.get("status").asText());
         assertFalse(health.has("components"), "health details are not public");
@@ -323,6 +335,15 @@ class EndToEndApiIntegrationTest {
             }
         }
         return new Response(response.statusCode(), json, response.body());
+    }
+
+    private HttpResponse<String> preflight(String path, String origin, String method) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri(path))
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", method)
+                .build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private URI uri(String path) {
