@@ -4,11 +4,11 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.kanbancord_api.session.UserSessionService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -19,9 +19,13 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenService jwtTokenService;
+    private final UserSessionService userSessionService;
 
-    public JwtAuthenticationFilter(ObjectProvider<JwtTokenService> jwtTokenServiceProvider) {
+    public JwtAuthenticationFilter(
+            ObjectProvider<JwtTokenService> jwtTokenServiceProvider,
+            ObjectProvider<UserSessionService> userSessionServiceProvider) {
         this.jwtTokenService = jwtTokenServiceProvider.getIfAvailable();
+        this.userSessionService = userSessionServiceProvider.getIfAvailable();
     }
 
     @Override
@@ -29,18 +33,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (jwtTokenService != null && header != null && header.startsWith("Bearer ")) {
+        if (jwtTokenService != null && userSessionService != null && header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
-            jwtTokenService.validateAndExtractUserId(token).ifPresent(userId -> {
-                if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                            userId,
-                            null,
-                            List.of());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                }
-            });
+            jwtTokenService.validate(token)
+                    // A signed-out session's tokens stop working at once, not when they expire.
+                    .filter(claims -> userSessionService.isActive(claims.sessionId(), claims.userId()))
+                    .ifPresent(claims -> {
+                        if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                                    claims.userId(),
+                                    null,
+                                    List.of());
+                            auth.setDetails(new AuthenticatedSession(claims.sessionId()));
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        }
+                    });
         }
 
         filterChain.doFilter(request, response);

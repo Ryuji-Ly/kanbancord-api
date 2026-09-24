@@ -16,6 +16,11 @@
       "description": "Lifetime of backend access tokens in seconds."
     },
     {
+      "name": "kanbancord.auth.token-encryption-key",
+      "type": "java.lang.String",
+      "description": "AES-256 key (32 bytes, base64) encrypting stored Discord OAuth tokens. Derived from the JWT secret when empty."
+    },
+    {
       "name": "kanbancord.cors.allowed-origins",
       "type": "java.util.List<java.lang.String>",
       "description": "Allowed browser origins for REST API requests (CORS)."

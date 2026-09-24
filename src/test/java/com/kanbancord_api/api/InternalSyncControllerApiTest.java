@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.permission.PermissionBootstrapService;
-import com.kanbancord_api.realtime.RealtimeAccessCache;
+import com.kanbancord_api.realtime.RealtimeSubscriptionRevoker;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -66,7 +66,7 @@ class InternalSyncControllerApiTest {
     @MockitoBean
     private MemberRoleService memberRoleService;
     @MockitoBean
-    private RealtimeAccessCache realtimeAccessCache;
+    private RealtimeSubscriptionRevoker realtimeSubscriptionRevoker;
 
     @Test
     void upsertServer_returnsNoContent_onHappyPath() throws Exception {

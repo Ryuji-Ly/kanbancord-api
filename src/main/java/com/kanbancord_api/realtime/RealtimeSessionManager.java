@@ -70,6 +70,24 @@ public class RealtimeSessionManager {
         }
     }
 
+    /** Every live subscription to the server's topic or any of its board topics. */
+    public List<ActiveSubscription> subscriptionsForServer(Long serverId) {
+        List<ActiveSubscription> result = new ArrayList<>();
+        sessions.values().forEach(session -> session.subscriptions.values().forEach(subscription -> {
+            if (serverId.equals(subscription.serverId())) {
+                result.add(new ActiveSubscription(
+                        session.sessionId,
+                        session.userId,
+                        session.principalName,
+                        subscription.subscriptionId(),
+                        subscription.destination(),
+                        subscription.serverId(),
+                        subscription.boardId()));
+            }
+        }));
+        return result;
+    }
+
     public Optional<SessionSnapshot> snapshot(String sessionId) {
         SessionState sessionState = sessions.get(sessionId);
         return sessionState == null ? Optional.empty() : Optional.of(snapshot(sessionState));
@@ -131,6 +149,16 @@ public class RealtimeSessionManager {
             Long serverId,
             Long boardId,
             Instant subscribedAt) {
+    }
+
+    public record ActiveSubscription(
+            String sessionId,
+            Long userId,
+            String principalName,
+            String subscriptionId,
+            String destination,
+            Long serverId,
+            Long boardId) {
     }
 
     public record SessionSnapshot(
