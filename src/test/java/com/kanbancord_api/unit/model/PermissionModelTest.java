@@ -1,6 +1,6 @@
 package com.kanbancord_api.unit.model;
 
-import com.kanbancord_api.model.Permission;
+import com.kanbancord_api.permission.Permission;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;

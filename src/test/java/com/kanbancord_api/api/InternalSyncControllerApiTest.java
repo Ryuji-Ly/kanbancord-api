@@ -1,24 +1,24 @@
 package com.kanbancord_api.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kanbancord_api.controller.InternalSyncController;
-import com.kanbancord_api.dto.InternalBootstrapRequest;
-import com.kanbancord_api.dto.InternalMemberSyncRequest;
-import com.kanbancord_api.dto.InternalRoleSyncRequest;
-import com.kanbancord_api.dto.InternalServerSyncRequest;
+import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.exception.AccessDeniedException;
-import com.kanbancord_api.model.Role;
-import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.ServerMember;
-import com.kanbancord_api.model.User;
+import com.kanbancord_api.permission.PermissionBootstrapService;
 import com.kanbancord_api.realtime.RealtimeAccessCache;
-import com.kanbancord_api.service.AccessValidator;
-import com.kanbancord_api.service.PermissionBootstrapService;
-import com.kanbancord_api.service.RoleService;
-import com.kanbancord_api.service.ServerMemberService;
-import com.kanbancord_api.service.MemberRoleService;
-import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.server.MemberRoleService;
+import com.kanbancord_api.server.Role;
+import com.kanbancord_api.server.RoleService;
+import com.kanbancord_api.server.Server;
+import com.kanbancord_api.server.ServerMember;
+import com.kanbancord_api.server.ServerMemberService;
+import com.kanbancord_api.server.ServerService;
+import com.kanbancord_api.sync.InternalBootstrapRequest;
+import com.kanbancord_api.sync.InternalMemberSyncRequest;
+import com.kanbancord_api.sync.InternalRoleSyncRequest;
+import com.kanbancord_api.sync.InternalServerSyncRequest;
+import com.kanbancord_api.sync.InternalSyncController;
+import com.kanbancord_api.user.User;
+import com.kanbancord_api.user.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +52,7 @@ class InternalSyncControllerApiTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private AccessValidator accessValidator;
+    private Authorizer authorizer;
     @MockitoBean
     private ServerService serverService;
     @MockitoBean
@@ -91,7 +91,7 @@ class InternalSyncControllerApiTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
 
-        verify(accessValidator).requireInternalSyncAccess("valid-bot-token");
+        verify(authorizer).requireInternalSyncAccess("valid-bot-token");
         verify(serverService).update(any(Server.class));
     }
 
@@ -103,7 +103,7 @@ class InternalSyncControllerApiTest {
         request.setOwnerUsername("owner");
 
         doThrow(new AccessDeniedException("Invalid internal sync bot token"))
-                .when(accessValidator)
+                .when(authorizer)
                 .requireInternalSyncAccess("bad-token");
 
         mockMvc.perform(put("/api/internal/sync/servers/1")

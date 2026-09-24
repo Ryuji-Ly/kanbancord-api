@@ -1,13 +1,14 @@
 package com.kanbancord_api.unit.service;
 
+import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.BadRequestException;
-import com.kanbancord_api.model.Permission;
-import com.kanbancord_api.repository.PermissionRepository;
-import com.kanbancord_api.service.PermissionEscalationGuardService;
-import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.PermissionSnapshot;
-import com.kanbancord_api.service.ResourceValidator;
+import com.kanbancord_api.permission.Permission;
+import com.kanbancord_api.permission.PermissionEscalationGuardService;
+import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.permission.PermissionRepository;
+import com.kanbancord_api.permission.PermissionSnapshot;
+import static com.kanbancord_api.unit.service.PermissionEvaluationServiceTest.rule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,7 +18,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Set;
 
-import static com.kanbancord_api.unit.service.PermissionEvaluationServiceTest.rule;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;

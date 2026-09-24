@@ -1,24 +1,25 @@
 package com.kanbancord_api.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kanbancord_api.controller.NotificationController;
-import com.kanbancord_api.controller.ServerController;
-import com.kanbancord_api.controller.ServerUserController;
-import com.kanbancord_api.dto.UserUpdateRequest;
+import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.GlobalExceptionHandler;
-import com.kanbancord_api.model.Notification;
-import com.kanbancord_api.model.Role;
-import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.ServerMember;
-import com.kanbancord_api.model.User;
-import com.kanbancord_api.service.AccessValidator;
-import com.kanbancord_api.service.NotificationService;
-import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.RoleService;
-import com.kanbancord_api.service.ServerMemberService;
-import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.notification.Notification;
+import com.kanbancord_api.notification.NotificationController;
+import com.kanbancord_api.notification.NotificationService;
+import com.kanbancord_api.server.Role;
+import com.kanbancord_api.server.RoleService;
+import com.kanbancord_api.server.Server;
+import com.kanbancord_api.server.ServerController;
+import com.kanbancord_api.server.ServerMember;
+import com.kanbancord_api.server.ServerMemberService;
+import com.kanbancord_api.server.ServerService;
+import com.kanbancord_api.server.ServerUserController;
+import com.kanbancord_api.user.User;
+import com.kanbancord_api.user.UserService;
+import com.kanbancord_api.user.UserUpdateRequest;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -41,7 +42,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = { ServerController.class, ServerUserController.class, NotificationController.class })
 @AutoConfigureMockMvc(addFilters = false)
@@ -57,7 +57,7 @@ class ServerAccessControllersApiTest {
     @MockitoBean
     private ServerService serverService;
     @MockitoBean
-    private AccessValidator accessValidator;
+    private Authorizer authorizer;
     @MockitoBean
     private RoleService roleService;
     @MockitoBean
@@ -82,7 +82,7 @@ class ServerAccessControllersApiTest {
     @Test
     void getServerById_returnsForbidden_unhappyPath() throws Exception {
         doThrow(new AccessDeniedException("Forbidden"))
-                .when(accessValidator)
+                .when(authorizer)
                 .requireServerPermission(99L, 1L, "VIEW_SERVER");
 
         mockMvc.perform(get("/api/servers/1").with(asUser(99L)))
@@ -152,7 +152,7 @@ class ServerAccessControllersApiTest {
         request.setGlobalName("Updated Name");
 
         doThrow(new AccessDeniedException("Only self updates allowed"))
-                .when(accessValidator)
+                .when(authorizer)
                 .requireSelf(99L, 30L);
 
         mockMvc.perform(put("/api/servers/1/users/30")

@@ -335,10 +335,24 @@ class EndToEndApiIntegrationTest {
         assertEquals(doing, moved.get("columnId").asLong());
         assertEquals(Map.of(todo, List.of(c, b), doing, List.of(a)), w.tasksByColumn(board));
 
+        // Renaming (resending the current position) is not a move; changing the position is.
+        w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "EDIT_COLUMN", "ALLOW").expect(201);
+        JsonNode todoColumn = call("GET", w.boardPath(board, "/columns/" + todo), OWNER, null).expect(200).json();
+        call("PUT", w.boardPath(board, "/columns/" + todo), MEMBER, Map.of("boardId", board, "name", "To do",
+                "position", todoColumn.get("position").decimalValue())).expect(200);
+        assertEquals(403, call("PUT", w.boardPath(board, "/columns/" + todo), MEMBER,
+                Map.of("boardId", board, "name", "To do", "position", 9)).status());
+
+        // A column created without a position goes to the end.
+        long review = call("POST", w.boardPath(board, "/columns"), OWNER, Map.of("boardId", board, "name", "Review"))
+                .expect(201).json().get("columnId").asLong();
+        assertEquals(List.of("To do", "Doing", "Review"), w.snapshot(OWNER, board).get("columns").findValuesAsText("name"));
+        call("DELETE", w.boardPath(board, "/columns/" + review), OWNER, null).expect(204);
+
         JsonNode column = call("POST", w.boardPath(board, "/columns/" + doing + "/move"), MOD, Map.of("index", 0))
                 .expect(200).json();
         assertEquals(1, column.get("position").asInt());
-        assertEquals(List.of("Doing", "Todo"), w.snapshot(MOD, board).get("columns").findValuesAsText("name"));
+        assertEquals(List.of("Doing", "To do"), w.snapshot(MOD, board).get("columns").findValuesAsText("name"));
 
         // Members without MOVE_TASK cannot move; moving to another board's column is refused.
         w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "MOVE_TASK", "DENY").expect(201);
@@ -375,6 +389,32 @@ class EndToEndApiIntegrationTest {
         // A board the caller cannot view has no snapshot.
         w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "VIEW_BOARD", "DENY").expect(201);
         assertEquals(403, call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).status());
+    }
+
+    @Test
+    void accessSummary_listsServerAndPerBoardPermissions_forVisibleBoardsOnly() throws Exception {
+        World w = bootstrapServer();
+        long open = w.createBoard(OWNER, "Open");
+        long secret = w.createBoard(OWNER, "Secret");
+        w.createRule(OWNER, "BOARD", secret, "DISCORD_PERMISSION", VIEW_CHANNEL, "VIEW_BOARD", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", secret, "ROLE", w.modsRole, "VIEW_BOARD", "ALLOW").expect(201);
+        w.createRule(OWNER, "BOARD", open, "USER", MEMBER, "CREATE_TASK", "DENY").expect(201);
+
+        JsonNode owner = call("GET", w.path("/permissions/mine"), OWNER, null).expect(200).json();
+        assertTrue(owner.at("/server/ADMIN").asBoolean());
+        assertTrue(owner.at("/boards/" + secret + "/DELETE_BOARD").asBoolean());
+
+        JsonNode member = call("GET", w.path("/permissions/mine"), MEMBER, null).expect(200).json();
+        assertTrue(member.at("/server/VIEW_SERVER").asBoolean());
+        assertFalse(member.at("/server/MANAGE_SERVER_PERMISSIONS").asBoolean());
+        assertFalse(member.get("boards").has(String.valueOf(secret)), "boards the caller cannot view are left out");
+        assertTrue(member.at("/boards/" + open + "/VIEW_TASK").asBoolean());
+        assertFalse(member.at("/boards/" + open + "/CREATE_TASK").asBoolean(), "board overrides apply");
+
+        assertTrue(call("GET", w.path("/permissions/mine"), MOD, null).expect(200).json()
+                .get("boards").has(String.valueOf(secret)));
+        long outsider = 9_999L;
+        assertEquals(403, call("GET", w.path("/permissions/mine"), outsider, null).status());
     }
 
     // ── Audit log ───────────────────────────────────────────────────────────────

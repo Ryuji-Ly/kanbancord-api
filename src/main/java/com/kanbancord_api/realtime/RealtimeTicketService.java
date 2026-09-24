@@ -1,6 +1,5 @@
 package com.kanbancord_api.realtime;
 
-import com.kanbancord_api.config.RealtimeProperties;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;

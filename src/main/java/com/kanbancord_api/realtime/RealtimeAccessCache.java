@@ -1,9 +1,8 @@
 package com.kanbancord_api.realtime;
 
-import com.kanbancord_api.config.RealtimeProperties;
-import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.PermissionResolver;
-import com.kanbancord_api.service.PermissionSnapshot;
+import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.permission.PermissionResolver;
+import com.kanbancord_api.permission.PermissionSnapshot;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
