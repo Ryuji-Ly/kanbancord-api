@@ -14,6 +14,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class JwtTokenService {
@@ -48,7 +49,12 @@ public class JwtTokenService {
         }
     }
 
-    public String issueToken(Long userId) {
+    /** What a valid access token says: who it is for and which sign-in session issued it. */
+    public record AccessClaims(Long userId, UUID sessionId) {
+    }
+
+    /** A short-lived access token for a user's sign-in session. */
+    public String issueToken(Long userId, UUID sessionId) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(authJwtProperties.getExpirationSeconds());
 
@@ -56,6 +62,7 @@ public class JwtTokenService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", String.valueOf(userId));
         payload.put("uid", userId);
+        payload.put("sid", sessionId.toString());
         payload.put("iat", now.getEpochSecond());
         payload.put("exp", exp.getEpochSecond());
 
@@ -66,7 +73,8 @@ public class JwtTokenService {
         return signingInput + "." + signature;
     }
 
-    public Optional<Long> validateAndExtractUserId(String token) {
+    /** The claims of a token with a valid signature that has not expired. Tokens without a session are rejected. */
+    public Optional<AccessClaims> validate(String token) {
         try {
             String[] parts = token.split("\\.");
             if (parts.length != 3) {
@@ -89,7 +97,11 @@ public class JwtTokenService {
                 return Optional.empty();
             }
 
-            return Optional.of(toLong(payload.get("uid")));
+            Object sessionId = payload.get("sid");
+            if (sessionId == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new AccessClaims(toLong(payload.get("uid")), UUID.fromString(String.valueOf(sessionId))));
         } catch (Exception ex) {
             return Optional.empty();
         }

@@ -16,6 +16,8 @@ public class RateLimitProperties {
 
     private boolean enabled = true;
     private Limit auth = new Limit(20, 10);
+    /** Refreshing and signing out: every page load refreshes once, so this is looser than sign-in. */
+    private Limit session = new Limit(60, 30);
     private Limit read = new Limit(600, 600);
     private Limit write = new Limit(300, 300);
 
@@ -33,6 +35,14 @@ public class RateLimitProperties {
 
     public void setAuth(Limit auth) {
         this.auth = auth;
+    }
+
+    public Limit getSession() {
+        return session;
+    }
+
+    public void setSession(Limit session) {
+        this.session = session;
     }
 
     public Limit getRead() {

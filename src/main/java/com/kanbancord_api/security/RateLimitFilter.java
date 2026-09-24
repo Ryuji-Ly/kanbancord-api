@@ -70,8 +70,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String path = request.getRequestURI().substring(request.getContextPath().length());
+        // The client IP; behind Cloudflare and nginx, Tomcat resolves it from CF-Connecting-IP.
+        if (path.equals("/api/auth/refresh") || path.equals("/api/auth/logout")) {
+            return limiter.tryAcquire("ip:" + request.getRemoteAddr() + ":session", properties.getSession());
+        }
         if (path.startsWith("/api/auth/")) {
-            // The client IP; behind Cloudflare and nginx, Tomcat resolves it from CF-Connecting-IP.
             return limiter.tryAcquire("ip:" + request.getRemoteAddr() + ":auth", properties.getAuth());
         }
         return 0;

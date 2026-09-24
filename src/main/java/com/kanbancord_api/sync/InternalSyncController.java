@@ -4,7 +4,7 @@ import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.permission.PermissionBootstrapService;
-import com.kanbancord_api.realtime.RealtimeAccessCache;
+import com.kanbancord_api.realtime.RealtimeSubscriptionRevoker;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -44,7 +44,7 @@ public class InternalSyncController {
     private final ServerMemberService serverMemberService;
     private final MemberRoleService memberRoleService;
     private final PermissionBootstrapService permissionBootstrapService;
-    private final RealtimeAccessCache realtimeAccessCache;
+    private final RealtimeSubscriptionRevoker realtimeSubscriptionRevoker;
 
     public InternalSyncController(
             Authorizer authorizer,
@@ -54,7 +54,7 @@ public class InternalSyncController {
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
             PermissionBootstrapService permissionBootstrapService,
-            RealtimeAccessCache realtimeAccessCache) {
+            RealtimeSubscriptionRevoker realtimeSubscriptionRevoker) {
         this.authorizer = authorizer;
         this.serverService = serverService;
         this.userService = userService;
@@ -62,7 +62,7 @@ public class InternalSyncController {
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
         this.permissionBootstrapService = permissionBootstrapService;
-        this.realtimeAccessCache = realtimeAccessCache;
+        this.realtimeSubscriptionRevoker = realtimeSubscriptionRevoker;
     }
 
     @GetMapping("/servers")
@@ -102,7 +102,7 @@ public class InternalSyncController {
         server.setOwner(owner);
         serverService.update(server);
 
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -141,7 +141,7 @@ public class InternalSyncController {
         role.setDiscordPermissions(request.getDiscordPermissions());
         roleService.update(role);
 
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -153,7 +153,7 @@ public class InternalSyncController {
 
         authorizer.requireInternalSyncAccess(botToken);
         roleService.findById(roleId).ifPresent(role -> roleService.deleteById(roleId));
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -190,7 +190,7 @@ public class InternalSyncController {
             memberRoleService.replaceForMember(member, request.getRoleIds());
         }
 
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
@@ -203,7 +203,7 @@ public class InternalSyncController {
         authorizer.requireInternalSyncAccess(botToken);
         serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .ifPresent(member -> serverMemberService.deleteById(member.getId()));
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -220,7 +220,7 @@ public class InternalSyncController {
                 .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
 
         memberRoleService.replaceForMember(member, request.getRoleIds());
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -283,7 +283,7 @@ public class InternalSyncController {
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
 
-        realtimeAccessCache.invalidateAll();
+        realtimeSubscriptionRevoker.accessChanged(serverId);
         return ResponseEntity.noContent().build();
     }
 

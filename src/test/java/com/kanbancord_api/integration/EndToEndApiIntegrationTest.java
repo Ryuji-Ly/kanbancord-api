@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.integration.config.TestcontainersConfiguration;
 import com.kanbancord_api.security.JwtTokenService;
+import com.kanbancord_api.session.UserSessionService;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,7 +38,9 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -71,6 +74,8 @@ class EndToEndApiIntegrationTest {
     private static final long OTHER = 1_003L;
     private static final long NEWBIE = 1_004L;
 
+    private static final String WEB_ORIGIN = "https://kanbancord.com";
+
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {
         registry.add("kanbancord.auth.jwt.secret", () -> JWT_SECRET);
@@ -85,6 +90,11 @@ class EndToEndApiIntegrationTest {
     private ObjectMapper objectMapper;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private UserSessionService userSessionService;
+
+    /** One signed-in session per user, reused across calls. */
+    private final Map<Long, String> accessTokens = new ConcurrentHashMap<>();
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -310,6 +320,129 @@ class EndToEndApiIntegrationTest {
         call("GET", w.path("/permissions?scopeType=BOARD&scopeId=" + secret), MEMBER, null).expect(403);
         assertEquals(2, call("GET", w.path("/permissions?scopeType=BOARD&scopeId=" + secret), MOD, null)
                 .expect(200).json().size());
+    }
+
+    @Test
+    void realtime_losingAccess_endsTheSubscription_andTellsTheClient() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Shrinking");
+        long todo = w.column(board, "Todo");
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe("/user/queue/session");
+        member.subscribe(w.topic(board));
+        RealtimeProbe other = RealtimeProbe.connect(this, OTHER);
+        other.subscribe("/user/queue/session");
+        other.subscribe("/topic/servers/" + w.serverId);
+        Thread.sleep(500);
+
+        w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "VIEW_BOARD", "DENY").expect(201);
+        Map<?, ?> notice = member.next();
+        assertEquals("SUBSCRIPTION_REVOKED", notice.get("type"));
+        assertEquals("ACCESS_LOST", notice.get("reason"));
+        assertEquals(w.topic(board), notice.get("destination"));
+
+        w.createTask(MOD, board, todo, "Unseen");
+        List<Map<?, ?>> afterRevocation = member.drain();
+        assertTrue(afterRevocation.isEmpty(), afterRevocation.toString());
+
+        // Leaving the Discord server ends the server-wide subscription too.
+        other.drain();
+        assertEquals(204, sync("DELETE", "/api/internal/sync/servers/" + w.serverId + "/members/" + OTHER, Map.of()));
+        List<Map<?, ?>> otherNotices = other.drain();
+        assertTrue(otherNotices.stream().anyMatch(e -> "SUBSCRIPTION_REVOKED".equals(e.get("type"))
+                && ("/topic/servers/" + w.serverId).equals(e.get("destination"))), otherNotices.toString());
+        assertFalse(member.failure.isDone(), "losing access to one topic keeps the connection open");
+    }
+
+    // ── Sessions ─────────────────────────────────────────────────────────────
+
+    @Test
+    void sessions_refreshRotatesTheCookie_andOnlyTheWebAppMayUseIt() throws Exception {
+        bootstrapServer();
+        String cookie = userSessionService.start(OWNER, "browser").refreshToken();
+
+        assertEquals(403, session("/api/auth/refresh", cookie, null).statusCode(), "no Origin header");
+        assertEquals(403, session("/api/auth/refresh", cookie, "https://evil.example").statusCode());
+
+        HttpResponse<String> refreshed = session("/api/auth/refresh", cookie, WEB_ORIGIN);
+        assertEquals(200, refreshed.statusCode(), refreshed.body());
+        String rotated = refreshCookie(refreshed);
+        assertTrue(rotated != null && !rotated.equals(cookie), "the cookie is rotated");
+        String setCookie = refreshed.headers().firstValue("Set-Cookie").orElseThrow();
+        assertTrue(setCookie.contains("HttpOnly") && setCookie.contains("SameSite=Strict")
+                && setCookie.contains("Path=/api/auth"), setCookie);
+        JsonNode body = objectMapper.readTree(refreshed.body());
+        assertEquals(OWNER, body.get("user").get("userId").asLong());
+        String accessToken = body.get("accessToken").asText();
+        assertEquals(200, callRaw("GET", "/api/me", "Bearer " + accessToken, null).status());
+
+        // Another tab refreshing with the token just replaced still gets in, and is handed the current
+        // token, which also repairs a browser that lost the response carrying it.
+        HttpResponse<String> lateTab = session("/api/auth/refresh", cookie, WEB_ORIGIN);
+        assertEquals(200, lateTab.statusCode());
+        assertEquals(rotated, refreshCookie(lateTab));
+
+        // Presented again once the grace period is over, the old token counts as stolen: the session ends.
+        jdbcTemplate.update("UPDATE user_sessions SET refreshed_at = now() - interval '10 minutes' "
+                + "WHERE refresh_token_hash = encode(sha256(convert_to(?, 'UTF8')), 'hex')", rotated);
+        assertEquals(401, session("/api/auth/refresh", cookie, WEB_ORIGIN).statusCode());
+        assertEquals(401, session("/api/auth/refresh", rotated, WEB_ORIGIN).statusCode());
+        assertEquals(401, callRaw("GET", "/api/me", "Bearer " + accessToken, null).status(),
+                "access tokens of a revoked session stop working before they expire");
+
+        assertEquals(401, session("/api/auth/refresh", null, WEB_ORIGIN).statusCode());
+        assertEquals(401, callRaw("GET", "/api/me", "Bearer " + jwtTokenService.issueToken(OWNER, UUID.randomUUID()), null)
+                .status(), "a token naming an unknown session is rejected");
+    }
+
+    @Test
+    void sessions_logoutRevokesTheSession_andClosesItsRealtimeConnections() throws Exception {
+        World w = bootstrapServer();
+        UserSessionService.IssuedSession laptop = userSessionService.start(MOD, "laptop");
+        UserSessionService.IssuedSession phone = userSessionService.start(MOD, "phone");
+        String laptopToken = "Bearer " + jwtTokenService.issueToken(MOD, laptop.session().getSessionId());
+        String phoneToken = "Bearer " + jwtTokenService.issueToken(MOD, phone.session().getSessionId());
+
+        RealtimeProbe laptopLive = RealtimeProbe.connect(this, laptopToken);
+        laptopLive.subscribe("/topic/servers/" + w.serverId);
+        RealtimeProbe phoneLive = RealtimeProbe.connect(this, phoneToken);
+        phoneLive.subscribe("/topic/servers/" + w.serverId);
+        Thread.sleep(500);
+
+        JsonNode sessions = callRaw("GET", "/api/me/sessions", laptopToken, null).expect(200).json();
+        assertTrue(sessions.size() >= 2);
+        long current = 0;
+        for (JsonNode listed : sessions) {
+            if (listed.get("current").asBoolean()) {
+                current++;
+                assertEquals(laptop.session().getSessionId().toString(), listed.get("sessionId").asText());
+            }
+        }
+        assertEquals(1, current);
+
+        HttpResponse<String> logout = session("/api/auth/logout", laptop.refreshToken(), WEB_ORIGIN);
+        assertEquals(204, logout.statusCode());
+        assertTrue(logout.headers().firstValue("Set-Cookie").orElse("").contains("Max-Age=0"));
+        assertEquals(401, callRaw("GET", "/api/me", laptopToken, null).status());
+        assertTrue(laptopLive.failure.get(10, TimeUnit.SECONDS).startsWith("transport"),
+                "the signed-out session's WebSocket is closed");
+        assertEquals(401, callRaw("POST", "/api/realtime/tickets", laptopToken, null).status());
+
+        assertEquals(200, callRaw("GET", "/api/me", phoneToken, null).status(), "other sessions stay signed in");
+        assertFalse(phoneLive.failure.isDone());
+
+        // "Sign out everywhere else" from a third session ends the phone's.
+        UserSessionService.IssuedSession desktop = userSessionService.start(MOD, "desktop");
+        String desktopToken = "Bearer " + jwtTokenService.issueToken(MOD, desktop.session().getSessionId());
+        assertEquals(204, callRaw("DELETE", "/api/me/sessions", desktopToken, null).status());
+        assertEquals(401, callRaw("GET", "/api/me", phoneToken, null).status());
+        assertTrue(phoneLive.failure.get(10, TimeUnit.SECONDS).startsWith("transport"));
+        assertEquals(200, callRaw("GET", "/api/me", desktopToken, null).status());
+
+        // Sessions of other users cannot be revoked.
+        UUID ownerSession = userSessionService.start(OWNER, "x").session().getSessionId();
+        assertEquals(404, callRaw("DELETE", "/api/me/sessions/" + ownerSession, desktopToken, null).status());
     }
 
     // ── Moves and the board snapshot ────────────────────────────────────────────
@@ -593,7 +726,16 @@ class EndToEndApiIntegrationTest {
     }
 
     Response call(String method, String path, Long userId, Object body) throws Exception {
-        return callRaw(method, path, userId == null ? null : "Bearer " + jwtTokenService.issueToken(userId), body);
+        return callRaw(method, path, userId == null ? null : "Bearer " + accessToken(userId), body);
+    }
+
+    /** An access token for a signed-in session of the user, as the web app holds after signing in. */
+    private String accessToken(long userId) {
+        return accessTokens.computeIfAbsent(userId, id -> {
+            jdbcTemplate.update("INSERT INTO users (user_id, username) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                    id, "user" + id);
+            return jwtTokenService.issueToken(id, userSessionService.start(id, "e2e").session().getSessionId());
+        });
     }
 
     private Response callRaw(String method, String path, String authorization, Object body) throws Exception {
@@ -615,6 +757,27 @@ class EndToEndApiIntegrationTest {
             }
         }
         return new Response(response.statusCode(), json, response.body());
+    }
+
+    /** A POST to a cookie-authenticated auth endpoint, as the web app sends it. */
+    private HttpResponse<String> session(String path, String refreshCookie, String origin) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
+                .POST(HttpRequest.BodyPublishers.noBody());
+        if (refreshCookie != null) {
+            builder.header("Cookie", "kc_refresh=" + refreshCookie);
+        }
+        if (origin != null) {
+            builder.header("Origin", origin);
+        }
+        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static String refreshCookie(HttpResponse<String> response) {
+        return response.headers().allValues("Set-Cookie").stream()
+                .filter(value -> value.startsWith("kc_refresh="))
+                .map(value -> value.substring("kc_refresh=".length(), value.indexOf(';')))
+                .findFirst()
+                .orElse(null);
     }
 
     private HttpResponse<String> preflight(String path, String origin, String method) throws Exception {
@@ -776,7 +939,11 @@ class EndToEndApiIntegrationTest {
         }
 
         static RealtimeProbe connect(EndToEndApiIntegrationTest test, long userId) throws Exception {
-            JsonNode ticket = test.call("POST", "/api/realtime/tickets", userId, null).expect(200).json();
+            return connect(test, "Bearer " + test.accessToken(userId));
+        }
+
+        static RealtimeProbe connect(EndToEndApiIntegrationTest test, String authorization) throws Exception {
+            JsonNode ticket = test.callRaw("POST", "/api/realtime/tickets", authorization, null).expect(200).json();
             RealtimeProbe probe = new RealtimeProbe();
 
             WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
