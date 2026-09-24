@@ -37,9 +37,9 @@ public class RealtimeEventPublisher {
     /** Runs after the change commits, so subscribers never hear about a change that was rolled back. */
     @TransactionalEventListener(fallbackExecution = true)
     public void onDomainEvent(DomainEvent event) {
-        boolean accessRules = event.type().entityType() == EventType.EntityType.PERMISSION;
-        if (accessRules) {
-            // Rule changes can grant or revoke access; recipients must be judged on the new rules.
+        boolean affectsAccess = event.type().affectsAccess();
+        if (affectsAccess) {
+            // Rules, roles and memberships decide access; recipients must be judged on the new state.
             realtimeAccessCache.invalidateAll();
         }
 
@@ -59,7 +59,7 @@ public class RealtimeEventPublisher {
         RealtimeEventResponse message = toMessage(event);
         destinations.forEach(destination -> simpMessagingTemplate.convertAndSend(destination, message, headers));
 
-        if (accessRules) {
+        if (affectsAccess) {
             realtimeSubscriptionRevoker.accessChanged(event.serverId());
         } else if (event.type() == EventType.BOARD_DELETED) {
             realtimeSubscriptionRevoker.boardDeleted(event.serverId(), event.boardId());
