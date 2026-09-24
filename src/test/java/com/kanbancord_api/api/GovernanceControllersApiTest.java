@@ -89,12 +89,14 @@ class GovernanceControllersApiTest {
     @Test
     void auditLogEndpoints_areReadOnlyAndRequireViewAuditLog() throws Exception {
         AuditLog log = auditLog(900L);
-        when(auditLogService.findByServerIdOrdered(1L)).thenReturn(List.of(log));
+        when(auditLogService.search(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(51))).thenReturn(List.of(log));
         when(resourceValidator.requireAuditLogInServer(900L, 1L)).thenReturn(log);
 
         mockMvc.perform(get("/api/servers/1/audit-logs").with(asUser(10L)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].logId").value(900));
+                .andExpect(jsonPath("$.entries[0].logId").value(900))
+                .andExpect(jsonPath("$.nextBefore").doesNotExist());
 
         mockMvc.perform(get("/api/servers/1/audit-logs/900").with(asUser(10L)))
                 .andExpect(status().isOk());
