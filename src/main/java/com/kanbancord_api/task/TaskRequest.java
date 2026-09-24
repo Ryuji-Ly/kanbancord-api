@@ -24,8 +24,8 @@ public class TaskRequest {
 
     private BigDecimal position;
 
-    @Size(max = 20)
-    private String priority;
+    /** One of the board's priority levels, or null for none. Replaces the task's priority on update. */
+    private Long priorityId;
 
     private LocalDateTime dueDate;
 
@@ -74,12 +74,12 @@ public class TaskRequest {
         this.position = position;
     }
 
-    public String getPriority() {
-        return priority;
+    public Long getPriorityId() {
+        return priorityId;
     }
 
-    public void setPriority(String priority) {
-        this.priority = priority;
+    public void setPriorityId(Long priorityId) {
+        this.priorityId = priorityId;
     }
 
     public LocalDateTime getDueDate() {
