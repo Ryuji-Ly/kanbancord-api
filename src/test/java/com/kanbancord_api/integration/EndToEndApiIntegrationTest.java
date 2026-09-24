@@ -672,9 +672,40 @@ class EndToEndApiIntegrationTest {
     }
 
     /** The server's audit log, oldest first. */
+    @Test
+    void auditLog_pagesNewestFirst_filtersCombine_andEntriesCarryNames() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Audited");
+        long todo = w.column(board, "Todo");
+        w.createTask(MOD, board, todo, "One");
+        w.createTask(MEMBER, board, todo, "Two");
+        w.createTask(MOD, board, todo, "Three");
+
+        JsonNode first = call("GET", w.path("/audit-logs?limit=2"), OWNER, null).expect(200).json();
+        assertEquals(2, first.get("entries").size());
+        assertEquals("TASK_CREATED", first.get("entries").get(0).get("action").asText(), "newest first");
+        long nextBefore = first.get("nextBefore").asLong();
+        JsonNode second = call("GET", w.path("/audit-logs?limit=2&before=" + nextBefore), OWNER, null).expect(200).json();
+        assertTrue(second.get("entries").get(0).get("logId").asLong() < nextBefore, "the next page continues older");
+
+        JsonNode modTasks = call("GET", w.path("/audit-logs?entityType=TASK&actorUserId=" + MOD + "&boardId=" + board),
+                OWNER, null).expect(200).json();
+        assertEquals(2, modTasks.get("entries").size(), modTasks.toString());
+        JsonNode entry = modTasks.get("entries").get(0);
+        assertEquals("Audited", entry.get("boardName").asText());
+        assertEquals(String.valueOf(MOD), entry.get("userId").asText());
+        assertFalse(entry.get("actorDisplayName").asText().isBlank());
+        assertTrue(modTasks.get("nextBefore").isNull());
+
+        JsonNode boardsAndTasks = call("GET", w.path("/audit-logs?entityType=BOARD&entityType=TASK"), OWNER, null)
+                .expect(200).json();
+        assertEquals(4, boardsAndTasks.get("entries").size(), "the board and its three tasks");
+        assertEquals(400, call("GET", w.path("/audit-logs?limit=500"), OWNER, null).status());
+    }
+
     private List<JsonNode> auditLog(World w) throws Exception {
         List<JsonNode> entries = new ArrayList<>();
-        call("GET", w.path("/audit-logs"), OWNER, null).expect(200).json().forEach(entries::add);
+        call("GET", w.path("/audit-logs?limit=100"), OWNER, null).expect(200).json().get("entries").forEach(entries::add);
         entries.sort(java.util.Comparator.comparing(e -> e.get("logId").asLong()));
         return entries;
     }

@@ -336,9 +336,17 @@ class RepositoryLayerIntegrationTest {
     @Test
     void auditLogNotificationUserAndServerRepositories_supportReportingQueries_happyAndUnhappy() {
         assertEquals(1, auditLogRepository.findByServer_ServerId(server.getServerId()).size());
-        assertEquals(1, auditLogRepository.findByBoard_BoardId(board.getBoardId()).size());
-        assertEquals(1, auditLogRepository.findByUser_UserId(memberUser.getUserId()).size());
-        assertEquals(1, auditLogRepository.findByServer_ServerIdOrderByCreatedAtDesc(server.getServerId()).size());
+        Long serverId = server.getServerId();
+        org.springframework.data.domain.Limit ten = org.springframework.data.domain.Limit.of(10);
+        List<String> none = List.of("");
+        assertEquals(1, auditLogRepository.search(serverId, null, null, false, none, null, ten).size());
+        assertEquals(1, auditLogRepository.search(serverId, board.getBoardId(), memberUser.getUserId(), false, none, null, ten)
+                .size());
+        assertEquals(0, auditLogRepository.search(serverId, 9999L, null, false, none, null, ten).size());
+        assertEquals(0, auditLogRepository.search(serverId, null, null, true, List.of("NO_SUCH_TYPE"), null, ten).size());
+        Long only = auditLogRepository.search(serverId, null, null, false, none, null, ten).get(0).getLogId();
+        assertEquals(0, auditLogRepository.search(serverId, null, null, false, none, only, ten).size(),
+                "the cursor continues after the last entry seen");
 
         assertEquals(1, notificationRepository.findByUser_UserId(memberUser.getUserId()).size());
         assertEquals(1, notificationRepository.findByUser_UserIdAndIsRead(memberUser.getUserId(), false).size());
