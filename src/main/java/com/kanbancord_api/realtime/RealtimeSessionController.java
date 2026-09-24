@@ -1,6 +1,8 @@
 package com.kanbancord_api.realtime;
 
 import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.exception.UnauthenticatedException;
+import com.kanbancord_api.security.AuthenticatedSession;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,7 +25,9 @@ public class RealtimeSessionController {
     @PostMapping("/tickets")
     public ResponseEntity<RealtimeTicketResponse> createTicket() {
         Long userId = authorizer.requireAuthenticatedUserId();
-        RealtimeTicketService.IssuedTicket issuedTicket = realtimeTicketService.issueTicket(userId);
+        RealtimeTicketService.IssuedTicket issuedTicket = realtimeTicketService.issueTicket(
+                userId,
+                AuthenticatedSession.currentSessionId().orElseThrow(UnauthenticatedException::new));
 
         RealtimeTicketResponse response = new RealtimeTicketResponse();
         response.setTicket(issuedTicket.ticket());

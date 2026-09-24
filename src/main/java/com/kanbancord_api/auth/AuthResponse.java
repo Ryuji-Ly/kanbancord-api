@@ -8,7 +8,7 @@ public class AuthResponse {
     private String accessToken;
     private long expiresIn;
     private UserResponse user;
-    private String discordAccessToken;
+    private String sessionId;
 
     public String getTokenType() {
         return tokenType;
@@ -42,11 +42,11 @@ public class AuthResponse {
         this.user = user;
     }
 
-    public String getDiscordAccessToken() {
-        return discordAccessToken;
+    public String getSessionId() {
+        return sessionId;
     }
 
-    public void setDiscordAccessToken(String discordAccessToken) {
-        this.discordAccessToken = discordAccessToken;
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 }

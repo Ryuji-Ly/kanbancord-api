@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -22,7 +23,8 @@ public class RealtimeTicketService {
         this.realtimeProperties = realtimeProperties;
     }
 
-    public IssuedTicket issueTicket(Long userId) {
+    /** A one-time ticket for opening a WebSocket as the user, tied to the sign-in session that asked for it. */
+    public IssuedTicket issueTicket(Long userId, UUID sessionId) {
         cleanupExpired();
 
         byte[] randomBytes = new byte[32];
@@ -30,7 +32,7 @@ public class RealtimeTicketService {
 
         Instant expiresAt = Instant.now().plusSeconds(realtimeProperties.getTicketTtlSeconds());
         String ticket = URL_ENCODER.encodeToString(randomBytes);
-        pendingTickets.put(ticket, new PendingTicket(userId, expiresAt));
+        pendingTickets.put(ticket, new PendingTicket(userId, sessionId, expiresAt));
 
         return new IssuedTicket(ticket, expiresAt);
     }
@@ -47,7 +49,7 @@ public class RealtimeTicketService {
             return Optional.empty();
         }
 
-        return Optional.of(new ValidatedTicket(pendingTicket.userId(), pendingTicket.expiresAt()));
+        return Optional.of(new ValidatedTicket(pendingTicket.userId(), pendingTicket.sessionId(), pendingTicket.expiresAt()));
     }
 
     private void cleanupExpired() {
@@ -59,12 +61,12 @@ public class RealtimeTicketService {
         pendingTickets.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
     }
 
-    private record PendingTicket(Long userId, Instant expiresAt) {
+    private record PendingTicket(Long userId, UUID sessionId, Instant expiresAt) {
     }
 
     public record IssuedTicket(String ticket, Instant expiresAt) {
     }
 
-    public record ValidatedTicket(Long userId, Instant expiresAt) {
+    public record ValidatedTicket(Long userId, UUID sessionId, Instant expiresAt) {
     }
 }

@@ -45,7 +45,7 @@ Every request resolves to an **actor**:
 
 | Source | How it authenticates | Actor |
 |---|---|---|
-| Web | `Authorization: Bearer <JWT>`, issued after the Discord OAuth code exchange | the Discord user in the JWT |
+| Web | `Authorization: Bearer <JWT>` naming a sign-in session (see 3.2) | the Discord user in the JWT |
 | Bot, sync | `X-Internal-Bot-Token` (only its SHA-256 is stored in config) | system; no user permissions apply |
 | Bot, acting for a user *(planned)* | bot token + `X-Acting-User-Id` | that user, with `source = BOT`, under the same authorization as web |
 
@@ -59,19 +59,32 @@ Rules:
 - **The JWT secret must be at least 32 bytes.** Startup fails with a shorter one. An empty secret
   disables login.
 
-### 3.2 Planned identity work
+### 3.2 Sessions
 
-1. **Sessions.** Add a `sessions` table (id, user, created, last used, revoked, user agent). The JWT
-   carries the session id, and a revoked session is rejected. This enables logout, "log out
-   everywhere", and revoking a stolen token.
-2. **Move the Discord OAuth token server-side.** Store it encrypted with AES-GCM and a key from the
-   environment, together with its refresh token. Expose `/api/me/guilds`, cached for a few
-   minutes. The browser then never holds a Discord token, and the dashboard stops calling Discord
-   directly.
-3. **Stop storing the app token in `localStorage`.** Keep a short-lived access token in memory and
-   refresh it through an `httpOnly` `SameSite` cookie (web and API share `kanbancord.com`).
-4. **Bot acting-user filter** as described in 3.1. It is only accepted from the bot token, and every
-   such action is audited with `source = BOT`.
+1. **Sessions.** Signing in with Discord creates a row in `user_sessions` (user, created, last used,
+   expiry, revoked, user agent). The access token is a 15-minute JWT carrying the session id (`sid`);
+   the filter rejects tokens whose session is revoked or expired, checked through a 30-second cache
+   that revocations on this instance evict at once. Tokens without `sid` are rejected.
+2. **Refresh cookie.** The refresh token is sent only as an `httpOnly`, `Secure`, `SameSite=Strict`
+   cookie scoped to `/api/auth`; only its SHA-256 is stored. `POST /api/auth/refresh` rotates it on
+   every use. The token just replaced is accepted for 60 seconds (tabs refreshing at once, or a
+   response lost to a reload), and the current token is handed out again; each replacement is an HMAC
+   of the previous token, so this needs no stored secret. Presenting a replaced token after that
+   revokes the session. Cookie endpoints require an allowed `Origin`. Sessions end 30 days after
+   their last refresh.
+3. **Signing out.** `POST /api/auth/logout` revokes the cookie's session. `GET /api/me/sessions`
+   lists active sessions; `DELETE /api/me/sessions/{id}` and `DELETE /api/me/sessions` (all others)
+   revoke them. Revocation closes the session's WebSockets (close code 4401).
+4. **Discord token server-side.** The Discord access and refresh tokens are stored in
+   `discord_credentials`, encrypted with AES-256-GCM (`KANBANCORD_TOKEN_ENCRYPTION_KEY`, or a key
+   derived from the JWT secret), bound to their user. `GET /api/me/guilds` uses them, refreshing when
+   needed, cached 5 minutes. When Discord rejects them the endpoint returns 409 and the user signs in
+   again. They are deleted and revoked at Discord when the user's last session ends.
+5. **Browser.** The web app keeps the access token in memory only and nothing in `localStorage`.
+   Refreshes are serialised across tabs with a Web Lock, and sign-in and sign-out are broadcast to
+   other tabs.
+6. **Bot acting-user filter** *(planned)* as described in 3.1. It is only accepted from the bot
+   token, and every such action is audited with `source = BOT`.
 
 ## 4. Authorization
 
@@ -304,15 +317,15 @@ src/
 - Actuator health details were public.
 - A board-level DENY could not restrict a server-level ALLOW. Fixed by the resolution model in 4.4.
 - Unauthenticated requests returned 403 instead of 401.
+- JWTs could not be revoked, and the app and Discord tokens were kept in `localStorage` (3.2).
+- Realtime subscriptions survived losing access until the client reconnected. Permission,
+  role and membership changes now end them and tell the client (`SUBSCRIPTION_REVOKED`).
 
 **Open:**
 
 | Issue | Planned fix |
 |---|---|
-| JWT cannot be revoked | Sessions (3.2) |
-| Tokens in `localStorage` | 3.2 |
 | Server-topic events leak board metadata to members who cannot view the board | 6 |
-| Realtime subscriptions survive permission loss until reconnect | Re-check on permission and membership events |
 | Realtime tickets live in memory (single instance only) | Move to DB or Redis before scaling out |
 | No rate limiting on auth and uploads | Add a limiter |
 | CORS origins are hardcoded (the WebSocket origins are already configurable) | Make them configurable |
