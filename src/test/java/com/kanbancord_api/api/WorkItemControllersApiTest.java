@@ -20,7 +20,9 @@ import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.label.Label;
 import com.kanbancord_api.label.LabelController;
 import com.kanbancord_api.label.LabelRequest;
+import com.kanbancord_api.label.LabelCommands;
 import com.kanbancord_api.label.LabelService;
+import com.kanbancord_api.label.TaskLabelCommands;
 import com.kanbancord_api.label.TaskLabel;
 import com.kanbancord_api.label.TaskLabelController;
 import com.kanbancord_api.label.TaskLabelRequest;
@@ -100,6 +102,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         TaskCommands.class,
         TaskAssignmentCommands.class,
         TaskCommentCommands.class,
+        LabelCommands.class,
+        TaskLabelCommands.class,
         BoardSnapshotQuery.class
 })
 @RecordApplicationEvents

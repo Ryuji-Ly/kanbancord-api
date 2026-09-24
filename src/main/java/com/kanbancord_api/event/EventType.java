@@ -3,6 +3,10 @@ package com.kanbancord_api.event;
 /**
  * Everything that can happen to server data. Each type names the entity it concerns and whether it
  * is announced server-wide (the board list and permission screens listen there) as well as on its board.
+ *
+ * <p>Changes synced from Discord by the bot (roles, members, the server itself) are announced so open
+ * pages refresh, but are not written to the audit log: the audit log records what people did in
+ * KanbanCord, and Discord keeps its own.
  */
 public enum EventType {
 
@@ -29,12 +33,26 @@ public enum EventType {
     TASK_COMMENT_UPDATED(EntityType.TASK_COMMENT, false),
     TASK_COMMENT_DELETED(EntityType.TASK_COMMENT, false),
 
+    LABEL_CREATED(EntityType.LABEL, false),
+    LABEL_UPDATED(EntityType.LABEL, false),
+    LABEL_DELETED(EntityType.LABEL, false),
+
+    TASK_LABEL_ADDED(EntityType.TASK_LABEL, false),
+    TASK_LABEL_REMOVED(EntityType.TASK_LABEL, false),
+
     PERMISSION_CREATED(EntityType.PERMISSION, true),
     PERMISSION_UPDATED(EntityType.PERMISSION, true),
-    PERMISSION_DELETED(EntityType.PERMISSION, true);
+    PERMISSION_DELETED(EntityType.PERMISSION, true),
+
+    SERVER_SYNCED(EntityType.SERVER, true),
+    ROLE_SYNCED(EntityType.ROLE, true),
+    ROLE_REMOVED(EntityType.ROLE, true),
+    MEMBER_SYNCED(EntityType.MEMBER, true),
+    MEMBER_REMOVED(EntityType.MEMBER, true);
 
     public enum EntityType {
-        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, PERMISSION
+        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, LABEL, TASK_LABEL, PERMISSION,
+        SERVER, ROLE, MEMBER
     }
 
     private final EntityType entityType;
@@ -51,5 +69,21 @@ public enum EventType {
 
     public boolean serverWide() {
         return serverWide;
+    }
+
+    /** Whether the change can alter who may see or do what, so access must be re-evaluated after it. */
+    public boolean affectsAccess() {
+        return switch (entityType) {
+            case PERMISSION, SERVER, ROLE, MEMBER -> true;
+            default -> false;
+        };
+    }
+
+    /** Whether the change came from Discord through the bot rather than from a user in KanbanCord. */
+    public boolean fromDiscordSync() {
+        return switch (entityType) {
+            case SERVER, ROLE, MEMBER -> true;
+            default -> false;
+        };
     }
 }

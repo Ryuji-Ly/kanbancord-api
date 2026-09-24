@@ -40,4 +40,13 @@ public class TaskLabelResponse {
     public void setAddedAt(LocalDateTime addedAt) {
         this.addedAt = addedAt;
     }
+
+    public static TaskLabelResponse from(TaskLabel taskLabel) {
+        TaskLabelResponse response = new TaskLabelResponse();
+        response.setId(taskLabel.getId());
+        response.setTaskId(taskLabel.getTask().getTaskId());
+        response.setLabelId(taskLabel.getLabel().getLabelId());
+        response.setAddedAt(taskLabel.getAddedAt());
+        return response;
+    }
 }

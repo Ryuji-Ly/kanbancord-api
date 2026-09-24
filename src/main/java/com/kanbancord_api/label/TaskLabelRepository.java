@@ -12,6 +12,8 @@ public interface TaskLabelRepository extends JpaRepository<TaskLabel, Long> {
 
     List<TaskLabel> findByTask_TaskId(Long taskId);
 
+    List<TaskLabel> findByTask_Board_BoardId(Long boardId);
+
     // Scoped query to prevent cross-server access
     @Query("SELECT tl FROM TaskLabel tl WHERE tl.id = :taskLabelId AND tl.task.board.server.serverId = :serverId")
     Optional<TaskLabel> findByIdAndServerId(Long taskLabelId, Long serverId);

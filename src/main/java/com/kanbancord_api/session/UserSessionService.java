@@ -1,5 +1,6 @@
 package com.kanbancord_api.session;
 
+import com.kanbancord_api.event.UserEvent;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.exception.UnauthenticatedException;
 import com.kanbancord_api.security.AuthJwtProperties;
@@ -98,7 +99,9 @@ public class UserSessionService {
         session.setLastUsedAt(now);
         session.setExpiresAt(now.plus(refreshTtl()));
         session.setUserAgent(truncate(userAgent));
-        return new IssuedSession(userSessionRepository.save(session), refreshToken);
+        IssuedSession issued = new IssuedSession(userSessionRepository.save(session), refreshToken);
+        eventPublisher.publishEvent(new UserEvent(UserEvent.Type.SESSIONS_CHANGED, userId, null));
+        return issued;
     }
 
     /** Rotates the refresh token. Committed even when it fails, so a detected token theft stays revoked. */
@@ -226,6 +229,7 @@ public class UserSessionService {
         sessions.forEach(session -> session.setRevokedAt(now));
         Set<UUID> ids = sessions.stream().map(UserSession::getSessionId).collect(Collectors.toSet());
         eventPublisher.publishEvent(new SessionsRevokedEvent(sessions.get(0).getUserId(), ids));
+        eventPublisher.publishEvent(new UserEvent(UserEvent.Type.SESSIONS_CHANGED, sessions.get(0).getUserId(), null));
     }
 
     private Duration refreshTtl() {
