@@ -9,6 +9,7 @@ import com.kanbancord_api.audit.AuditLogService;
 import com.kanbancord_api.board.Board;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.GlobalExceptionHandler;
+import com.kanbancord_api.permission.AccessSummaryQuery;
 import com.kanbancord_api.permission.KanbanPermission;
 import com.kanbancord_api.permission.KanbanPermissionController;
 import com.kanbancord_api.permission.KanbanPermissionService;
@@ -82,6 +83,8 @@ class GovernanceControllersApiTest {
     private PermissionEvaluationService permissionEvaluationService;
         @MockitoBean
     private PermissionEscalationGuardService permissionEscalationGuardService;
+    @MockitoBean
+    private AccessSummaryQuery accessSummaryQuery;
     
     @Test
     void auditLogEndpoints_areReadOnlyAndRequireViewAuditLog() throws Exception {

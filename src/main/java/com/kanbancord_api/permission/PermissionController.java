@@ -36,18 +36,21 @@ public class PermissionController {
     private final ResourceValidator resourceValidator;
     private final PermissionEvaluationService permissionEvaluationService;
     private final PermissionRuleCommands permissionRuleCommands;
+    private final AccessSummaryQuery accessSummaryQuery;
 
     public PermissionController(
             PermissionService permissionService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
             PermissionEvaluationService permissionEvaluationService,
-            PermissionRuleCommands permissionRuleCommands) {
+            PermissionRuleCommands permissionRuleCommands,
+            AccessSummaryQuery accessSummaryQuery) {
         this.permissionService = permissionService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
         this.permissionRuleCommands = permissionRuleCommands;
+        this.accessSummaryQuery = accessSummaryQuery;
     }
 
     @PostMapping
@@ -83,6 +86,17 @@ public class PermissionController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
+    }
+
+    /**
+     * What the caller may do in this server, and on each board they can view: every server-scope and
+     * board-scope permission key with whether it is allowed.
+     */
+    @GetMapping("/mine")
+    public ResponseEntity<PermissionEvaluationService.AccessSummary> getMyAccess(
+            @PathVariable Long serverId,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(accessSummaryQuery.load(serverId, userId));
     }
 
     @GetMapping("/{permissionId}")
