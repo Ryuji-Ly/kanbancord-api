@@ -1,6 +1,5 @@
 package com.kanbancord_api.realtime;
 
-import com.kanbancord_api.dto.RealtimeEventResponse;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;

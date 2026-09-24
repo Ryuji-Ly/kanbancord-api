@@ -1,28 +1,29 @@
 package com.kanbancord_api.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kanbancord_api.controller.AuditLogController;
-import com.kanbancord_api.controller.KanbanPermissionController;
-import com.kanbancord_api.controller.PermissionController;
-import com.kanbancord_api.dto.PermissionRequest;
+import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.access.ResourceValidator;
+import com.kanbancord_api.audit.AuditLog;
+import com.kanbancord_api.audit.AuditLogController;
+import com.kanbancord_api.audit.AuditLogService;
+import com.kanbancord_api.board.Board;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.GlobalExceptionHandler;
-import com.kanbancord_api.model.AuditLog;
-import com.kanbancord_api.model.Board;
-import com.kanbancord_api.model.KanbanPermission;
-import com.kanbancord_api.model.Permission;
-import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.User;
-import com.kanbancord_api.service.AccessValidator;
-import com.kanbancord_api.service.AuditLogService;
-import com.kanbancord_api.service.KanbanPermissionService;
-import com.kanbancord_api.command.PermissionRuleCommands;
-import com.kanbancord_api.service.PermissionEscalationGuardService;
-import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.PermissionService;
-import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.permission.KanbanPermission;
+import com.kanbancord_api.permission.KanbanPermissionController;
+import com.kanbancord_api.permission.KanbanPermissionService;
+import com.kanbancord_api.permission.Permission;
+import com.kanbancord_api.permission.PermissionController;
+import com.kanbancord_api.permission.PermissionEscalationGuardService;
+import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.permission.PermissionRequest;
+import com.kanbancord_api.permission.PermissionRuleCommands;
+import com.kanbancord_api.permission.PermissionService;
+import com.kanbancord_api.server.Server;
+import com.kanbancord_api.server.ServerService;
+import com.kanbancord_api.user.User;
+import com.kanbancord_api.user.UserService;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -48,7 +49,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = {
         AuditLogController.class,
@@ -71,7 +71,7 @@ class GovernanceControllersApiTest {
         @MockitoBean
     private UserService userService;
         @MockitoBean
-    private AccessValidator accessValidator;
+    private Authorizer authorizer;
         @MockitoBean
     private ResourceValidator resourceValidator;
         @MockitoBean
@@ -96,10 +96,10 @@ class GovernanceControllersApiTest {
         mockMvc.perform(get("/api/servers/1/audit-logs/900").with(asUser(10L)))
                 .andExpect(status().isOk());
 
-        verify(accessValidator, times(2)).requireServerPermission(10L, 1L, "VIEW_AUDIT_LOG");
+        verify(authorizer, times(2)).requireServerPermission(10L, 1L, "VIEW_AUDIT_LOG");
 
         doThrow(new AccessDeniedException("denied"))
-                .when(accessValidator).requireServerPermission(11L, 1L, "VIEW_AUDIT_LOG");
+                .when(authorizer).requireServerPermission(11L, 1L, "VIEW_AUDIT_LOG");
         mockMvc.perform(get("/api/servers/1/audit-logs").with(asUser(11L)))
                 .andExpect(status().isForbidden());
 
@@ -190,18 +190,18 @@ class GovernanceControllersApiTest {
         mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(10L))
                 .param("permissionKey", "EDIT_TASK"))
                 .andExpect(status().isOk());
-        verify(accessValidator).requireUserInServer(10L, 1L);
-        verify(accessValidator, never()).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
+        verify(authorizer).requireUserInServer(10L, 1L);
+        verify(authorizer, never()).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
 
         mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(10L))
                 .param("permissionKey", "EDIT_TASK")
                 .param("targetUserId", "11"))
                 .andExpect(status().isOk());
-        verify(accessValidator).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
+        verify(authorizer).requireServerPermission(10L, 1L, "MANAGE_SERVER_PERMISSIONS");
         verify(permissionEvaluationService).resolveAll(1L, null, 11L, List.of("EDIT_TASK"));
 
         doThrow(new AccessDeniedException("denied"))
-                .when(accessValidator).requireServerPermission(12L, 1L, "MANAGE_SERVER_PERMISSIONS");
+                .when(authorizer).requireServerPermission(12L, 1L, "MANAGE_SERVER_PERMISSIONS");
         mockMvc.perform(get("/api/servers/1/permissions/evaluate-batch").with(asUser(12L))
                 .param("permissionKey", "EDIT_TASK")
                 .param("targetUserId", "11"))
