@@ -91,6 +91,8 @@ class EndToEndApiIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
+    private javax.sql.DataSource dataSource;
+    @Autowired
     private UserSessionService userSessionService;
 
     /** One signed-in session per user, reused across calls. */
@@ -740,6 +742,109 @@ class EndToEndApiIntegrationTest {
                 "SELECT subject_type || ':' || state FROM permissions WHERE scope_type = 'BOARD' AND scope_id = ? "
                         + "ORDER BY subject_type, state", String.class, board);
         assertEquals(List.of("DISCORD_PERMISSION:DENY", "ROLE:ALLOW"), remaining);
+    }
+
+    // ── Priority levels ─────────────────────────────────────────────────────────
+
+    @Test
+    void priorities_newBoardsGetDefaults_levelsAreManagedAndOrdered_andTasksPointAtOne() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Prioritised");
+        long todo = w.column(board, "Todo");
+        String priorities = w.boardPath(board, "/priorities");
+
+        JsonNode defaults = w.snapshot(MEMBER, board).get("priorities");
+        assertEquals(List.of("Critical", "High", "Medium", "Low", "Ignorable"), names(defaults));
+        long high = defaults.get(1).get("priorityId").asLong();
+        long ignorable = defaults.get(4).get("priorityId").asLong();
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(w.topic(board));
+        Thread.sleep(500);
+
+        // Setting a priority is editing the task.
+        long task = w.createTask(MOD, board, todo, "Urgent");
+        member.drain();
+        Map<String, Object> edit = new HashMap<>(Map.of("title", "Urgent", "boardId", board, "columnId", todo));
+        edit.put("priorityId", high);
+        assertEquals(403, call("PUT", w.boardPath(board, "/tasks/" + task), MEMBER, edit).status());
+        assertEquals(high, call("PUT", w.boardPath(board, "/tasks/" + task), MOD, edit).expect(200)
+                .json().get("priorityId").asLong());
+
+        // Managing levels needs MANAGE_PRIORITIES; new ones go to the bottom.
+        assertEquals(403, call("POST", priorities, MEMBER, Map.of("name", "Blocker")).status());
+        long blocker = call("POST", priorities, OWNER, Map.of("name", "Blocker", "color", "#7c3aed"))
+                .expect(201).json().get("priorityId").asLong();
+        assertEquals("PRIORITY_CREATED", lastEventType(member));
+        assertEquals(400, call("POST", priorities, OWNER, Map.of("name", "blocker")).status(),
+                "names are unique per board, ignoring case");
+        assertEquals(400, call("POST", priorities, OWNER, Map.of("name", "Odd", "color", "red")).status());
+
+        call("POST", priorities + "/" + blocker + "/move", OWNER, Map.of("index", 0)).expect(200);
+        assertEquals("PRIORITY_MOVED", lastEventType(member));
+        call("PUT", priorities + "/" + ignorable, OWNER, Map.of("name", "Someday")).expect(200);
+        assertEquals(List.of("Blocker", "Critical", "High", "Medium", "Low", "Someday"),
+                names(w.snapshot(OWNER, board).get("priorities")));
+
+        // Deleting a level in use leaves its tasks without a priority; positions close the gap.
+        call("DELETE", priorities + "/" + high, OWNER, null).expect(204);
+        assertEquals("PRIORITY_DELETED", lastEventType(member));
+        JsonNode snapshot = w.snapshot(OWNER, board);
+        assertTrue(snapshot.get("tasks").get(0).get("priorityId").isNull());
+        List<Integer> positions = new ArrayList<>();
+        snapshot.get("priorities").forEach(level -> positions.add(level.get("position").asInt()));
+        assertEquals(List.of(1, 2, 3, 4, 5), positions);
+
+        // A task can only use its own board's levels.
+        long other = w.createBoard(OWNER, "Other");
+        long foreign = w.snapshot(OWNER, other).get("priorities").get(0).get("priorityId").asLong();
+        edit.put("priorityId", foreign);
+        assertEquals(400, call("PUT", w.boardPath(board, "/tasks/" + task), MOD, edit).status());
+    }
+
+    @Test
+    void v12Migration_turnsFreeTextPrioritiesIntoBoardLevels_andGrantsManagePriorities() throws Exception {
+        String schema = "v12_check";
+        jdbcTemplate.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+        org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).target("11").load().migrate();
+
+        String s = schema + ".";
+        jdbcTemplate.update("INSERT INTO " + s + "users (user_id, username) VALUES (1, 'u')");
+        jdbcTemplate.update("INSERT INTO " + s + "servers (server_id, name, owner_id) VALUES (1, 's', 1)");
+        jdbcTemplate.update("INSERT INTO " + s + "boards (board_id, server_id, name, created_by) VALUES (1, 1, 'b', 1)");
+        jdbcTemplate.update("INSERT INTO " + s + "columns (column_id, board_id, name) VALUES (1, 1, 'c')");
+        String[] legacy = {"HIGH", " high ", "Urgent", "low", null, ""};
+        for (int i = 0; i < legacy.length; i++) {
+            jdbcTemplate.update("INSERT INTO " + s + "tasks (board_id, column_id, title, priority, created_by) "
+                    + "VALUES (1, 1, ?, ?, 1)", "t" + i, legacy[i]);
+        }
+        jdbcTemplate.update("INSERT INTO " + s + "permissions (scope_type, scope_id, subject_type, subject_id, "
+                + "kanban_permission_id, state, priority) SELECT 'SERVER', 1, 'ROLE', 7, permission_id, 'ALLOW', 120 "
+                + "FROM " + s + "kanban_permissions WHERE key = 'CREATE_LABEL'");
+
+        org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).target("12").load().migrate();
+
+        assertEquals(List.of("Critical", "High", "Medium", "Low", "Ignorable", "Urgent"), jdbcTemplate.queryForList(
+                "SELECT name FROM " + s + "board_priorities WHERE board_id = 1 ORDER BY position", String.class));
+        assertEquals(List.of("High", "High", "Urgent", "Low", "-", "-"), jdbcTemplate.queryForList(
+                "SELECT coalesce(p.name, '-') FROM " + s + "tasks t LEFT JOIN " + s + "board_priorities p "
+                        + "ON p.priority_id = t.priority_id ORDER BY t.task_id", String.class));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM " + s + "permissions r JOIN " + s
+                + "kanban_permissions k ON k.permission_id = r.kanban_permission_id "
+                + "WHERE k.key = 'MANAGE_PRIORITIES' AND r.subject_type = 'ROLE' AND r.subject_id = 7", Integer.class));
+        jdbcTemplate.execute("DROP SCHEMA " + schema + " CASCADE");
+    }
+
+    private static List<String> names(JsonNode levels) {
+        List<String> names = new ArrayList<>();
+        levels.forEach(level -> names.add(level.get("name").asText()));
+        return names;
+    }
+
+    private static String lastEventType(RealtimeProbe probe) throws InterruptedException {
+        List<Map<?, ?>> events = probe.drain();
+        assertFalse(events.isEmpty(), "expected a realtime event");
+        return String.valueOf(events.get(events.size() - 1).get("eventType"));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

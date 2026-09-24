@@ -11,6 +11,7 @@ import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
+import com.kanbancord_api.priority.BoardPriorityService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ public class TaskCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final BoardPriorityService boardPriorityService;
 
     public TaskCommands(
             TaskService taskService,
@@ -42,13 +44,15 @@ public class TaskCommands {
             UserService userService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            BoardPriorityService boardPriorityService) {
         this.taskService = taskService;
         this.boardColumnService = boardColumnService;
         this.userService = userService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.boardPriorityService = boardPriorityService;
     }
 
     public TaskResponse create(Long serverId, Long boardId, Long actorUserId, TaskRequest request) {
@@ -66,7 +70,7 @@ public class TaskCommands {
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
         task.setPosition(request.getPosition() != null ? request.getPosition() : endOf(column.getColumnId()));
-        task.setPriority(request.getPriority());
+        task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
         task.setDueDate(request.getDueDate());
         task.setMetadata(request.getMetadata());
         task.setIsArchived(false);
@@ -110,9 +114,7 @@ public class TaskCommands {
         if (request.getPosition() != null) {
             task.setPosition(request.getPosition());
         }
-        if (request.getPriority() != null) {
-            task.setPriority(request.getPriority());
-        }
+        task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
         if (request.getDueDate() != null) {
             task.setDueDate(request.getDueDate());
         }
@@ -201,6 +203,11 @@ public class TaskCommands {
                 before));
     }
 
+    /** The priority level, checked to belong to the board; null for none. */
+    private Long priorityIn(Long boardId, Long priorityId) {
+        return priorityId == null ? null : boardPriorityService.requireInBoard(priorityId, boardId).getPriorityId();
+    }
+
     private User requireUser(Long userId) {
         return userService.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
@@ -209,7 +216,7 @@ public class TaskCommands {
     private static boolean contentChanged(Task task, TaskRequest request) {
         return !Objects.equals(task.getTitle(), request.getTitle())
                 || !Objects.equals(task.getDescription(), request.getDescription())
-                || (request.getPriority() != null && !request.getPriority().equals(task.getPriority()))
+                || !Objects.equals(task.getPriorityId(), request.getPriorityId())
                 || (request.getDueDate() != null && !request.getDueDate().equals(task.getDueDate()))
                 || (request.getMetadata() != null && !request.getMetadata().equals(task.getMetadata()));
     }

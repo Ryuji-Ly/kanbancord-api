@@ -69,7 +69,10 @@ public enum KanbanPermissionCatalog {
                         true, PermissionRank.STANDARD),
         REMOVE_LABEL_FROM_TASK("REMOVE_LABEL_FROM_TASK", "Remove Labels From Tasks", "Detach labels from tasks",
                         "LABEL",
-                        true, true, PermissionRank.STANDARD);
+                        true, true, PermissionRank.STANDARD),
+        MANAGE_PRIORITIES("MANAGE_PRIORITIES", "Manage Priorities",
+                        "Create, edit, reorder and delete priority levels", "LABEL", true, true,
+                        PermissionRank.BOARD_MANAGE);
 
         private final String key;
         private final String name;

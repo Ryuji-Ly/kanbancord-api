@@ -11,7 +11,7 @@ public class TaskResponse {
     private String title;
     private String description;
     private BigDecimal position;
-    private String priority;
+    private Long priorityId;
     private LocalDateTime dueDate;
     private Boolean isArchived;
     private Map<String, Object> metadata;
@@ -69,12 +69,12 @@ public class TaskResponse {
         this.position = position;
     }
 
-    public String getPriority() {
-        return priority;
+    public Long getPriorityId() {
+        return priorityId;
     }
 
-    public void setPriority(String priority) {
-        this.priority = priority;
+    public void setPriorityId(Long priorityId) {
+        this.priorityId = priorityId;
     }
 
     public LocalDateTime getDueDate() {
@@ -141,7 +141,7 @@ public class TaskResponse {
         response.setTitle(task.getTitle());
         response.setDescription(task.getDescription());
         response.setPosition(task.getPosition());
-        response.setPriority(task.getPriority());
+        response.setPriorityId(task.getPriorityId());
         response.setDueDate(task.getDueDate());
         response.setIsArchived(task.getIsArchived());
         response.setMetadata(task.getMetadata());

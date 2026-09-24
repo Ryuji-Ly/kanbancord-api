@@ -9,6 +9,8 @@ import com.kanbancord_api.label.TaskLabelService;
 import com.kanbancord_api.permission.KanbanPermissionCatalog;
 import com.kanbancord_api.permission.PermissionDecisionResponse;
 import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.priority.BoardPriorityResponse;
+import com.kanbancord_api.priority.BoardPriorityService;
 import com.kanbancord_api.task.TaskAssignmentResponse;
 import com.kanbancord_api.task.TaskAssignmentService;
 import com.kanbancord_api.task.TaskResponse;
@@ -39,6 +41,7 @@ public class BoardSnapshotQuery {
     private final TaskAssignmentService taskAssignmentService;
     private final LabelService labelService;
     private final TaskLabelService taskLabelService;
+    private final BoardPriorityService boardPriorityService;
 
     public BoardSnapshotQuery(
             Authorizer authorizer,
@@ -48,7 +51,8 @@ public class BoardSnapshotQuery {
             TaskService taskService,
             TaskAssignmentService taskAssignmentService,
             LabelService labelService,
-            TaskLabelService taskLabelService) {
+            TaskLabelService taskLabelService,
+            BoardPriorityService boardPriorityService) {
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
@@ -57,6 +61,7 @@ public class BoardSnapshotQuery {
         this.taskAssignmentService = taskAssignmentService;
         this.labelService = labelService;
         this.taskLabelService = taskLabelService;
+        this.boardPriorityService = boardPriorityService;
     }
 
     /**
@@ -87,7 +92,11 @@ public class BoardSnapshotQuery {
                 ? taskLabelService.findByBoardId(boardId).stream().map(TaskLabelResponse::from).toList()
                 : List.of();
 
+        List<BoardPriorityResponse> priorities = boardPriorityService.findByBoardId(boardId).stream()
+                .map(BoardPriorityResponse::from)
+                .toList();
+
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, labels, taskLabels,
-                permissions);
+                priorities, permissions);
     }
 }

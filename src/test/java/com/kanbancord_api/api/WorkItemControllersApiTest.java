@@ -27,6 +27,7 @@ import com.kanbancord_api.label.TaskLabel;
 import com.kanbancord_api.label.TaskLabelController;
 import com.kanbancord_api.label.TaskLabelRequest;
 import com.kanbancord_api.label.TaskLabelService;
+import com.kanbancord_api.priority.BoardPriorityService;
 import com.kanbancord_api.permission.PermissionEvaluationService;
 import com.kanbancord_api.server.Server;
 import com.kanbancord_api.server.ServerService;
@@ -130,6 +131,8 @@ class WorkItemControllersApiTest {
     private TaskCommentService taskCommentService;
         @MockitoBean
     private TaskLabelService taskLabelService;
+    @MockitoBean
+    private BoardPriorityService boardPriorityService;
         @MockitoBean
     private ServerService serverService;
         @MockitoBean
@@ -286,7 +289,6 @@ class WorkItemControllersApiTest {
         request.setColumnId(200L);
         request.setTitle("T1");
         request.setCreatedBy(10L);
-        request.setPriority("HIGH");
         request.setMetadata(Map.of("a", "b"));
 
         Board board = board(100L);
