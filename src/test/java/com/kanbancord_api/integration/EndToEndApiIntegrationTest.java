@@ -69,6 +69,7 @@ class EndToEndApiIntegrationTest {
     private static final long MOD = 1_001L;
     private static final long MEMBER = 1_002L;
     private static final long OTHER = 1_003L;
+    private static final long NEWBIE = 1_004L;
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {
@@ -311,6 +312,48 @@ class EndToEndApiIntegrationTest {
                 .expect(200).json().size());
     }
 
+    // ── Discord sync ─────────────────────────────────────────────────────────
+
+    @Test
+    void everyoneRole_appliesToEveryMember_andDiscordSyncTakesEffectImmediately() throws Exception {
+        World w = bootstrapServer(true);
+        long board = w.createBoard(OWNER, "Everyone");
+        long todo = w.column(board, "Todo");
+
+        // NEWBIE has no roles; View Channels comes from @everyone, as in a default Discord server.
+        assertTrue(w.visibleBoards(NEWBIE).contains(board));
+        RealtimeProbe newbie = RealtimeProbe.connect(this, NEWBIE);
+        newbie.subscribe(w.topic(board));
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(w.topic(board));
+        Thread.sleep(500);
+        w.createTask(MOD, board, todo, "Before");
+        assertEquals("TASK_CREATED", newbie.next().get("eventType"));
+        member.drain();
+
+        // @everyone loses View Channels in Discord and the bot syncs the role.
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/roles/" + w.serverId,
+                Map.of("name", "@everyone", "position", 0, "discordPermissions", 0L)));
+        // Without View Channels a roleless member no longer sees the server at all.
+        assertEquals(403, call("GET", w.boardPath(board, "/tasks"), NEWBIE, null).status());
+        w.createTask(MOD, board, todo, "After");
+        assertEquals("TASK_CREATED", member.next().get("eventType"));
+        List<Map<?, ?>> newbieEvents = newbie.drain();
+        assertTrue(newbieEvents.isEmpty(), "realtime access is re-evaluated on sync: " + newbieEvents);
+    }
+
+    @Test
+    void ownershipTransfer_isSynced() throws Exception {
+        World w = bootstrapServer();
+        assertEquals(403, call("GET", w.path("/audit-logs"), MEMBER, null).status());
+
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId,
+                Map.of("name", "E2E " + w.serverId, "ownerId", MEMBER, "ownerUsername", "member")));
+
+        call("GET", w.path("/audit-logs"), MEMBER, null).expect(200);
+        assertEquals(403, call("GET", w.path("/audit-logs"), OWNER, null).status());
+    }
+
     // ── Migration V9 ───────────────────────────────────────────────────────────
 
     @Test
@@ -337,35 +380,55 @@ class EndToEndApiIntegrationTest {
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private World bootstrapServer() throws Exception {
+        return bootstrapServer(false);
+    }
+
+    /**
+     * @param withEveryone also sync an @everyone role (id = server id) granting View Channels, and
+     *                     NEWBIE, a member with no roles
+     */
+    private World bootstrapServer(boolean withEveryone) throws Exception {
         long serverId = SERVER_IDS.addAndGet(1_000);
         World w = new World(serverId, serverId + 1, serverId + 2);
+
+        List<Map<String, Object>> roles = new ArrayList<>(List.of(
+                Map.of("roleId", w.membersRole, "name", "Members", "position", 1,
+                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES),
+                Map.of("roleId", w.modsRole, "name", "Mods", "position", 2,
+                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES | MANAGE_MESSAGES)));
+        List<Map<String, Object>> members = new ArrayList<>(List.of(
+                Map.of("userId", OWNER, "username", "owner", "roleIds", List.of()),
+                Map.of("userId", MOD, "username", "mod", "roleIds", List.of(w.membersRole, w.modsRole)),
+                Map.of("userId", MEMBER, "username", "member", "roleIds", List.of(w.membersRole)),
+                Map.of("userId", OTHER, "username", "other", "roleIds", List.of(w.membersRole))));
+        if (withEveryone) {
+            roles.add(Map.of("roleId", serverId, "name", "@everyone", "position", 0,
+                    "discordPermissions", VIEW_CHANNEL));
+            members.add(Map.of("userId", NEWBIE, "username", "newbie", "roleIds", List.of()));
+        }
 
         Map<String, Object> body = new HashMap<>();
         body.put("name", "E2E " + serverId);
         body.put("ownerId", OWNER);
         body.put("ownerUsername", "owner");
-        body.put("roles", List.of(
-                Map.of("roleId", w.membersRole, "name", "Members", "position", 1,
-                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES),
-                Map.of("roleId", w.modsRole, "name", "Mods", "position", 2,
-                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES | MANAGE_MESSAGES)));
-        body.put("members", List.of(
-                Map.of("userId", OWNER, "username", "owner", "roleIds", List.of()),
-                Map.of("userId", MOD, "username", "mod", "roleIds", List.of(w.membersRole, w.modsRole)),
-                Map.of("userId", MEMBER, "username", "member", "roleIds", List.of(w.membersRole)),
-                Map.of("userId", OTHER, "username", "other", "roleIds", List.of(w.membersRole))));
-
-        HttpRequest request = HttpRequest.newBuilder(uri("/api/internal/sync/servers/" + serverId + "/bootstrap"))
-                .header("Content-Type", "application/json")
-                .header("X-Internal-Bot-Token", BOT_TOKEN)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
-                .build();
-        assertEquals(204, http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode());
+        body.put("roles", roles);
+        body.put("members", members);
+        assertEquals(204, sync("POST", "/api/internal/sync/servers/" + serverId + "/bootstrap", body));
 
         for (JsonNode entry : call("GET", w.path("/permissions/catalog"), OWNER, null).expect(200).json()) {
             w.catalog.put(entry.get("key").asText(), entry.get("permissionId").asLong());
         }
         return w;
+    }
+
+    /** Calls the internal sync API the way the bot does; returns the status. */
+    private int sync(String method, String path, Object body) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .header("X-Internal-Bot-Token", BOT_TOKEN)
+                .method(method, HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                .build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode();
     }
 
     private void insertBoardRule(long boardId, String subjectType, long subjectId, long kanbanPermissionId,

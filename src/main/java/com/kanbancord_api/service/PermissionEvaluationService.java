@@ -109,7 +109,7 @@ public class PermissionEvaluationService {
         Set<Long> roleIds = Set.of();
         Set<Long> discordFlagBits = Set.of();
         if (member.isPresent()) {
-            List<Role> roles = memberRoleRepository.findRolesByServerMemberId(member.get().getId());
+            List<Role> roles = memberRoleRepository.findRolesWithEveryone(member.get().getId(), serverId);
             roleIds = roles.stream().map(Role::getRoleId).collect(Collectors.toUnmodifiableSet());
 
             long aggregatedDiscordPermissions = 0L;
