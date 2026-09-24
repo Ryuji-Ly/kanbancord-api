@@ -153,7 +153,17 @@ class EndToEndApiIntegrationTest {
         assertEquals(403, w.createRule(MOD, "BOARD", board, "ROLE", w.membersRole, "VIEW_BOARD", "ALLOW")
                 .status(), "changing board rules needs EDIT_BOARD_PERMISSIONS");
 
-        assertEquals(204, call("DELETE", w.path("/permissions/" + denyEveryone), OTHER, null).status());
+        // Editing a rule in place (as the dashboard does) returns the updated rule.
+        String rulePath = w.path("/permissions/" + denyEveryone);
+        assertEquals(204, call("PATCH", rulePath + "/state", OTHER, Map.of("state", "ALLOW")).status());
+        JsonNode edited = call("PUT", rulePath, OTHER, Map.of(
+                "scopeType", "BOARD", "scopeId", board, "subjectType", "DISCORD_PERMISSION", "subjectId", VIEW_CHANNEL,
+                "kanbanPermissionId", w.catalog.get("VIEW_BOARD"), "state", "DENY", "priority", 100))
+                .expect(200).json();
+        assertEquals("VIEW_BOARD", edited.get("kanbanPermissionKey").asText());
+        assertEquals("DENY", edited.get("state").asText());
+
+        assertEquals(204, call("DELETE", rulePath, OTHER, null).status());
         assertEquals(200, call("GET", w.path("/boards/" + board), MEMBER, null).status(), "reverting restores access");
     }
 
@@ -195,6 +205,18 @@ class EndToEndApiIntegrationTest {
         assertTrue(call("POST", w.path("/permissions/catalog"), OWNER, Map.of()).status() >= 400);
         assertTrue(call("POST", "/api/servers/" + w.serverId + "/members/1/roles", OWNER, Map.of()).status() >= 400);
         assertEquals(403, call("GET", w.path("/audit-logs"), MEMBER, null).status());
+
+        // CORS: configured origins get a preflight grant, anything else does not.
+        HttpResponse<String> allowedPreflight = preflight(w.path("/boards"), "https://kanbancord.com", "GET");
+        assertEquals("https://kanbancord.com",
+                allowedPreflight.headers().firstValue("Access-Control-Allow-Origin").orElse(null));
+        // The web client archives boards and toggles rule states with PATCH.
+        HttpResponse<String> patchPreflight = preflight(w.path("/boards/" + board + "/archive"),
+                "https://kanbancord.com", "PATCH");
+        assertEquals(200, patchPreflight.statusCode());
+        assertTrue(patchPreflight.headers().firstValue("Access-Control-Allow-Methods").orElse("").contains("PATCH"));
+        HttpResponse<String> foreignPreflight = preflight(w.path("/boards"), "https://evil.example", "GET");
+        assertTrue(foreignPreflight.headers().firstValue("Access-Control-Allow-Origin").isEmpty());
 
         JsonNode health = call("GET", "/actuator/health", null, null).expect(200).json();
         assertEquals("UP", health.get("status").asText());
@@ -323,6 +345,15 @@ class EndToEndApiIntegrationTest {
             }
         }
         return new Response(response.statusCode(), json, response.body());
+    }
+
+    private HttpResponse<String> preflight(String path, String origin, String method) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri(path))
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", method)
+                .build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private URI uri(String path) {
