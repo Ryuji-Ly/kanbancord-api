@@ -2,6 +2,7 @@ package com.kanbancord_api.service;
 
 import com.kanbancord_api.model.Permission;
 import com.kanbancord_api.repository.PermissionRepository;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +20,7 @@ public class PermissionService {
     }
 
     public Permission create(Permission permission) {
-        return permissionRepository.save(permission);
+        return withKanbanPermissionLoaded(permissionRepository.save(permission));
     }
 
     @Transactional(readOnly = true)
@@ -38,7 +39,16 @@ public class PermissionService {
     }
 
     public Permission update(Permission permission) {
-        return permissionRepository.save(permission);
+        return withKanbanPermissionLoaded(permissionRepository.save(permission));
+    }
+
+    /**
+     * Saving a detached rule merges it, and the returned copy holds a lazy reference to its catalog
+     * entry. Load it while the transaction is open so callers can map the result (open-in-view is off).
+     */
+    private static Permission withKanbanPermissionLoaded(Permission saved) {
+        Hibernate.initialize(saved.getKanbanPermission());
+        return saved;
     }
 
     public void deleteById(Long id) {

@@ -153,7 +153,17 @@ class EndToEndApiIntegrationTest {
         assertEquals(403, w.createRule(MOD, "BOARD", board, "ROLE", w.membersRole, "VIEW_BOARD", "ALLOW")
                 .status(), "changing board rules needs EDIT_BOARD_PERMISSIONS");
 
-        assertEquals(204, call("DELETE", w.path("/permissions/" + denyEveryone), OTHER, null).status());
+        // Editing a rule in place (as the dashboard does) returns the updated rule.
+        String rulePath = w.path("/permissions/" + denyEveryone);
+        assertEquals(204, call("PATCH", rulePath + "/state", OTHER, Map.of("state", "ALLOW")).status());
+        JsonNode edited = call("PUT", rulePath, OTHER, Map.of(
+                "scopeType", "BOARD", "scopeId", board, "subjectType", "DISCORD_PERMISSION", "subjectId", VIEW_CHANNEL,
+                "kanbanPermissionId", w.catalog.get("VIEW_BOARD"), "state", "DENY", "priority", 100))
+                .expect(200).json();
+        assertEquals("VIEW_BOARD", edited.get("kanbanPermissionKey").asText());
+        assertEquals("DENY", edited.get("state").asText());
+
+        assertEquals(204, call("DELETE", rulePath, OTHER, null).status());
         assertEquals(200, call("GET", w.path("/boards/" + board), MEMBER, null).status(), "reverting restores access");
     }
 
