@@ -1,5 +1,6 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.Board;
 import java.time.LocalDateTime;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -80,5 +81,20 @@ public class BoardResponse {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public static BoardResponse from(Board board) {
+        BoardResponse response = new BoardResponse();
+        response.setBoardId(board.getBoardId());
+        response.setServerId(board.getServer().getServerId());
+        response.setName(board.getName());
+        response.setDescription(board.getDescription());
+        response.setIsArchived(board.getIsArchived());
+        if (board.getCreatedBy() != null) {
+            response.setCreatedBy(board.getCreatedBy().getUserId());
+        }
+        response.setCreatedAt(board.getCreatedAt());
+        response.setUpdatedAt(board.getUpdatedAt());
+        return response;
     }
 }

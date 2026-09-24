@@ -1,10 +1,9 @@
 package com.kanbancord_api.controller;
 
+import com.kanbancord_api.command.ColumnCommands;
 import com.kanbancord_api.dto.BoardColumnRequest;
 import com.kanbancord_api.dto.BoardColumnResponse;
-import com.kanbancord_api.model.Board;
 import com.kanbancord_api.model.BoardColumn;
-import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
 import com.kanbancord_api.service.ResourceValidator;
@@ -26,17 +25,17 @@ public class BoardColumnController {
     private final BoardColumnService boardColumnService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
-    private final RealtimeEventPublisher realtimeEventPublisher;
+    private final ColumnCommands columnCommands;
 
     public BoardColumnController(
             BoardColumnService boardColumnService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
-            RealtimeEventPublisher realtimeEventPublisher) {
+            ColumnCommands columnCommands) {
         this.boardColumnService = boardColumnService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
-        this.realtimeEventPublisher = realtimeEventPublisher;
+        this.columnCommands = columnCommands;
     }
 
     @PostMapping
@@ -45,35 +44,8 @@ public class BoardColumnController {
             @PathVariable Long boardId,
             @Valid @RequestBody BoardColumnRequest request,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_COLUMN");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
-
-        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        resourceValidator.validateBoardNotArchived(board);
-
-        BoardColumn column = new BoardColumn();
-        column.setBoard(board);
-        column.setName(request.getName());
-        column.setPosition(request.getPosition());
-        column.setColor(request.getColor());
-        column.setWipLimit(request.getWipLimit());
-
-        BoardColumn created = boardColumnService.create(column);
-        BoardColumnResponse response = mapToResponse(created);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "COLUMN_CREATED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "BOARD_COLUMN",
-                        created.getColumnId(),
-                        userId,
-                        response));
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(columnCommands.create(serverId, boardId, userId, request));
     }
 
     @GetMapping
@@ -88,7 +60,7 @@ public class BoardColumnController {
 
         List<BoardColumn> columns = boardColumnService.findByBoardIdOrdered(boardId);
         List<BoardColumnResponse> responses = columns.stream()
-                .map(this::mapToResponse)
+                .map(BoardColumnResponse::from)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
@@ -107,7 +79,7 @@ public class BoardColumnController {
 
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
 
-        return ResponseEntity.ok(mapToResponse(column));
+        return ResponseEntity.ok(BoardColumnResponse.from(column));
     }
 
     @PutMapping("/{columnId}")
@@ -117,44 +89,7 @@ public class BoardColumnController {
             @PathVariable Long columnId,
             @Valid @RequestBody BoardColumnRequest request,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "EDIT_COLUMN");
-        if (request.getPosition() != null) {
-            accessValidator.requireBoardPermission(userId, serverId, boardId, "MOVE_COLUMN");
-        }
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
-        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        resourceValidator.validateBoardNotArchived(board);
-        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
-
-        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
-
-        column.setName(request.getName());
-        if (request.getPosition() != null) {
-            column.setPosition(request.getPosition());
-        }
-        if (request.getColor() != null) {
-            column.setColor(request.getColor());
-        }
-        if (request.getWipLimit() != null) {
-            column.setWipLimit(request.getWipLimit());
-        }
-
-        BoardColumn updated = boardColumnService.update(column);
-        BoardColumnResponse response = mapToResponse(updated);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "COLUMN_UPDATED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "BOARD_COLUMN",
-                        updated.getColumnId(),
-                        userId,
-                        response));
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(columnCommands.update(serverId, boardId, columnId, userId, request));
     }
 
     @DeleteMapping("/{columnId}")
@@ -163,41 +98,7 @@ public class BoardColumnController {
             @PathVariable Long boardId,
             @PathVariable Long columnId,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "DELETE_COLUMN");
-        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        resourceValidator.validateBoardNotArchived(board);
-        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
-
-        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
-        BoardColumnResponse response = mapToResponse(column);
-
-        boardColumnService.deleteById(column.getColumnId());
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "COLUMN_DELETED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "BOARD_COLUMN",
-                        columnId,
-                        userId,
-                        response));
+        columnCommands.delete(serverId, boardId, columnId, userId);
         return ResponseEntity.noContent().build();
-    }
-
-    private BoardColumnResponse mapToResponse(BoardColumn column) {
-        BoardColumnResponse response = new BoardColumnResponse();
-        response.setColumnId(column.getColumnId());
-        response.setBoardId(column.getBoard().getBoardId());
-        response.setName(column.getName());
-        response.setPosition(column.getPosition());
-        response.setColor(column.getColor());
-        response.setWipLimit(column.getWipLimit());
-        response.setCreatedAt(column.getCreatedAt());
-        response.setUpdatedAt(column.getUpdatedAt());
-        return response;
     }
 }

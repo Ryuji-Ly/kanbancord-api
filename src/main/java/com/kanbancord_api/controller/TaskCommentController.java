@@ -1,109 +1,57 @@
 package com.kanbancord_api.controller;
 
+import com.kanbancord_api.command.TaskCommentCommands;
 import com.kanbancord_api.dto.TaskCommentRequest;
-import com.kanbancord_api.dto.TaskCommentEditorResponse;
 import com.kanbancord_api.dto.TaskCommentResponse;
-import com.kanbancord_api.exception.ResourceNotFoundException;
-import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskComment;
-import com.kanbancord_api.model.TaskCommentEdit;
-import com.kanbancord_api.model.User;
-import com.kanbancord_api.realtime.RealtimeEventPublisher;
-import com.kanbancord_api.repository.TaskCommentEditRepository;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskCommentService;
-import com.kanbancord_api.service.UserService;
 import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/servers/{serverId}/boards/{boardId}/tasks/{taskId}/comments")
 @Validated
-@Transactional(readOnly = true)
 public class TaskCommentController {
 
     private final TaskCommentService taskCommentService;
-    private final UserService userService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
-    private final TaskCommentEditRepository taskCommentEditRepository;
-    private final RealtimeEventPublisher realtimeEventPublisher;
+    private final TaskCommentCommands taskCommentCommands;
 
     public TaskCommentController(
             TaskCommentService taskCommentService,
-            UserService userService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
-            TaskCommentEditRepository taskCommentEditRepository,
-            RealtimeEventPublisher realtimeEventPublisher) {
+            TaskCommentCommands taskCommentCommands) {
         this.taskCommentService = taskCommentService;
-        this.userService = userService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
-        this.taskCommentEditRepository = taskCommentEditRepository;
-        this.realtimeEventPublisher = realtimeEventPublisher;
+        this.taskCommentCommands = taskCommentCommands;
     }
 
     @PostMapping
-    @Transactional
     public ResponseEntity<TaskCommentResponse> createComment(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @Valid @RequestBody TaskCommentRequest request,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "CREATE_TASK_COMMENT");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
-
-        User user = userService.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
-
-        TaskComment comment = new TaskComment();
-        comment.setTask(task);
-        comment.setUser(user);
-        comment.setContent(request.getContent());
-
-        if (request.getReplyToId() != null) {
-            TaskComment replyTo = resourceValidator.requireCommentInServer(request.getReplyToId(), serverId);
-            resourceValidator.validatePathMatchesRequestId("taskId", taskId, replyTo.getTask().getTaskId());
-            comment.setReplyTo(replyTo);
-        }
-
-        TaskComment created = taskCommentService.create(comment);
-        TaskCommentResponse response = mapToResponse(created);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_COMMENT_CREATED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_COMMENT",
-                        created.getCommentId(),
-                        userId,
-                        response));
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(taskCommentCommands.create(serverId, boardId, taskId, userId, request));
     }
 
     @GetMapping
+    @Transactional(readOnly = true)
     public ResponseEntity<Page<TaskCommentResponse>> getCommentsByTaskId(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
@@ -124,12 +72,13 @@ public class TaskCommentController {
             comments = taskCommentService.findByTaskId(taskId, pageable);
         }
 
-        Page<TaskCommentResponse> responses = comments.map(this::mapToResponse);
+        Page<TaskCommentResponse> responses = comments.map(TaskCommentResponse::from);
 
         return ResponseEntity.ok(responses);
     }
 
     @GetMapping("/{commentId}")
+    @Transactional(readOnly = true)
     public ResponseEntity<TaskCommentResponse> getCommentById(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
@@ -143,11 +92,10 @@ public class TaskCommentController {
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
 
-        return ResponseEntity.ok(mapToResponse(comment));
+        return ResponseEntity.ok(TaskCommentResponse.from(comment));
     }
 
     @PutMapping("/{commentId}")
-    @Transactional
     public ResponseEntity<TaskCommentResponse> updateComment(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
@@ -155,74 +103,17 @@ public class TaskCommentController {
             @PathVariable Long commentId,
             @Valid @RequestBody TaskCommentRequest request,
             @CurrentUser Long userId) {
-
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
-        accessValidator.requireBoardPermission(userId, serverId, boardId,
-                isAuthor(comment, userId) ? "CREATE_TASK_COMMENT" : "EDIT_TASK_COMMENT");
-
-        comment.setContent(request.getContent());
-
-        TaskComment updated = taskCommentService.update(comment);
-        User editor = userService.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
-
-        TaskCommentEdit edit = new TaskCommentEdit();
-        edit.setTaskComment(updated);
-        edit.setEditor(editor);
-        taskCommentEditRepository.save(edit);
-
-        TaskComment refreshed = taskCommentService.findById(updated.getCommentId()).orElse(updated);
-        TaskCommentResponse response = mapToResponse(refreshed);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_COMMENT_UPDATED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_COMMENT",
-                        updated.getCommentId(),
-                        userId,
-                        response));
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(taskCommentCommands.edit(serverId, boardId, taskId, commentId, userId, request));
     }
 
     @DeleteMapping("/{commentId}")
-    @Transactional
     public ResponseEntity<Void> deleteComment(
             @PathVariable Long serverId,
             @PathVariable Long boardId,
             @PathVariable Long taskId,
             @PathVariable Long commentId,
             @CurrentUser Long userId) {
-
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, comment.getTask().getTaskId());
-        accessValidator.requireBoardPermission(userId, serverId, boardId,
-                isAuthor(comment, userId) ? "CREATE_TASK_COMMENT" : "DELETE_TASK_COMMENT");
-
-        TaskCommentResponse response = mapToResponse(comment);
-        taskCommentService.deleteById(comment.getCommentId());
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_COMMENT_DELETED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_COMMENT",
-                        commentId,
-                        userId,
-                        response));
+        taskCommentCommands.delete(serverId, boardId, taskId, commentId, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -232,47 +123,5 @@ public class TaskCommentController {
      */
     private static boolean isAuthor(TaskComment comment, Long userId) {
         return comment.getUser() != null && userId.equals(comment.getUser().getUserId());
-    }
-
-    private TaskCommentResponse mapToResponse(TaskComment comment) {
-        TaskCommentResponse response = new TaskCommentResponse();
-        response.setCommentId(comment.getCommentId());
-        response.setTaskId(comment.getTask().getTaskId());
-        response.setUserId(comment.getUser().getUserId());
-        response.setAuthorUsername(comment.getUser().getUsername());
-        response.setAuthorGlobalName(comment.getUser().getGlobalName());
-        response.setAuthorAvatarUrl(comment.getUser().getAvatarUrl());
-        response.setContent(comment.getContent());
-        if (comment.getReplyTo() != null) {
-            response.setReplyToId(comment.getReplyTo().getCommentId());
-        }
-        response.setCreatedAt(comment.getCreatedAt());
-        response.setUpdatedAt(comment.getUpdatedAt());
-        response.setDeletedAt(comment.getDeletedAt());
-
-        List<TaskCommentEditorResponse> editors = comment.getEdits().stream()
-                .sorted(Comparator.comparing(TaskCommentEdit::getEditedAt))
-                .map(TaskCommentEdit::getEditor)
-                .collect(Collectors.toMap(
-                        User::getUserId,
-                        Function.identity(),
-                        (left, right) -> left,
-                        java.util.LinkedHashMap::new))
-                .values()
-                .stream()
-                .map(this::mapEditor)
-                .collect(Collectors.toList());
-        response.setEditedByUsers(editors);
-
-        return response;
-    }
-
-    private TaskCommentEditorResponse mapEditor(User user) {
-        TaskCommentEditorResponse response = new TaskCommentEditorResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setGlobalName(user.getGlobalName());
-        response.setAvatarUrl(user.getAvatarUrl());
-        return response;
     }
 }

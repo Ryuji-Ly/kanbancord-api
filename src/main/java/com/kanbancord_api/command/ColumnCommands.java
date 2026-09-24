@@ -1,0 +1,98 @@
+package com.kanbancord_api.command;
+
+import com.kanbancord_api.dto.BoardColumnRequest;
+import com.kanbancord_api.dto.BoardColumnResponse;
+import com.kanbancord_api.event.DomainEvent;
+import com.kanbancord_api.event.EventType;
+import com.kanbancord_api.model.Board;
+import com.kanbancord_api.model.BoardColumn;
+import com.kanbancord_api.service.AccessValidator;
+import com.kanbancord_api.service.BoardColumnService;
+import com.kanbancord_api.service.ResourceValidator;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/** Creating, changing and deleting board columns, each in one transaction with its {@link DomainEvent}. */
+@Service
+@Transactional
+public class ColumnCommands {
+
+    private final BoardColumnService boardColumnService;
+    private final AccessValidator accessValidator;
+    private final ResourceValidator resourceValidator;
+    private final ApplicationEventPublisher events;
+
+    public ColumnCommands(
+            BoardColumnService boardColumnService,
+            AccessValidator accessValidator,
+            ResourceValidator resourceValidator,
+            ApplicationEventPublisher events) {
+        this.boardColumnService = boardColumnService;
+        this.accessValidator = accessValidator;
+        this.resourceValidator = resourceValidator;
+        this.events = events;
+    }
+
+    public BoardColumnResponse create(Long serverId, Long boardId, Long actorUserId, BoardColumnRequest request) {
+        accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_COLUMN");
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+
+        BoardColumn column = new BoardColumn();
+        column.setBoard(board);
+        column.setName(request.getName());
+        column.setPosition(request.getPosition());
+        column.setColor(request.getColor());
+        column.setWipLimit(request.getWipLimit());
+
+        BoardColumnResponse created = BoardColumnResponse.from(boardColumnService.create(column));
+        events.publishEvent(DomainEvent.created(EventType.COLUMN_CREATED, serverId, boardId, created.getColumnId(),
+                actorUserId, created));
+        return created;
+    }
+
+    public BoardColumnResponse update(Long serverId, Long boardId, Long columnId, Long actorUserId,
+            BoardColumnRequest request) {
+        accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_COLUMN");
+        if (request.getPosition() != null) {
+            accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_COLUMN");
+        }
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
+
+        BoardColumnResponse before = BoardColumnResponse.from(column);
+        column.setName(request.getName());
+        if (request.getPosition() != null) {
+            column.setPosition(request.getPosition());
+        }
+        if (request.getColor() != null) {
+            column.setColor(request.getColor());
+        }
+        if (request.getWipLimit() != null) {
+            column.setWipLimit(request.getWipLimit());
+        }
+
+        BoardColumnResponse after = BoardColumnResponse.from(boardColumnService.update(column));
+        events.publishEvent(DomainEvent.changed(EventType.COLUMN_UPDATED, serverId, boardId, columnId, actorUserId,
+                before, after));
+        return after;
+    }
+
+    public void delete(Long serverId, Long boardId, Long columnId, Long actorUserId) {
+        accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "DELETE_COLUMN");
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
+
+        BoardColumnResponse before = BoardColumnResponse.from(column);
+        boardColumnService.deleteById(column.getColumnId());
+        events.publishEvent(DomainEvent.deleted(EventType.COLUMN_DELETED, serverId, boardId, columnId, actorUserId,
+                before));
+    }
+}
