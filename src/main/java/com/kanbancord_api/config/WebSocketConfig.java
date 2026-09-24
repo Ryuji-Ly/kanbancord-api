@@ -3,6 +3,7 @@ package com.kanbancord_api.config;
 import com.kanbancord_api.realtime.RealtimeChannelInterceptor;
 import com.kanbancord_api.realtime.RealtimeHandshakeHandler;
 import com.kanbancord_api.realtime.RealtimeHandshakeInterceptor;
+import com.kanbancord_api.realtime.RealtimeOutboundInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -18,16 +19,19 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final RealtimeHandshakeInterceptor realtimeHandshakeInterceptor;
     private final RealtimeHandshakeHandler realtimeHandshakeHandler;
     private final RealtimeChannelInterceptor realtimeChannelInterceptor;
+    private final RealtimeOutboundInterceptor realtimeOutboundInterceptor;
 
     public WebSocketConfig(
             RealtimeProperties realtimeProperties,
             RealtimeHandshakeInterceptor realtimeHandshakeInterceptor,
             RealtimeHandshakeHandler realtimeHandshakeHandler,
-            RealtimeChannelInterceptor realtimeChannelInterceptor) {
+            RealtimeChannelInterceptor realtimeChannelInterceptor,
+            RealtimeOutboundInterceptor realtimeOutboundInterceptor) {
         this.realtimeProperties = realtimeProperties;
         this.realtimeHandshakeInterceptor = realtimeHandshakeInterceptor;
         this.realtimeHandshakeHandler = realtimeHandshakeHandler;
         this.realtimeChannelInterceptor = realtimeChannelInterceptor;
+        this.realtimeOutboundInterceptor = realtimeOutboundInterceptor;
     }
 
     @Override
@@ -48,5 +52,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(realtimeChannelInterceptor);
+    }
+
+    @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        registration.interceptors(realtimeOutboundInterceptor);
     }
 }

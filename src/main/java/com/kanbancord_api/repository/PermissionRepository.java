@@ -27,6 +27,13 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.scopeType = :scopeType AND p.scopeId IN :scopeIds")
         List<Permission> findByScopeTypeAndScopeIdIn(String scopeType, Collection<Long> scopeIds);
 
+        /** The server's own rules and the rules of all its boards. */
+        @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission "
+                        + "WHERE (p.scopeType = 'SERVER' AND p.scopeId = :serverId) "
+                        + "OR (p.scopeType = 'BOARD' AND p.scopeId IN "
+                        + "(SELECT b.boardId FROM Board b WHERE b.server.serverId = :serverId))")
+        List<Permission> findAllInServer(Long serverId);
+
         List<Permission> findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdOrderByPriorityDescIdDesc(
                         String scopeType, Long scopeId, String subjectType, Long subjectId);
 

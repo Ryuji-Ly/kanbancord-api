@@ -37,7 +37,9 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -241,7 +243,7 @@ class EndToEndApiIntegrationTest {
         memberOnPublic.subscribe("/topic/servers/" + w.serverId + "/boards/" + publicBoard);
         Thread.sleep(500);
         w.createTask(MOD, publicBoard, publicTodo, "Visible task");
-        assertEquals("TASK_CREATED", memberOnPublic.events.get(10, TimeUnit.SECONDS).get("eventType"));
+        assertEquals("TASK_CREATED", memberOnPublic.next().get("eventType"));
         assertFalse(memberOnPublic.failure.isDone());
 
         // Without VIEW_BOARD on the private board, the subscription is refused and the session closed.
@@ -254,8 +256,59 @@ class EndToEndApiIntegrationTest {
         mod.subscribe(topic);
         Thread.sleep(500);
         w.createTask(MOD, board, todo, "Realtime task");
-        Map<?, ?> event = mod.events.get(10, TimeUnit.SECONDS);
+        Map<?, ?> event = mod.next();
         assertEquals("TASK_CREATED", event.get("eventType"));
+    }
+
+    @Test
+    void realtime_privateBoardEvents_areWithheld_andAccessIsRecheckedPerEvent() throws Exception {
+        World w = bootstrapServer();
+        long secret = w.createBoard(OWNER, "Secret");
+        long open = w.createBoard(OWNER, "Open");
+        long openTodo = w.column(open, "Todo");
+        String serverTopic = "/topic/servers/" + w.serverId;
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(serverTopic);
+        member.subscribe(w.topic(open));
+        RealtimeProbe mod = RealtimeProbe.connect(this, MOD);
+        mod.subscribe(serverTopic);
+        RealtimeProbe other = RealtimeProbe.connect(this, OTHER);
+        other.subscribe(w.topic(open));
+        Thread.sleep(500);
+
+        // Make "Secret" visible to Mods only, then change it.
+        w.createRule(OWNER, "BOARD", secret, "DISCORD_PERMISSION", VIEW_CHANNEL, "VIEW_BOARD", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", secret, "ROLE", w.modsRole, "VIEW_BOARD", "ALLOW").expect(201);
+        w.renameBoard(secret, "Secret plans");
+        w.renameBoard(open, "Open plans");
+
+        // The server topic still carries the private board's events to Mods...
+        assertTrue(mod.drain().stream().anyMatch(e -> "BOARD_UPDATED".equals(e.get("eventType"))
+                && ((Number) e.get("boardId")).longValue() == secret));
+        // ...but a member only hears about the board they can see.
+        List<Map<?, ?>> memberEvents = member.drain();
+        assertTrue(memberEvents.stream().anyMatch(e -> ((Number) e.get("boardId")).longValue() == open));
+        assertTrue(memberEvents.stream().noneMatch(e -> ((Number) e.get("boardId")).longValue() == secret),
+                memberEvents.toString());
+
+        // Losing access to a board stops its events on an existing subscription.
+        w.createRule(OWNER, "BOARD", open, "USER", MEMBER, "VIEW_BOARD", "DENY").expect(201);
+        other.drain();
+        w.createTask(MOD, open, openTodo, "After revocation");
+        assertEquals("TASK_CREATED", other.next().get("eventType"));
+        List<Map<?, ?>> afterRevocation = member.drain();
+        assertTrue(afterRevocation.isEmpty(), afterRevocation.toString());
+
+        // The rules of a board are as private as the board.
+        JsonNode memberRules = call("GET", w.path("/permissions"), MEMBER, null).expect(200).json();
+        for (JsonNode rule : memberRules) {
+            assertFalse("BOARD".equals(rule.get("scopeType").asText()) && rule.get("scopeId").asLong() == secret,
+                    rule.toString());
+        }
+        call("GET", w.path("/permissions?scopeType=BOARD&scopeId=" + secret), MEMBER, null).expect(403);
+        assertEquals(2, call("GET", w.path("/permissions?scopeType=BOARD&scopeId=" + secret), MOD, null)
+                .expect(200).json().size());
     }
 
     // ── Migration V9 ───────────────────────────────────────────────────────────
@@ -441,6 +494,15 @@ class EndToEndApiIntegrationTest {
                     "kanbanPermissionId", catalog.get(key), "state", state, "priority", 100));
         }
 
+        void renameBoard(long boardId, String name) throws Exception {
+            call("PUT", boardPath(boardId, ""), OWNER,
+                    Map.of("name", name, "description", "", "serverId", serverId)).expect(200);
+        }
+
+        String topic(long boardId) {
+            return "/topic/servers/" + serverId + "/boards/" + boardId;
+        }
+
         List<Long> visibleBoards(long userId) throws Exception {
             List<Long> ids = new ArrayList<>();
             for (JsonNode board : call("GET", path("/boards?size=100"), userId, null).expect(200).json().get("content")) {
@@ -452,9 +514,26 @@ class EndToEndApiIntegrationTest {
 
     /** A STOMP client authenticated with a realtime ticket, as the web client does. */
     private static final class RealtimeProbe {
-        final CompletableFuture<Map<?, ?>> events = new CompletableFuture<>();
+        final BlockingQueue<Map<?, ?>> events = new LinkedBlockingQueue<>();
         final CompletableFuture<String> failure = new CompletableFuture<>();
         private StompSession session;
+
+        /** The next event, waiting up to 10 seconds. */
+        Map<?, ?> next() throws InterruptedException {
+            Map<?, ?> event = events.poll(10, TimeUnit.SECONDS);
+            if (event == null) {
+                throw new AssertionError("No realtime event within 10 seconds");
+            }
+            return event;
+        }
+
+        /** Every event that arrives within the next second. */
+        List<Map<?, ?>> drain() throws InterruptedException {
+            Thread.sleep(1_000);
+            List<Map<?, ?>> drained = new ArrayList<>();
+            events.drainTo(drained);
+            return drained;
+        }
 
         static RealtimeProbe connect(EndToEndApiIntegrationTest test, long userId) throws Exception {
             JsonNode ticket = test.call("POST", "/api/realtime/tickets", userId, null).expect(200).json();
@@ -493,7 +572,7 @@ class EndToEndApiIntegrationTest {
 
                 @Override
                 public void handleFrame(StompHeaders headers, Object payload) {
-                    events.complete((Map<?, ?>) payload);
+                    events.add((Map<?, ?>) payload);
                 }
             });
         }
