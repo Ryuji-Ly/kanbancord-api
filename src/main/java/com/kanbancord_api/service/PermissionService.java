@@ -39,7 +39,7 @@ public class PermissionService {
     }
 
     public Permission update(Permission permission) {
-        return withKanbanPermissionLoaded(permissionRepository.save(permission));
+        return withKanbanPermissionLoaded(permissionRepository.saveAndFlush(permission));
     }
 
     /**

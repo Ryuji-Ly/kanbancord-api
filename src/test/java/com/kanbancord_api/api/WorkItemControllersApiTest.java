@@ -35,7 +35,12 @@ import com.kanbancord_api.service.ServerService;
 import com.kanbancord_api.service.TaskAssignmentService;
 import com.kanbancord_api.service.TaskCommentService;
 import com.kanbancord_api.service.TaskLabelService;
-import com.kanbancord_api.realtime.RealtimeEventPublisher;
+import com.kanbancord_api.command.BoardCommands;
+import com.kanbancord_api.command.ColumnCommands;
+import com.kanbancord_api.command.TaskAssignmentCommands;
+import com.kanbancord_api.command.TaskCommands;
+import com.kanbancord_api.command.TaskCommentCommands;
+import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.repository.TaskCommentEditRepository;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.TaskService;
@@ -50,6 +55,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -58,6 +65,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -82,13 +90,25 @@ import static com.kanbancord_api.api.ApiTestAuth.asUser;
         TaskLabelController.class
 })
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+// The real command services run against the mocked services below, so these tests also cover the
+// authorization and validation rules the commands apply.
+@Import({
+        GlobalExceptionHandler.class,
+        BoardCommands.class,
+        ColumnCommands.class,
+        TaskCommands.class,
+        TaskAssignmentCommands.class,
+        TaskCommentCommands.class
+})
+@RecordApplicationEvents
 class WorkItemControllersApiTest {
 
     @Autowired
     private MockMvc mockMvc;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private ApplicationEvents applicationEvents;
 
         @MockitoBean
     private BoardService boardService;
@@ -112,8 +132,6 @@ class WorkItemControllersApiTest {
     private AccessValidator accessValidator;
         @MockitoBean
     private ResourceValidator resourceValidator;
-        @MockitoBean
-    private RealtimeEventPublisher realtimeEventPublisher;
         @MockitoBean
     private TaskCommentEditRepository taskCommentEditRepository;
         @MockitoBean
@@ -501,7 +519,7 @@ class WorkItemControllersApiTest {
 
         verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "VIEW_TASK");
         verify(taskService, never()).update(any(Task.class));
-        verify(realtimeEventPublisher, never()).publishToBoardTopic(any(), any(), any());
+        assertEquals(0, applicationEvents.stream(DomainEvent.class).count());
     }
 
     @Test

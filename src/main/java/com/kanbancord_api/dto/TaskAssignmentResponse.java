@@ -1,5 +1,6 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.TaskAssignment;
 import java.time.LocalDateTime;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -53,5 +54,15 @@ public class TaskAssignmentResponse {
 
     public void setAssignedAt(LocalDateTime assignedAt) {
         this.assignedAt = assignedAt;
+    }
+
+    public static TaskAssignmentResponse from(TaskAssignment assignment) {
+        TaskAssignmentResponse response = new TaskAssignmentResponse();
+        response.setId(assignment.getId());
+        response.setTaskId(assignment.getTask().getTaskId());
+        response.setUserId(assignment.getUser().getUserId());
+        response.setAssignedBy(assignment.getAssignedBy().getUserId());
+        response.setAssignedAt(assignment.getAssignedAt());
+        return response;
     }
 }

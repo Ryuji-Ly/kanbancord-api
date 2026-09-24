@@ -1,18 +1,23 @@
 package com.kanbancord_api.realtime;
 
 import com.kanbancord_api.dto.RealtimeEventResponse;
+import com.kanbancord_api.event.DomainEvent;
+import com.kanbancord_api.event.EventType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Announces committed changes to realtime subscribers: on the board's topic, and also on the server
+ * topic for server-wide changes. Who may receive each message is decided per recipient by
+ * {@link RealtimeOutboundInterceptor}.
+ */
 @Service
 public class RealtimeEventPublisher {
 
@@ -26,66 +31,43 @@ public class RealtimeEventPublisher {
         this.realtimeAccessCache = realtimeAccessCache;
     }
 
-    public RealtimeEventResponse newEvent(
-            String eventType,
-            String scopeType,
-            Long serverId,
-            Long boardId,
-            String entityType,
-            Long entityId,
-            Long actorUserId,
-            Object payload) {
-        RealtimeEventResponse event = new RealtimeEventResponse();
-        event.setEventId(UUID.randomUUID().toString());
-        event.setEventType(eventType);
-        event.setScopeType(scopeType);
-        event.setServerId(serverId);
-        event.setBoardId(boardId);
-        event.setEntityType(entityType);
-        event.setEntityId(entityId);
-        event.setActorUserId(actorUserId);
-        event.setOccurredAt(Instant.now());
-        event.setPayload(payload);
-        return event;
-    }
-
-    public void publishToServerTopic(Long serverId, RealtimeEventResponse event) {
-        publish(List.of(RealtimeTopics.serverTopic(serverId)), event);
-    }
-
-    public void publishToBoardTopic(Long serverId, Long boardId, RealtimeEventResponse event) {
-        publish(List.of(RealtimeTopics.boardTopic(serverId, boardId)), event);
-    }
-
-    public void publishToServerAndBoardTopics(Long serverId, Long boardId, RealtimeEventResponse event) {
-        publish(List.of(RealtimeTopics.serverTopic(serverId), RealtimeTopics.boardTopic(serverId, boardId)), event);
-    }
-
-    private void publish(List<String> destinations, RealtimeEventResponse event) {
-        List<String> uniqueDestinations = new ArrayList<>(new LinkedHashSet<>(destinations));
-        // Lets RealtimeOutboundInterceptor withhold board events on the server topic from users who cannot view the board.
-        Map<String, Object> headers = event.getBoardId() == null
-                ? Map.of()
-                : Map.of(RealtimeTopics.BOARD_ID_HEADER, event.getBoardId().toString());
-
-        Runnable dispatch = () -> {
-            if ("PERMISSION".equals(event.getEntityType())) {
-                // Rule changes can grant or revoke access; recipients must be judged on the new rules.
-                realtimeAccessCache.invalidateAll();
-            }
-            uniqueDestinations.forEach(destination -> simpMessagingTemplate.convertAndSend(destination, event, headers));
-        };
-        if (TransactionSynchronizationManager.isSynchronizationActive()
-                && TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    dispatch.run();
-                }
-            });
-            return;
+    /** Runs after the change commits, so subscribers never hear about a change that was rolled back. */
+    @TransactionalEventListener(fallbackExecution = true)
+    public void onDomainEvent(DomainEvent event) {
+        if (event.type().entityType() == EventType.EntityType.PERMISSION) {
+            // Rule changes can grant or revoke access; recipients must be judged on the new rules.
+            realtimeAccessCache.invalidateAll();
         }
 
-        dispatch.run();
+        List<String> destinations = new ArrayList<>();
+        if (event.boardId() != null) {
+            destinations.add(RealtimeTopics.boardTopic(event.serverId(), event.boardId()));
+        }
+        if (event.boardId() == null || event.type().serverWide()) {
+            destinations.add(RealtimeTopics.serverTopic(event.serverId()));
+        }
+
+        // Lets RealtimeOutboundInterceptor withhold board events on the server topic from users who cannot view the board.
+        Map<String, Object> headers = event.boardId() == null
+                ? Map.of()
+                : Map.of(RealtimeTopics.BOARD_ID_HEADER, event.boardId().toString());
+
+        RealtimeEventResponse message = toMessage(event);
+        destinations.forEach(destination -> simpMessagingTemplate.convertAndSend(destination, message, headers));
+    }
+
+    private static RealtimeEventResponse toMessage(DomainEvent event) {
+        RealtimeEventResponse message = new RealtimeEventResponse();
+        message.setEventId(UUID.randomUUID().toString());
+        message.setEventType(event.type().name());
+        message.setScopeType(event.boardId() != null ? "BOARD" : "SERVER");
+        message.setServerId(event.serverId());
+        message.setBoardId(event.boardId());
+        message.setEntityType(event.type().entityType().name());
+        message.setEntityId(event.entityId());
+        message.setActorUserId(event.actorUserId());
+        message.setOccurredAt(Instant.now());
+        message.setPayload(event.snapshot());
+        return message;
     }
 }

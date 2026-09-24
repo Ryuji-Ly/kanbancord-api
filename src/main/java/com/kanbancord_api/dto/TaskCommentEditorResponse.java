@@ -1,5 +1,7 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.User;
+
 public class TaskCommentEditorResponse {
     private Long userId;
     private String username;
@@ -36,5 +38,14 @@ public class TaskCommentEditorResponse {
 
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    public static TaskCommentEditorResponse from(User user) {
+        TaskCommentEditorResponse response = new TaskCommentEditorResponse();
+        response.setUserId(user.getUserId());
+        response.setUsername(user.getUsername());
+        response.setGlobalName(user.getGlobalName());
+        response.setAvatarUrl(user.getAvatarUrl());
+        return response;
     }
 }
