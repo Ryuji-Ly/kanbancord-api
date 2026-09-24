@@ -1,12 +1,12 @@
 package com.kanbancord_api.unit.service;
 
+import com.kanbancord_api.access.ServerAccessValidator;
+import com.kanbancord_api.board.BoardRepository;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
-import com.kanbancord_api.repository.BoardRepository;
-import com.kanbancord_api.repository.ServerMemberRepository;
-import com.kanbancord_api.repository.ServerRepository;
-import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.ServerAccessValidator;
+import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.server.ServerMemberRepository;
+import com.kanbancord_api.server.ServerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

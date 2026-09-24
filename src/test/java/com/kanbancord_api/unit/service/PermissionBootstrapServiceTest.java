@@ -1,12 +1,12 @@
 package com.kanbancord_api.unit.service;
 
-import com.kanbancord_api.model.KanbanPermission;
-import com.kanbancord_api.model.Permission;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
+import com.kanbancord_api.permission.KanbanPermission;
 import com.kanbancord_api.permission.KanbanPermissionCatalog;
-import com.kanbancord_api.repository.KanbanPermissionRepository;
-import com.kanbancord_api.repository.PermissionRepository;
-import com.kanbancord_api.service.PermissionBootstrapService;
+import com.kanbancord_api.permission.KanbanPermissionRepository;
+import com.kanbancord_api.permission.Permission;
+import com.kanbancord_api.permission.PermissionBootstrapService;
+import com.kanbancord_api.permission.PermissionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
