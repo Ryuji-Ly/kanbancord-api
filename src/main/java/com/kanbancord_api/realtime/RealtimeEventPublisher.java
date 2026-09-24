@@ -10,15 +10,20 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class RealtimeEventPublisher {
 
     private final SimpMessagingTemplate simpMessagingTemplate;
+    private final RealtimeAccessCache realtimeAccessCache;
 
-    public RealtimeEventPublisher(SimpMessagingTemplate simpMessagingTemplate) {
+    public RealtimeEventPublisher(
+            SimpMessagingTemplate simpMessagingTemplate,
+            RealtimeAccessCache realtimeAccessCache) {
         this.simpMessagingTemplate = simpMessagingTemplate;
+        this.realtimeAccessCache = realtimeAccessCache;
     }
 
     public RealtimeEventResponse newEvent(
@@ -45,22 +50,31 @@ public class RealtimeEventPublisher {
     }
 
     public void publishToServerTopic(Long serverId, RealtimeEventResponse event) {
-        publish(List.of(serverTopic(serverId)), event);
+        publish(List.of(RealtimeTopics.serverTopic(serverId)), event);
     }
 
     public void publishToBoardTopic(Long serverId, Long boardId, RealtimeEventResponse event) {
-        publish(List.of(boardTopic(serverId, boardId)), event);
+        publish(List.of(RealtimeTopics.boardTopic(serverId, boardId)), event);
     }
 
     public void publishToServerAndBoardTopics(Long serverId, Long boardId, RealtimeEventResponse event) {
-        publish(List.of(serverTopic(serverId), boardTopic(serverId, boardId)), event);
+        publish(List.of(RealtimeTopics.serverTopic(serverId), RealtimeTopics.boardTopic(serverId, boardId)), event);
     }
 
     private void publish(List<String> destinations, RealtimeEventResponse event) {
         List<String> uniqueDestinations = new ArrayList<>(new LinkedHashSet<>(destinations));
+        // Lets RealtimeOutboundInterceptor withhold board events on the server topic from users who cannot view the board.
+        Map<String, Object> headers = event.getBoardId() == null
+                ? Map.of()
+                : Map.of(RealtimeTopics.BOARD_ID_HEADER, event.getBoardId().toString());
 
-        Runnable dispatch = () -> uniqueDestinations
-                .forEach(destination -> simpMessagingTemplate.convertAndSend(destination, event));
+        Runnable dispatch = () -> {
+            if ("PERMISSION".equals(event.getEntityType())) {
+                // Rule changes can grant or revoke access; recipients must be judged on the new rules.
+                realtimeAccessCache.invalidateAll();
+            }
+            uniqueDestinations.forEach(destination -> simpMessagingTemplate.convertAndSend(destination, event, headers));
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()
                 && TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -73,13 +87,5 @@ public class RealtimeEventPublisher {
         }
 
         dispatch.run();
-    }
-
-    private String serverTopic(Long serverId) {
-        return "/topic/servers/" + serverId;
-    }
-
-    private String boardTopic(Long serverId, Long boardId) {
-        return "/topic/servers/" + serverId + "/boards/" + boardId;
     }
 }

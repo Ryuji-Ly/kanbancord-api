@@ -29,8 +29,8 @@ public class PermissionService {
     }
 
     @Transactional(readOnly = true)
-    public List<Permission> findAll() {
-        return permissionRepository.findAll();
+    public List<Permission> findAllInServer(Long serverId) {
+        return permissionRepository.findAllInServer(serverId);
     }
 
     @Transactional(readOnly = true)

@@ -6,15 +6,12 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class RealtimeDestinationAuthorizationService {
 
-    private static final Pattern SERVER_TOPIC_PATTERN = Pattern.compile("^/topic/servers/(\\d+)$");
-    private static final Pattern BOARD_TOPIC_PATTERN = Pattern.compile("^/topic/servers/(\\d+)/boards/(\\d+)$");
     private static final Set<String> USER_QUEUE_DESTINATIONS = Set.of("/user/queue/session");
     private static final Set<String> ALLOWED_SEND_DESTINATIONS = Set.of("/app/session/ping");
 
@@ -33,18 +30,17 @@ public class RealtimeDestinationAuthorizationService {
             return new AuthorizedSubscription(null, destination, "USER", null, null, Instant.now());
         }
 
-        Matcher boardMatcher = BOARD_TOPIC_PATTERN.matcher(destination);
-        if (boardMatcher.matches()) {
-            Long serverId = Long.parseLong(boardMatcher.group(1));
-            Long boardId = Long.parseLong(boardMatcher.group(2));
+        Optional<RealtimeTopics.Topic> topic = RealtimeTopics.parse(destination);
+        if (topic.isPresent() && topic.get().isBoardTopic()) {
+            Long serverId = topic.get().serverId();
+            Long boardId = topic.get().boardId();
             // Board events carry task contents; only users who can view the board may subscribe.
             serverAccessValidator.validateUserHasPermission(userId, serverId, boardId, "VIEW_BOARD");
             return new AuthorizedSubscription(null, destination, "BOARD", serverId, boardId, Instant.now());
         }
 
-        Matcher serverMatcher = SERVER_TOPIC_PATTERN.matcher(destination);
-        if (serverMatcher.matches()) {
-            Long serverId = Long.parseLong(serverMatcher.group(1));
+        if (topic.isPresent()) {
+            Long serverId = topic.get().serverId();
             serverAccessValidator.validateUserHasPermission(userId, serverId, null, "VIEW_SERVER");
             return new AuthorizedSubscription(null, destination, "SERVER", serverId, null, Instant.now());
         }
