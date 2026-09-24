@@ -38,4 +38,13 @@ public class LabelResponse {
     public void setColor(String color) {
         this.color = color;
     }
+
+    public static LabelResponse from(Label label) {
+        LabelResponse response = new LabelResponse();
+        response.setLabelId(label.getLabelId());
+        response.setBoardId(label.getBoard().getBoardId());
+        response.setName(label.getName());
+        response.setColor(label.getColor());
+        return response;
+    }
 }

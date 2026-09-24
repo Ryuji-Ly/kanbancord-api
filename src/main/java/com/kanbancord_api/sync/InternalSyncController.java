@@ -1,10 +1,11 @@
 package com.kanbancord_api.sync;
 
 import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.event.DomainEvent;
+import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.permission.PermissionBootstrapService;
-import com.kanbancord_api.realtime.RealtimeSubscriptionRevoker;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -15,6 +16,7 @@ import com.kanbancord_api.server.ServerService;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
 import jakarta.validation.Valid;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -44,7 +46,7 @@ public class InternalSyncController {
     private final ServerMemberService serverMemberService;
     private final MemberRoleService memberRoleService;
     private final PermissionBootstrapService permissionBootstrapService;
-    private final RealtimeSubscriptionRevoker realtimeSubscriptionRevoker;
+    private final ApplicationEventPublisher events;
 
     public InternalSyncController(
             Authorizer authorizer,
@@ -54,7 +56,7 @@ public class InternalSyncController {
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
             PermissionBootstrapService permissionBootstrapService,
-            RealtimeSubscriptionRevoker realtimeSubscriptionRevoker) {
+            ApplicationEventPublisher events) {
         this.authorizer = authorizer;
         this.serverService = serverService;
         this.userService = userService;
@@ -62,7 +64,7 @@ public class InternalSyncController {
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
         this.permissionBootstrapService = permissionBootstrapService;
-        this.realtimeSubscriptionRevoker = realtimeSubscriptionRevoker;
+        this.events = events;
     }
 
     @GetMapping("/servers")
@@ -102,7 +104,7 @@ public class InternalSyncController {
         server.setOwner(owner);
         serverService.update(server);
 
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.SERVER_SYNCED, serverId, serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -113,6 +115,7 @@ public class InternalSyncController {
 
         authorizer.requireInternalSyncAccess(botToken);
         serverService.setBotPresent(serverId, false);
+        announce(EventType.SERVER_SYNCED, serverId, serverId);
         return ResponseEntity.noContent().build();
     }
 
@@ -141,7 +144,7 @@ public class InternalSyncController {
         role.setDiscordPermissions(request.getDiscordPermissions());
         roleService.update(role);
 
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.ROLE_SYNCED, serverId, roleId);
         return ResponseEntity.noContent().build();
     }
 
@@ -153,7 +156,7 @@ public class InternalSyncController {
 
         authorizer.requireInternalSyncAccess(botToken);
         roleService.findById(roleId).ifPresent(role -> roleService.deleteById(roleId));
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.ROLE_REMOVED, serverId, roleId);
         return ResponseEntity.noContent().build();
     }
 
@@ -190,7 +193,7 @@ public class InternalSyncController {
             memberRoleService.replaceForMember(member, request.getRoleIds());
         }
 
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.MEMBER_SYNCED, serverId, userId);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
@@ -203,7 +206,7 @@ public class InternalSyncController {
         authorizer.requireInternalSyncAccess(botToken);
         serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .ifPresent(member -> serverMemberService.deleteById(member.getId()));
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.MEMBER_REMOVED, serverId, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -220,7 +223,7 @@ public class InternalSyncController {
                 .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
 
         memberRoleService.replaceForMember(member, request.getRoleIds());
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.MEMBER_SYNCED, serverId, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -283,8 +286,15 @@ public class InternalSyncController {
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
 
-        realtimeSubscriptionRevoker.accessChanged(serverId);
+        announce(EventType.SERVER_SYNCED, serverId, serverId);
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Tells open pages what changed. Runs once the change is saved; access is re-evaluated and
+     * subscriptions that lost it are ended by the realtime publisher.
+     */
+    private void announce(EventType type, Long serverId, Long entityId) {
+        events.publishEvent(new DomainEvent(type, serverId, null, entityId, null, null, null));
+    }
 }

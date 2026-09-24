@@ -12,6 +12,9 @@ public final class RealtimeTopics {
     /** Native header naming the board an event on the server topic is about, used to filter recipients. */
     public static final String BOARD_ID_HEADER = "x-kanbancord-board-id";
 
+    /** The per-user queue for changes that concern one user only; clients subscribe to {@code /user/queue/me}. */
+    public static final String USER_QUEUE = "/queue/me";
+
     private static final Pattern SERVER_TOPIC_PATTERN = Pattern.compile("^/topic/servers/(\\d+)$");
     private static final Pattern BOARD_TOPIC_PATTERN = Pattern.compile("^/topic/servers/(\\d+)/boards/(\\d+)$");
 

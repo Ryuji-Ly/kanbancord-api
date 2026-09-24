@@ -12,7 +12,7 @@ import java.util.Set;
 @Service
 public class RealtimeDestinationAuthorizationService {
 
-    private static final Set<String> USER_QUEUE_DESTINATIONS = Set.of("/user/queue/session");
+    private static final Set<String> USER_QUEUE_DESTINATIONS = Set.of("/user/queue/session", "/user" + RealtimeTopics.USER_QUEUE);
     private static final Set<String> ALLOWED_SEND_DESTINATIONS = Set.of("/app/session/ping");
 
     private final ServerAccessValidator serverAccessValidator;

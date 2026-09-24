@@ -40,6 +40,10 @@ public class TaskLabelService {
         return taskLabelRepository.findByTask_TaskId(taskId);
     }
 
+    public List<TaskLabel> findByBoardId(Long boardId) {
+        return taskLabelRepository.findByTask_Board_BoardId(boardId);
+    }
+
     public TaskLabel update(TaskLabel taskLabel) {
         return taskLabelRepository.save(taskLabel);
     }
