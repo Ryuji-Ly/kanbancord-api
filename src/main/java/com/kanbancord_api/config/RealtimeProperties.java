@@ -11,6 +11,8 @@ public class RealtimeProperties {
 
     private List<String> allowedOrigins = List.of("http://localhost:5173", "http://127.0.0.1:5173", "https://kanbancord.com", "https://www.kanbancord.com");
     private long ticketTtlSeconds = 30;
+    /** How long a "may this user receive this server's/board's events" decision is reused. */
+    private long accessCacheTtlSeconds = 10;
 
     public List<String> getAllowedOrigins() {
         return allowedOrigins;
@@ -26,5 +28,13 @@ public class RealtimeProperties {
 
     public void setTicketTtlSeconds(long ticketTtlSeconds) {
         this.ticketTtlSeconds = ticketTtlSeconds;
+    }
+
+    public long getAccessCacheTtlSeconds() {
+        return accessCacheTtlSeconds;
+    }
+
+    public void setAccessCacheTtlSeconds(long accessCacheTtlSeconds) {
+        this.accessCacheTtlSeconds = accessCacheTtlSeconds;
     }
 }

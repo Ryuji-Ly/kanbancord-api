@@ -34,12 +34,15 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/servers/{serverId}/permissions")
 @Validated
 public class PermissionController {
+
+    private static final String VIEW_BOARD = "VIEW_BOARD";
 
     private final PermissionService permissionService;
     private final KanbanPermissionService kanbanPermissionService;
@@ -105,14 +108,15 @@ public class PermissionController {
         List<Permission> permissions;
         if (scopeType != null && scopeId != null) {
             resourceValidator.validatePermissionScopeBelongsToServer(scopeType, scopeId, serverId);
+            if (isBoardScope(scopeType)) {
+                accessValidator.requireBoardPermission(userId, serverId, scopeId, VIEW_BOARD);
+            }
             permissions = permissionService.findByScope(scopeType, scopeId);
         } else {
-            permissions = permissionService.findAll().stream()
-                    .filter(permission -> resourceValidator.permissionBelongsToServer(permission, serverId))
-                    .collect(Collectors.toList());
+            permissions = permissionService.findAllInServer(serverId);
         }
 
-        List<PermissionResponse> responses = permissions.stream()
+        List<PermissionResponse> responses = withoutHiddenBoardRules(serverId, userId, permissions).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
 
@@ -128,7 +132,31 @@ public class PermissionController {
         accessValidator.requireUserInServer(userId, serverId);
 
         Permission permission = resourceValidator.requirePermissionInServer(permissionId, serverId);
+        if (isBoardScope(permission.getScopeType())) {
+            accessValidator.requireBoardPermission(userId, serverId, permission.getScopeId(), VIEW_BOARD);
+        }
         return ResponseEntity.ok(toResponse(permission));
+    }
+
+    /**
+     * Board rules reveal that a board exists and who may see it, so they are only listed to users
+     * who can view that board.
+     */
+    private List<Permission> withoutHiddenBoardRules(Long serverId, Long userId, List<Permission> permissions) {
+        Set<Long> boardIds = permissions.stream()
+                .filter(permission -> isBoardScope(permission.getScopeType()))
+                .map(Permission::getScopeId)
+                .collect(Collectors.toSet());
+        Set<Long> visibleBoardIds = permissionEvaluationService.filterAllowedBoards(serverId, boardIds, userId,
+                VIEW_BOARD);
+        return permissions.stream()
+                .filter(permission -> !isBoardScope(permission.getScopeType())
+                        || visibleBoardIds.contains(permission.getScopeId()))
+                .toList();
+    }
+
+    private static boolean isBoardScope(String scopeType) {
+        return "BOARD".equalsIgnoreCase(scopeType);
     }
 
     @PutMapping("/{permissionId}")

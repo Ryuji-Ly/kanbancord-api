@@ -24,6 +24,11 @@ public class RealtimeSessionManager {
         return snapshot(sessionState);
     }
 
+    public Optional<Long> userId(String sessionId) {
+        SessionState sessionState = sessionId == null ? null : sessions.get(sessionId);
+        return sessionState == null ? Optional.empty() : Optional.ofNullable(sessionState.userId);
+    }
+
     public void touch(String sessionId) {
         SessionState sessionState = sessions.get(sessionId);
         if (sessionState != null) {
