@@ -19,6 +19,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -67,7 +69,7 @@ public class TaskCommands {
         task.setColumn(column);
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
-        task.setPosition(request.getPosition());
+        task.setPosition(request.getPosition() != null ? request.getPosition() : endOf(column.getColumnId()));
         task.setPriority(request.getPriority());
         task.setDueDate(request.getDueDate());
         task.setMetadata(request.getMetadata());
@@ -173,6 +175,16 @@ public class TaskCommands {
                     before, after));
         }
         return after;
+    }
+
+    /** The position after the last task of a column, so tasks created without one go to the end. */
+    private BigDecimal endOf(Long columnId) {
+        return taskService.findByColumnIdOrdered(columnId).stream()
+                .map(Task::getPosition)
+                .filter(Objects::nonNull)
+                .max(BigDecimal::compareTo)
+                .map(last -> last.setScale(0, RoundingMode.FLOOR).add(BigDecimal.ONE))
+                .orElse(BigDecimal.ONE);
     }
 
     private List<Task> columnTasksWithout(Long columnId, Long taskId) {
