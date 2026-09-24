@@ -39,6 +39,16 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.UNAUTHORIZED);
     }
 
+    /** 409 rather than 401: the user is signed in to KanbanCord, only the Discord authorization is gone. */
+    @ExceptionHandler(DiscordReauthorizationRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleDiscordReauthorization(DiscordReauthorizationRequiredException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                LocalDateTime.now());
+        return new ResponseEntity<>(error, HttpStatus.CONFLICT);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
         ErrorResponse error = new ErrorResponse(
@@ -115,9 +125,11 @@ public class GlobalExceptionHandler {
         // their own status; keep it rather than masking them as 500s.
         if (ex instanceof org.springframework.web.ErrorResponse frameworkError) {
             HttpStatusCode status = frameworkError.getStatusCode();
+            String message = ex instanceof org.springframework.web.server.ResponseStatusException statusException
+                    && statusException.getReason() != null ? statusException.getReason() : ex.getMessage();
             ErrorResponse error = new ErrorResponse(
                     status.value(),
-                    ex.getMessage(),
+                    message,
                     LocalDateTime.now());
             return new ResponseEntity<>(error, status);
         }

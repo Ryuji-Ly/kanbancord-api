@@ -6,6 +6,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -16,18 +17,26 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final RealtimeHandshakeHandler realtimeHandshakeHandler;
     private final RealtimeChannelInterceptor realtimeChannelInterceptor;
     private final RealtimeOutboundInterceptor realtimeOutboundInterceptor;
+    private final RealtimeConnectionRegistry realtimeConnectionRegistry;
 
     public WebSocketConfig(
             RealtimeProperties realtimeProperties,
             RealtimeHandshakeInterceptor realtimeHandshakeInterceptor,
             RealtimeHandshakeHandler realtimeHandshakeHandler,
             RealtimeChannelInterceptor realtimeChannelInterceptor,
-            RealtimeOutboundInterceptor realtimeOutboundInterceptor) {
+            RealtimeOutboundInterceptor realtimeOutboundInterceptor,
+            RealtimeConnectionRegistry realtimeConnectionRegistry) {
         this.realtimeProperties = realtimeProperties;
         this.realtimeHandshakeInterceptor = realtimeHandshakeInterceptor;
         this.realtimeHandshakeHandler = realtimeHandshakeHandler;
         this.realtimeChannelInterceptor = realtimeChannelInterceptor;
         this.realtimeOutboundInterceptor = realtimeOutboundInterceptor;
+        this.realtimeConnectionRegistry = realtimeConnectionRegistry;
+    }
+
+    @Override
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.addDecoratorFactory(realtimeConnectionRegistry);
     }
 
     @Override
