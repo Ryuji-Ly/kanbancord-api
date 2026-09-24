@@ -92,6 +92,42 @@ public class PermissionEvaluationService {
     }
 
     /**
+     * Everything a user may do in a server, from one snapshot and one query for all board rules: the
+     * server-scope keys, and the board-scope keys of each board they can view (boards they cannot
+     * view are left out).
+     */
+    public AccessSummary summarize(Long serverId, Collection<Long> boardIds, Long userId,
+            Collection<String> serverKeys, Collection<String> boardKeys) {
+        PermissionSnapshot serverSnapshot = loadSnapshot(serverId, null, userId);
+
+        Map<String, Boolean> server = new LinkedHashMap<>();
+        for (String key : serverKeys) {
+            server.put(key, PermissionResolver.resolve(serverSnapshot, key).allowed());
+        }
+
+        Map<Long, List<Permission>> rulesByBoard = boardIds.isEmpty()
+                ? Map.of()
+                : permissionRepository.findByScopeTypeAndScopeIdIn(SCOPE_BOARD, boardIds).stream()
+                        .collect(Collectors.groupingBy(Permission::getScopeId));
+        Map<Long, Map<String, Boolean>> boards = new LinkedHashMap<>();
+        for (Long boardId : boardIds) {
+            PermissionSnapshot boardSnapshot = serverSnapshot.withBoardRules(rulesByBoard.getOrDefault(boardId, List.of()));
+            if (!PermissionResolver.resolve(boardSnapshot, "VIEW_BOARD").allowed()) {
+                continue;
+            }
+            Map<String, Boolean> decisions = new LinkedHashMap<>();
+            for (String key : boardKeys) {
+                decisions.put(key, PermissionResolver.resolve(boardSnapshot, key).allowed());
+            }
+            boards.put(boardId, decisions);
+        }
+        return new AccessSummary(server, boards);
+    }
+
+    public record AccessSummary(Map<String, Boolean> server, Map<Long, Map<String, Boolean>> boards) {
+    }
+
+    /**
      * The user's highest allowed catalog rank, evaluated at board scope when {@code boardId} is given.
      */
     public PermissionRank calculateEffectiveRank(Long serverId, Long boardId, Long userId) {

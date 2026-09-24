@@ -391,6 +391,32 @@ class EndToEndApiIntegrationTest {
         assertEquals(403, call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).status());
     }
 
+    @Test
+    void accessSummary_listsServerAndPerBoardPermissions_forVisibleBoardsOnly() throws Exception {
+        World w = bootstrapServer();
+        long open = w.createBoard(OWNER, "Open");
+        long secret = w.createBoard(OWNER, "Secret");
+        w.createRule(OWNER, "BOARD", secret, "DISCORD_PERMISSION", VIEW_CHANNEL, "VIEW_BOARD", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", secret, "ROLE", w.modsRole, "VIEW_BOARD", "ALLOW").expect(201);
+        w.createRule(OWNER, "BOARD", open, "USER", MEMBER, "CREATE_TASK", "DENY").expect(201);
+
+        JsonNode owner = call("GET", w.path("/permissions/mine"), OWNER, null).expect(200).json();
+        assertTrue(owner.at("/server/ADMIN").asBoolean());
+        assertTrue(owner.at("/boards/" + secret + "/DELETE_BOARD").asBoolean());
+
+        JsonNode member = call("GET", w.path("/permissions/mine"), MEMBER, null).expect(200).json();
+        assertTrue(member.at("/server/VIEW_SERVER").asBoolean());
+        assertFalse(member.at("/server/MANAGE_SERVER_PERMISSIONS").asBoolean());
+        assertFalse(member.get("boards").has(String.valueOf(secret)), "boards the caller cannot view are left out");
+        assertTrue(member.at("/boards/" + open + "/VIEW_TASK").asBoolean());
+        assertFalse(member.at("/boards/" + open + "/CREATE_TASK").asBoolean(), "board overrides apply");
+
+        assertTrue(call("GET", w.path("/permissions/mine"), MOD, null).expect(200).json()
+                .get("boards").has(String.valueOf(secret)));
+        long outsider = 9_999L;
+        assertEquals(403, call("GET", w.path("/permissions/mine"), outsider, null).status());
+    }
+
     // ── Audit log ───────────────────────────────────────────────────────────────
 
     @Test
