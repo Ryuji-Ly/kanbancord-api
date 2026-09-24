@@ -14,6 +14,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -29,6 +30,10 @@ public class AuditLogRecorder {
     static final String SOURCE_API = "API";
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
+    /** Key of an update entry that names the changed entity, so the log can say what was changed. */
+    static final String SUBJECT_KEY = "_subject";
+    /** Fields that name an entity, in order of preference. */
+    private static final List<String> NAME_FIELDS = List.of("title", "name");
     /** Bookkeeping fields that change on every update and say nothing about what the user did. */
     private static final Set<String> IGNORED_FIELDS = Set.of("updatedAt");
 
@@ -64,7 +69,8 @@ public class AuditLogRecorder {
 
     /**
      * {@code {"created": {...}}}, {@code {"deleted": {...}}}, or for updates only the fields that
-     * changed: {@code {"title": {"from": "a", "to": "b"}}}.
+     * changed, {@code {"title": {"from": "a", "to": "b"}}}, plus the entity's current name under
+     * {@link #SUBJECT_KEY} when it has one.
      */
     Map<String, Object> changes(DomainEvent event) {
         Map<String, Object> before = toMap(event.before());
@@ -89,6 +95,11 @@ public class AuditLogRecorder {
                 diff.put(field, change);
             }
         }
+        NAME_FIELDS.stream()
+                .map(after::get)
+                .filter(name -> name instanceof String text && !text.isBlank())
+                .findFirst()
+                .ifPresent(name -> diff.put(SUBJECT_KEY, name));
         return diff;
     }
 
