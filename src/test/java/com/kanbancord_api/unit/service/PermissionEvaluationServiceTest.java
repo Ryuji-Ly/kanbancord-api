@@ -354,7 +354,7 @@ class PermissionEvaluationServiceTest {
             member.setId(7L);
             when(serverMemberRepository.findByServer_ServerIdAndUser_UserId(SERVER, USER))
                     .thenReturn(Optional.of(member));
-            when(memberRoleRepository.findRolesByServerMemberId(7L)).thenReturn(List.of(roles));
+            when(memberRoleRepository.findRolesWithEveryone(7L, SERVER)).thenReturn(List.of(roles));
         }
     }
 

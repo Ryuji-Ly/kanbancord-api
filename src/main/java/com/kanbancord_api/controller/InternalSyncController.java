@@ -11,6 +11,7 @@ import com.kanbancord_api.model.Role;
 import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeAccessCache;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.MemberRoleService;
 import com.kanbancord_api.service.PermissionBootstrapService;
@@ -48,6 +49,7 @@ public class InternalSyncController {
     private final ServerMemberService serverMemberService;
     private final MemberRoleService memberRoleService;
     private final PermissionBootstrapService permissionBootstrapService;
+    private final RealtimeAccessCache realtimeAccessCache;
 
     public InternalSyncController(
             AccessValidator accessValidator,
@@ -56,7 +58,8 @@ public class InternalSyncController {
             RoleService roleService,
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
-            PermissionBootstrapService permissionBootstrapService) {
+            PermissionBootstrapService permissionBootstrapService,
+            RealtimeAccessCache realtimeAccessCache) {
         this.accessValidator = accessValidator;
         this.serverService = serverService;
         this.userService = userService;
@@ -64,6 +67,7 @@ public class InternalSyncController {
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
         this.permissionBootstrapService = permissionBootstrapService;
+        this.realtimeAccessCache = realtimeAccessCache;
     }
 
     @GetMapping("/servers")
@@ -103,6 +107,7 @@ public class InternalSyncController {
         server.setOwner(owner);
         serverService.update(server);
 
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
@@ -141,6 +146,7 @@ public class InternalSyncController {
         role.setDiscordPermissions(request.getDiscordPermissions());
         roleService.update(role);
 
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
@@ -152,6 +158,7 @@ public class InternalSyncController {
 
         accessValidator.requireInternalSyncAccess(botToken);
         roleService.findById(roleId).ifPresent(role -> roleService.deleteById(roleId));
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
@@ -188,6 +195,7 @@ public class InternalSyncController {
             memberRoleService.replaceForMember(member, request.getRoleIds());
         }
 
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
@@ -200,6 +208,7 @@ public class InternalSyncController {
         accessValidator.requireInternalSyncAccess(botToken);
         serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .ifPresent(member -> serverMemberService.deleteById(member.getId()));
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
@@ -216,6 +225,7 @@ public class InternalSyncController {
                 .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
 
         memberRoleService.replaceForMember(member, request.getRoleIds());
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
@@ -271,13 +281,14 @@ public class InternalSyncController {
             }
             member = serverMemberService.update(member);
 
-            if (entry.getRoleIds() != null && !entry.getRoleIds().isEmpty()) {
+            if (entry.getRoleIds() != null) {
                 memberRoleService.replaceForMember(member, entry.getRoleIds());
             }
         }
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
 
+        realtimeAccessCache.invalidateAll();
         return ResponseEntity.noContent().build();
     }
 
