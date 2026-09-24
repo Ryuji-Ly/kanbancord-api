@@ -9,6 +9,7 @@ import com.kanbancord_api.server.Server;
 import com.kanbancord_api.server.ServerService;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
+import com.kanbancord_api.priority.BoardPriorityService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ public class BoardCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final BoardPriorityService boardPriorityService;
 
     public BoardCommands(
             BoardService boardService,
@@ -31,13 +33,15 @@ public class BoardCommands {
             UserService userService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            BoardPriorityService boardPriorityService) {
         this.boardService = boardService;
         this.serverService = serverService;
         this.userService = userService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.boardPriorityService = boardPriorityService;
     }
 
     public BoardResponse create(Long serverId, Long actorUserId, BoardRequest request) {
@@ -59,6 +63,7 @@ public class BoardCommands {
         board.setCreatedBy(creator);
 
         BoardResponse created = BoardResponse.from(boardService.create(board, request.getColumnNames()));
+        boardPriorityService.createDefaults(created.getBoardId());
         events.publishEvent(DomainEvent.created(EventType.BOARD_CREATED, serverId, created.getBoardId(),
                 created.getBoardId(), actorUserId, created));
         return created;

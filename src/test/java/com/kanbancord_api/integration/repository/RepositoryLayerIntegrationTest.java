@@ -175,7 +175,6 @@ class RepositoryLayerIntegrationTest {
         task.setTitle("Ship tests");
         task.setDescription("Task desc");
         task.setPosition(new BigDecimal("1.00"));
-        task.setPriority("HIGH");
         task.setCreatedBy(owner);
         task.setMetadata(Map.of("k", "v"));
         task = taskRepository.save(task);

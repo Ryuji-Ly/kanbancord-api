@@ -42,8 +42,9 @@ public class Task {
     @Column(name = "position", precision = 10, scale = 2)
     private BigDecimal position;
 
-    @Column(name = "priority")
-    private String priority;
+    /** One of the board's priority levels, or null for none. */
+    @Column(name = "priority_id")
+    private Long priorityId;
 
     @Column(name = "due_date")
     private LocalDateTime dueDate;
@@ -147,12 +148,12 @@ public class Task {
         this.position = position;
     }
 
-    public String getPriority() {
-        return priority;
+    public Long getPriorityId() {
+        return priorityId;
     }
 
-    public void setPriority(String priority) {
-        this.priority = priority;
+    public void setPriorityId(Long priorityId) {
+        this.priorityId = priorityId;
     }
 
     public LocalDateTime getDueDate() {

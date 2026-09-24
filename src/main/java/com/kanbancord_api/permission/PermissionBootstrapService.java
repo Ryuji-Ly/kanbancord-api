@@ -86,7 +86,7 @@ public class PermissionBootstrapService {
                 // TIER 4 own
                 "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
                 "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
-                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL",
+                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL", "MANAGE_PRIORITIES",
                 "VIEW_AUDIT_LOG");
 
         // ── TIER 5 ── VIEW_AUDIT_LOG (180) — audit reviewers ─────────────────────
@@ -109,7 +109,7 @@ public class PermissionBootstrapService {
                 "ASSIGN_TASK_OTHERS",
                 "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
                 "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
-                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL",
+                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL", "MANAGE_PRIORITIES",
                 "VIEW_AUDIT_LOG",
                 // TIER 6 own
                 "MANAGE_SERVER_PERMISSIONS", "CREATE_BOARD", "DELETE_BOARD");
