@@ -3,6 +3,7 @@ package com.kanbancord_api.controller;
 import com.kanbancord_api.command.ColumnCommands;
 import com.kanbancord_api.dto.BoardColumnRequest;
 import com.kanbancord_api.dto.BoardColumnResponse;
+import com.kanbancord_api.dto.ColumnMoveRequest;
 import com.kanbancord_api.model.BoardColumn;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardColumnService;
@@ -90,6 +91,16 @@ public class BoardColumnController {
             @Valid @RequestBody BoardColumnRequest request,
             @CurrentUser Long userId) {
         return ResponseEntity.ok(columnCommands.update(serverId, boardId, columnId, userId, request));
+    }
+
+    @PostMapping("/{columnId}/move")
+    public ResponseEntity<BoardColumnResponse> moveColumn(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @PathVariable Long columnId,
+            @Valid @RequestBody ColumnMoveRequest request,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(columnCommands.move(serverId, boardId, columnId, userId, request));
     }
 
     @DeleteMapping("/{columnId}")

@@ -3,6 +3,8 @@ package com.kanbancord_api.controller;
 import com.kanbancord_api.command.BoardCommands;
 import com.kanbancord_api.dto.BoardRequest;
 import com.kanbancord_api.dto.BoardResponse;
+import com.kanbancord_api.dto.BoardSnapshotResponse;
+import com.kanbancord_api.query.BoardSnapshotQuery;
 import com.kanbancord_api.model.Board;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.BoardService;
@@ -31,18 +33,21 @@ public class BoardController {
     private final ResourceValidator resourceValidator;
     private final PermissionEvaluationService permissionEvaluationService;
     private final BoardCommands boardCommands;
+    private final BoardSnapshotQuery boardSnapshotQuery;
 
     public BoardController(
             BoardService boardService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
             PermissionEvaluationService permissionEvaluationService,
-            BoardCommands boardCommands) {
+            BoardCommands boardCommands,
+            BoardSnapshotQuery boardSnapshotQuery) {
         this.boardService = boardService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
         this.boardCommands = boardCommands;
+        this.boardSnapshotQuery = boardSnapshotQuery;
     }
 
     /**
@@ -101,6 +106,17 @@ public class BoardController {
         accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_BOARD");
 
         return ResponseEntity.ok(BoardResponse.from(board));
+    }
+
+    /**
+     * The board with its columns, tasks, assignments and the caller's board permissions, in one request
+     */
+    @GetMapping("/{boardId}/snapshot")
+    public ResponseEntity<BoardSnapshotResponse> getBoardSnapshot(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(boardSnapshotQuery.load(serverId, boardId, userId));
     }
 
     /**

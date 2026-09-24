@@ -14,10 +14,12 @@ public enum EventType {
 
     COLUMN_CREATED(EntityType.BOARD_COLUMN, false),
     COLUMN_UPDATED(EntityType.BOARD_COLUMN, false),
+    COLUMN_MOVED(EntityType.BOARD_COLUMN, false),
     COLUMN_DELETED(EntityType.BOARD_COLUMN, false),
 
     TASK_CREATED(EntityType.TASK, false),
     TASK_UPDATED(EntityType.TASK, false),
+    TASK_MOVED(EntityType.TASK, false),
     TASK_DELETED(EntityType.TASK, false),
 
     TASK_ASSIGNMENT_CREATED(EntityType.TASK_ASSIGNMENT, false),

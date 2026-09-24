@@ -1,6 +1,7 @@
 package com.kanbancord_api.controller;
 
 import com.kanbancord_api.command.TaskCommands;
+import com.kanbancord_api.dto.TaskMoveRequest;
 import com.kanbancord_api.dto.TaskRequest;
 import com.kanbancord_api.dto.TaskResponse;
 import com.kanbancord_api.model.Task;
@@ -99,6 +100,16 @@ public class TaskController {
             @Valid @RequestBody TaskRequest request,
             @CurrentUser Long userId) {
         return ResponseEntity.ok(taskCommands.update(serverId, boardId, taskId, userId, request));
+    }
+
+    @PostMapping("/{taskId}/move")
+    public ResponseEntity<TaskResponse> moveTask(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @PathVariable Long taskId,
+            @Valid @RequestBody TaskMoveRequest request,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(taskCommands.move(serverId, boardId, taskId, userId, request));
     }
 
     @DeleteMapping("/{taskId}")

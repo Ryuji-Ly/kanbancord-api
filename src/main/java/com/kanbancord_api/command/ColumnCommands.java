@@ -2,6 +2,7 @@ package com.kanbancord_api.command;
 
 import com.kanbancord_api.dto.BoardColumnRequest;
 import com.kanbancord_api.dto.BoardColumnResponse;
+import com.kanbancord_api.dto.ColumnMoveRequest;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.model.Board;
@@ -12,6 +13,9 @@ import com.kanbancord_api.service.ResourceValidator;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** Creating, changing and deleting board columns, each in one transaction with its {@link DomainEvent}. */
 @Service
@@ -80,6 +84,32 @@ public class ColumnCommands {
         BoardColumnResponse after = BoardColumnResponse.from(boardColumnService.update(column));
         events.publishEvent(DomainEvent.changed(EventType.COLUMN_UPDATED, serverId, boardId, columnId, actorUserId,
                 before, after));
+        return after;
+    }
+
+    /** Puts a column at a position on its board and renumbers the others. Needs only MOVE_COLUMN. */
+    public BoardColumnResponse move(Long serverId, Long boardId, Long columnId, Long actorUserId,
+            ColumnMoveRequest request) {
+        accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_COLUMN");
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
+        BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
+
+        BoardColumnResponse before = BoardColumnResponse.from(column);
+        List<BoardColumn> columns = new ArrayList<>(boardColumnService.findByBoardIdOrdered(boardId));
+        columns.removeIf(other -> other.getColumnId().equals(columnId));
+        Positions.insert(columns, request.getIndex(), column);
+        if (!Positions.renumber(columns, BoardColumn::getPosition, BoardColumn::setPosition)) {
+            return before;
+        }
+
+        boardColumnService.updateAll(columns);
+        BoardColumnResponse after = BoardColumnResponse.from(column);
+        if (before.getPosition() == null || before.getPosition().compareTo(after.getPosition()) != 0) {
+            events.publishEvent(DomainEvent.changed(EventType.COLUMN_MOVED, serverId, boardId, columnId,
+                    actorUserId, before, after));
+        }
         return after;
     }
 

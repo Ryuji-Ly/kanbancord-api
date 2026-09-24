@@ -1,5 +1,6 @@
 package com.kanbancord_api.command;
 
+import com.kanbancord_api.dto.TaskMoveRequest;
 import com.kanbancord_api.dto.TaskRequest;
 import com.kanbancord_api.dto.TaskResponse;
 import com.kanbancord_api.event.DomainEvent;
@@ -18,6 +19,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -129,6 +132,53 @@ public class TaskCommands {
         events.publishEvent(DomainEvent.changed(EventType.TASK_UPDATED, serverId, boardId, taskId, actorUserId,
                 before, after));
         return after;
+    }
+
+    /**
+     * Puts a task at a position in a column (its own or another) and renumbers the affected columns,
+     * so a drag and drop is one request, one event and one audit entry. Needs only MOVE_TASK.
+     */
+    public TaskResponse move(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskMoveRequest request) {
+        accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_TASK");
+        resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        resourceValidator.validateTaskMove(task, request.getColumnId());
+        BoardColumn target = boardColumnService.findById(request.getColumnId())
+                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
+
+        TaskResponse before = TaskResponse.from(task);
+        Long sourceColumnId = task.getColumn().getColumnId();
+        List<Task> changed = new ArrayList<>();
+
+        List<Task> targetTasks = columnTasksWithout(target.getColumnId(), taskId);
+        Positions.insert(targetTasks, request.getIndex(), task);
+        task.setColumn(target);
+        Positions.renumber(targetTasks, Task::getPosition, Task::setPosition);
+        changed.addAll(targetTasks);
+
+        if (!sourceColumnId.equals(target.getColumnId())) {
+            List<Task> sourceTasks = columnTasksWithout(sourceColumnId, taskId);
+            Positions.renumber(sourceTasks, Task::getPosition, Task::setPosition);
+            changed.addAll(sourceTasks);
+        }
+
+        taskService.updateAll(changed);
+        TaskResponse after = TaskResponse.from(task);
+        boolean moved = !Objects.equals(before.getColumnId(), after.getColumnId())
+                || before.getPosition() == null
+                || before.getPosition().compareTo(after.getPosition()) != 0;
+        if (moved) {
+            events.publishEvent(DomainEvent.changed(EventType.TASK_MOVED, serverId, boardId, taskId, actorUserId,
+                    before, after));
+        }
+        return after;
+    }
+
+    private List<Task> columnTasksWithout(Long columnId, Long taskId) {
+        List<Task> tasks = new ArrayList<>(taskService.findByColumnIdOrdered(columnId));
+        tasks.removeIf(other -> other.getTaskId().equals(taskId));
+        return tasks;
     }
 
     public void delete(Long serverId, Long boardId, Long taskId, Long actorUserId) {

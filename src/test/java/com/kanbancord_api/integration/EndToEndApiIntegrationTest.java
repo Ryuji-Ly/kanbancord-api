@@ -312,6 +312,71 @@ class EndToEndApiIntegrationTest {
                 .expect(200).json().size());
     }
 
+    // ── Moves and the board snapshot ────────────────────────────────────────────
+
+    @Test
+    void moves_renumberColumns_needOnlyMovePermissions_andAreOneAuditEntry() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Moves");
+        long todo = w.column(board, "Todo");
+        long doing = w.column(board, "Doing");
+        long a = w.createTask(MOD, board, todo, "A");
+        long b = w.createTask(MOD, board, todo, "B");
+        long c = w.createTask(MOD, board, todo, "C");
+        // MOD may move but not edit tasks or columns.
+        w.createRule(OWNER, "BOARD", board, "USER", MOD, "EDIT_TASK", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", board, "USER", MOD, "EDIT_COLUMN", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", board, "USER", MOD, "MOVE_COLUMN", "ALLOW").expect(201);
+
+        w.moveTask(MOD, board, c, todo, 0).expect(200);
+        assertEquals(Map.of(todo, List.of(c, a, b)), w.tasksByColumn(board));
+
+        JsonNode moved = w.moveTask(MOD, board, a, doing, 5).expect(200).json();
+        assertEquals(doing, moved.get("columnId").asLong());
+        assertEquals(Map.of(todo, List.of(c, b), doing, List.of(a)), w.tasksByColumn(board));
+
+        JsonNode column = call("POST", w.boardPath(board, "/columns/" + doing + "/move"), MOD, Map.of("index", 0))
+                .expect(200).json();
+        assertEquals(1, column.get("position").asInt());
+        assertEquals(List.of("Doing", "Todo"), w.snapshot(MOD, board).get("columns").findValuesAsText("name"));
+
+        // Members without MOVE_TASK cannot move; moving to another board's column is refused.
+        w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "MOVE_TASK", "DENY").expect(201);
+        assertEquals(403, w.moveTask(MEMBER, board, b, doing, 0).status());
+        long otherBoard = w.createBoard(OWNER, "Elsewhere");
+        assertEquals(400, w.moveTask(MOD, board, b, w.column(otherBoard, "Todo"), 0).status());
+
+        // One drag is one audit entry, recording where the task came from.
+        List<JsonNode> moves = auditLog(w).stream().filter(e -> "TASK_MOVED".equals(e.get("action").asText()))
+                .toList();
+        assertEquals(2, moves.size());
+        assertEquals(todo, moves.get(1).at("/changes/columnId/from").asLong());
+        assertEquals(doing, moves.get(1).at("/changes/columnId/to").asLong());
+    }
+
+    @Test
+    void boardSnapshot_returnsEverythingTheBoardPageNeeds_andRespectsVisibility() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Snapshot");
+        long todo = w.column(board, "Todo");
+        long task = w.createTask(MOD, board, todo, "Visible");
+        call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), MOD,
+                Map.of("taskId", task, "userId", MEMBER)).expect(201);
+
+        JsonNode snapshot = w.snapshot(MEMBER, board);
+        assertEquals("Snapshot", snapshot.at("/board/name").asText());
+        assertEquals(List.of("Todo", "Doing"), snapshot.get("columns").findValuesAsText("name"));
+        assertEquals(List.of("Visible"), snapshot.get("tasks").findValuesAsText("title"));
+        assertEquals(MEMBER, snapshot.at("/assignments/0/userId").asLong());
+        assertTrue(snapshot.at("/permissions/VIEW_BOARD/allowed").asBoolean());
+        assertTrue(snapshot.at("/permissions/CREATE_TASK/allowed").asBoolean());
+        assertFalse(snapshot.at("/permissions/DELETE_BOARD/allowed").asBoolean());
+
+        // A board the caller cannot view has no snapshot.
+        w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "VIEW_BOARD", "DENY").expect(201);
+        assertEquals(403, call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).status());
+    }
+
     // ── Audit log ───────────────────────────────────────────────────────────────
 
     @Test
@@ -604,6 +669,29 @@ class EndToEndApiIntegrationTest {
             return call("POST", path("/permissions"), userId, Map.of(
                     "scopeType", scopeType, "scopeId", scopeId, "subjectType", subjectType, "subjectId", subjectId,
                     "kanbanPermissionId", catalog.get(key), "state", state, "priority", 100));
+        }
+
+        Response moveTask(long userId, long boardId, long taskId, long columnId, int index) throws Exception {
+            return call("POST", boardPath(boardId, "/tasks/" + taskId + "/move"), userId,
+                    Map.of("columnId", columnId, "index", index));
+        }
+
+        JsonNode snapshot(long userId, long boardId) throws Exception {
+            return call("GET", boardPath(boardId, "/snapshot"), userId, null).expect(200).json();
+        }
+
+        /** Task ids per column, in position order; empty columns are left out. */
+        Map<Long, List<Long>> tasksByColumn(long boardId) throws Exception {
+            Map<Long, List<JsonNode>> grouped = new HashMap<>();
+            for (JsonNode task : snapshot(OWNER, boardId).get("tasks")) {
+                grouped.computeIfAbsent(task.get("columnId").asLong(), ignored -> new ArrayList<>()).add(task);
+            }
+            Map<Long, List<Long>> ids = new HashMap<>();
+            grouped.forEach((column, tasks) -> ids.put(column, tasks.stream()
+                    .sorted(java.util.Comparator.comparing(t -> t.get("position").decimalValue()))
+                    .map(t -> t.get("taskId").asLong())
+                    .toList()));
+            return ids;
         }
 
         void renameBoard(long boardId, String name) throws Exception {

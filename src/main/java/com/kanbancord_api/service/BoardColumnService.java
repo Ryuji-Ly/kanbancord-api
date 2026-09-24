@@ -51,6 +51,10 @@ public class BoardColumnService {
         return boardColumnRepository.saveAndFlush(column);
     }
 
+    public List<BoardColumn> updateAll(List<BoardColumn> columns) {
+        return boardColumnRepository.saveAllAndFlush(columns);
+    }
+
     public void deleteById(Long id) {
         boardColumnRepository.deleteById(id);
     }
