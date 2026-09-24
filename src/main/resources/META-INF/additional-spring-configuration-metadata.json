@@ -36,6 +36,41 @@
       "description": "How long a decision on whether a user may receive a server's or board's realtime events is reused, in seconds."
     },
     {
+      "name": "kanbancord.rate-limit.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether API requests are rate limited."
+    },
+    {
+      "name": "kanbancord.rate-limit.auth.capacity",
+      "type": "java.lang.Integer",
+      "description": "Burst size for sign-in requests per client IP."
+    },
+    {
+      "name": "kanbancord.rate-limit.auth.per-minute",
+      "type": "java.lang.Integer",
+      "description": "Sustained rate for sign-in requests per client IP, per minute."
+    },
+    {
+      "name": "kanbancord.rate-limit.read.capacity",
+      "type": "java.lang.Integer",
+      "description": "Burst size for reads per signed-in user."
+    },
+    {
+      "name": "kanbancord.rate-limit.read.per-minute",
+      "type": "java.lang.Integer",
+      "description": "Sustained rate for reads per signed-in user, per minute."
+    },
+    {
+      "name": "kanbancord.rate-limit.write.capacity",
+      "type": "java.lang.Integer",
+      "description": "Burst size for writes per signed-in user."
+    },
+    {
+      "name": "kanbancord.rate-limit.write.per-minute",
+      "type": "java.lang.Integer",
+      "description": "Sustained rate for writes per signed-in user, per minute."
+    },
+    {
       "name": "kanbancord.discord.api-base-url",
       "type": "java.lang.String",
       "description": "Discord API base URL used for identity lookup via /users/@me."

@@ -1,6 +1,8 @@
 package com.kanbancord_api.config;
 
 import com.kanbancord_api.security.JwtAuthenticationFilter;
+import com.kanbancord_api.security.RateLimitFilter;
+import com.kanbancord_api.security.TokenBucketRateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -21,7 +23,8 @@ public class SecurityConfig {
         @Bean
         public SecurityFilterChain securityFilterChain(
                 HttpSecurity http,
-                JwtAuthenticationFilter jwtAuthenticationFilter)
+                JwtAuthenticationFilter jwtAuthenticationFilter,
+                RateLimitProperties rateLimitProperties)
                 throws Exception {
 
                 http
@@ -43,6 +46,10 @@ public class SecurityConfig {
                     .formLogin(formLogin -> formLogin.disable())
                     .addFilterBefore(
                             jwtAuthenticationFilter,
+                            UsernamePasswordAuthenticationFilter.class)
+                    // After the JWT filter, so signed-in callers are limited per user.
+                    .addFilterAfter(
+                            new RateLimitFilter(rateLimitProperties, new TokenBucketRateLimiter()),
                             UsernamePasswordAuthenticationFilter.class);
 
                 return http.build();
