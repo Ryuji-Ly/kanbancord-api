@@ -312,6 +312,55 @@ class EndToEndApiIntegrationTest {
                 .expect(200).json().size());
     }
 
+    // ── Audit log ───────────────────────────────────────────────────────────────
+
+    @Test
+    void everyChange_isRecordedInTheAuditLog_andSurvivesBoardDeletion() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Audited");
+        long todo = w.column(board, "Todo");
+        long task = w.createTask(MOD, board, todo, "Draft");
+        w.updateTask(MOD, board, task, "Final", todo).expect(200);
+        call("DELETE", w.boardPath(board, "/tasks/" + task), MOD, null).expect(204);
+        // A rejected change leaves no trace.
+        assertEquals(403, w.createRule(MEMBER, "SERVER", w.serverId, "USER", MEMBER, "VIEW_AUDIT_LOG", "ALLOW")
+                .status());
+
+        List<JsonNode> log = auditLog(w);
+        assertEquals(List.of("BOARD_CREATED", "TASK_CREATED", "TASK_UPDATED", "TASK_DELETED"),
+                log.stream().map(e -> e.get("action").asText()).toList());
+
+        JsonNode created = log.get(1);
+        assertEquals(MOD, created.get("userId").asLong());
+        assertEquals(board, created.get("boardId").asLong());
+        assertEquals(task, created.get("entityId").asLong());
+        assertEquals("Draft", created.at("/changes/created/title").asText());
+
+        JsonNode updated = log.get(2);
+        assertEquals("Draft", updated.at("/changes/title/from").asText());
+        assertEquals("Final", updated.at("/changes/title/to").asText());
+        assertFalse(updated.get("changes").has("updatedAt"), "only fields the user changed are recorded");
+
+        assertEquals("Final", log.get(3).at("/changes/deleted/title").asText());
+
+        // Deleting the board keeps its history (detached from the board) and records the deletion.
+        call("DELETE", w.boardPath(board, ""), OWNER, null).expect(204);
+        List<JsonNode> afterDelete = auditLog(w);
+        assertEquals(5, afterDelete.size());
+        JsonNode deleted = afterDelete.get(4);
+        assertEquals("BOARD_DELETED", deleted.get("action").asText());
+        assertEquals(board, deleted.at("/changes/deleted/boardId").asLong());
+        assertTrue(afterDelete.stream().allMatch(e -> e.get("boardId").isNull()), afterDelete.toString());
+    }
+
+    /** The server's audit log, oldest first. */
+    private List<JsonNode> auditLog(World w) throws Exception {
+        List<JsonNode> entries = new ArrayList<>();
+        call("GET", w.path("/audit-logs"), OWNER, null).expect(200).json().forEach(entries::add);
+        entries.sort(java.util.Comparator.comparing(e -> e.get("logId").asLong()));
+        return entries;
+    }
+
     // ── Discord sync ─────────────────────────────────────────────────────────
 
     @Test
