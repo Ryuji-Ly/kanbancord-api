@@ -335,10 +335,24 @@ class EndToEndApiIntegrationTest {
         assertEquals(doing, moved.get("columnId").asLong());
         assertEquals(Map.of(todo, List.of(c, b), doing, List.of(a)), w.tasksByColumn(board));
 
+        // Renaming (resending the current position) is not a move; changing the position is.
+        w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "EDIT_COLUMN", "ALLOW").expect(201);
+        JsonNode todoColumn = call("GET", w.boardPath(board, "/columns/" + todo), OWNER, null).expect(200).json();
+        call("PUT", w.boardPath(board, "/columns/" + todo), MEMBER, Map.of("boardId", board, "name", "To do",
+                "position", todoColumn.get("position").decimalValue())).expect(200);
+        assertEquals(403, call("PUT", w.boardPath(board, "/columns/" + todo), MEMBER,
+                Map.of("boardId", board, "name", "To do", "position", 9)).status());
+
+        // A column created without a position goes to the end.
+        long review = call("POST", w.boardPath(board, "/columns"), OWNER, Map.of("boardId", board, "name", "Review"))
+                .expect(201).json().get("columnId").asLong();
+        assertEquals(List.of("To do", "Doing", "Review"), w.snapshot(OWNER, board).get("columns").findValuesAsText("name"));
+        call("DELETE", w.boardPath(board, "/columns/" + review), OWNER, null).expect(204);
+
         JsonNode column = call("POST", w.boardPath(board, "/columns/" + doing + "/move"), MOD, Map.of("index", 0))
                 .expect(200).json();
         assertEquals(1, column.get("position").asInt());
-        assertEquals(List.of("Doing", "Todo"), w.snapshot(MOD, board).get("columns").findValuesAsText("name"));
+        assertEquals(List.of("Doing", "To do"), w.snapshot(MOD, board).get("columns").findValuesAsText("name"));
 
         // Members without MOVE_TASK cannot move; moving to another board's column is refused.
         w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "MOVE_TASK", "DENY").expect(201);

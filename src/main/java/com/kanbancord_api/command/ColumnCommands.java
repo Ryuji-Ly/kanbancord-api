@@ -14,8 +14,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /** Creating, changing and deleting board columns, each in one transaction with its {@link DomainEvent}. */
 @Service
@@ -47,7 +50,7 @@ public class ColumnCommands {
         BoardColumn column = new BoardColumn();
         column.setBoard(board);
         column.setName(request.getName());
-        column.setPosition(request.getPosition());
+        column.setPosition(request.getPosition() != null ? request.getPosition() : endOf(boardId));
         column.setColor(request.getColor());
         column.setWipLimit(request.getWipLimit());
 
@@ -60,14 +63,17 @@ public class ColumnCommands {
     public BoardColumnResponse update(Long serverId, Long boardId, Long columnId, Long actorUserId,
             BoardColumnRequest request) {
         accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_COLUMN");
-        if (request.getPosition() != null) {
-            accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_COLUMN");
-        }
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateBoardNotArchived(board);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
+        // Only an actual change of position is a move; clients resending the current one need not MOVE_COLUMN.
+        boolean moved = request.getPosition() != null
+                && (column.getPosition() == null || request.getPosition().compareTo(column.getPosition()) != 0);
+        if (moved) {
+            accessValidator.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_COLUMN");
+        }
 
         BoardColumnResponse before = BoardColumnResponse.from(column);
         column.setName(request.getName());
@@ -111,6 +117,16 @@ public class ColumnCommands {
                     actorUserId, before, after));
         }
         return after;
+    }
+
+    /** The position after the board's last column, so columns created without one go to the end. */
+    private BigDecimal endOf(Long boardId) {
+        return boardColumnService.findByBoardIdOrdered(boardId).stream()
+                .map(BoardColumn::getPosition)
+                .filter(Objects::nonNull)
+                .max(BigDecimal::compareTo)
+                .map(last -> last.setScale(0, RoundingMode.FLOOR).add(BigDecimal.ONE))
+                .orElse(BigDecimal.ONE);
     }
 
     public void delete(Long serverId, Long boardId, Long columnId, Long actorUserId) {
