@@ -40,6 +40,11 @@ public enum EventType {
     TASK_LABEL_ADDED(EntityType.TASK_LABEL, false),
     TASK_LABEL_REMOVED(EntityType.TASK_LABEL, false),
 
+    PRIORITY_CREATED(EntityType.PRIORITY, false),
+    PRIORITY_UPDATED(EntityType.PRIORITY, false),
+    PRIORITY_MOVED(EntityType.PRIORITY, false),
+    PRIORITY_DELETED(EntityType.PRIORITY, false),
+
     PERMISSION_CREATED(EntityType.PERMISSION, true),
     PERMISSION_UPDATED(EntityType.PERMISSION, true),
     PERMISSION_DELETED(EntityType.PERMISSION, true),
@@ -51,7 +56,7 @@ public enum EventType {
     MEMBER_REMOVED(EntityType.MEMBER, true);
 
     public enum EntityType {
-        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, LABEL, TASK_LABEL, PERMISSION,
+        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, LABEL, TASK_LABEL, PRIORITY, PERMISSION,
         SERVER, ROLE, MEMBER
     }
 
