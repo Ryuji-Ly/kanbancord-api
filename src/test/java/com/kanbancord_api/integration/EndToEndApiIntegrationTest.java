@@ -677,7 +677,7 @@ class EndToEndApiIntegrationTest {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Audited");
         long todo = w.column(board, "Todo");
-        w.createTask(MOD, board, todo, "One");
+        long one = w.createTask(MOD, board, todo, "One");
         w.createTask(MEMBER, board, todo, "Two");
         w.createTask(MOD, board, todo, "Three");
 
@@ -701,6 +701,14 @@ class EndToEndApiIntegrationTest {
                 .expect(200).json();
         assertEquals(4, boardsAndTasks.get("entries").size(), "the board and its three tasks");
         assertEquals(400, call("GET", w.path("/audit-logs?limit=500"), OWNER, null).status());
+
+        // An edit that leaves the title alone still names the task.
+        call("PUT", w.boardPath(board, "/tasks/" + one), MOD,
+                Map.of("title", "One", "description", "more detail", "boardId", board, "columnId", todo)).expect(200);
+        JsonNode edit = call("GET", w.path("/audit-logs?limit=1"), OWNER, null).expect(200).json().get("entries").get(0);
+        assertEquals("TASK_UPDATED", edit.get("action").asText());
+        assertEquals("One", edit.get("changes").get("_subject").asText());
+        assertTrue(edit.get("changes").has("description"));
     }
 
     private List<JsonNode> auditLog(World w) throws Exception {
