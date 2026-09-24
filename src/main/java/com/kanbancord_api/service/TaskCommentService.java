@@ -66,7 +66,7 @@ public class TaskCommentService {
     }
 
     public TaskComment update(TaskComment comment) {
-        return taskCommentRepository.save(comment);
+        return taskCommentRepository.saveAndFlush(comment);
     }
 
     public void deleteById(Long id) {

@@ -127,7 +127,7 @@ public class BoardService {
     }
 
     public Board update(Board board) {
-        return boardRepository.save(board);
+        return boardRepository.saveAndFlush(board);
     }
 
     public void deleteById(Long id) {

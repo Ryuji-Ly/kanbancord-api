@@ -1,5 +1,12 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.TaskComment;
+import com.kanbancord_api.model.TaskCommentEdit;
+import com.kanbancord_api.model.User;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -112,5 +119,35 @@ public class TaskCommentResponse {
 
     public void setEditedByUsers(List<TaskCommentEditorResponse> editedByUsers) {
         this.editedByUsers = editedByUsers;
+    }
+
+    public static TaskCommentResponse from(TaskComment comment) {
+        TaskCommentResponse response = new TaskCommentResponse();
+        response.setCommentId(comment.getCommentId());
+        response.setTaskId(comment.getTask().getTaskId());
+        response.setUserId(comment.getUser().getUserId());
+        response.setAuthorUsername(comment.getUser().getUsername());
+        response.setAuthorGlobalName(comment.getUser().getGlobalName());
+        response.setAuthorAvatarUrl(comment.getUser().getAvatarUrl());
+        response.setContent(comment.getContent());
+        if (comment.getReplyTo() != null) {
+            response.setReplyToId(comment.getReplyTo().getCommentId());
+        }
+        response.setCreatedAt(comment.getCreatedAt());
+        response.setUpdatedAt(comment.getUpdatedAt());
+        response.setDeletedAt(comment.getDeletedAt());
+
+        // Each editor once, in the order of their first edit.
+        List<TaskCommentEditorResponse> editors = comment.getEdits().stream()
+                .sorted(Comparator.comparing(TaskCommentEdit::getEditedAt))
+                .map(TaskCommentEdit::getEditor)
+                .collect(Collectors.toMap(User::getUserId, Function.identity(), (left, right) -> left,
+                        LinkedHashMap::new))
+                .values()
+                .stream()
+                .map(TaskCommentEditorResponse::from)
+                .collect(Collectors.toList());
+        response.setEditedByUsers(editors);
+        return response;
     }
 }

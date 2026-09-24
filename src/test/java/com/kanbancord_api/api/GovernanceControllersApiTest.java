@@ -16,7 +16,7 @@ import com.kanbancord_api.model.User;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.AuditLogService;
 import com.kanbancord_api.service.KanbanPermissionService;
-import com.kanbancord_api.realtime.RealtimeEventPublisher;
+import com.kanbancord_api.command.PermissionRuleCommands;
 import com.kanbancord_api.service.PermissionEscalationGuardService;
 import com.kanbancord_api.service.PermissionEvaluationService;
 import com.kanbancord_api.service.PermissionService;
@@ -56,7 +56,7 @@ import static com.kanbancord_api.api.ApiTestAuth.asUser;
         PermissionController.class
 })
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({ GlobalExceptionHandler.class, PermissionRuleCommands.class })
 class GovernanceControllersApiTest {
 
     @Autowired
@@ -82,9 +82,7 @@ class GovernanceControllersApiTest {
     private PermissionEvaluationService permissionEvaluationService;
         @MockitoBean
     private PermissionEscalationGuardService permissionEscalationGuardService;
-        @MockitoBean
-    private RealtimeEventPublisher realtimeEventPublisher;
-
+    
     @Test
     void auditLogEndpoints_areReadOnlyAndRequireViewAuditLog() throws Exception {
         AuditLog log = auditLog(900L);

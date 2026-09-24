@@ -70,7 +70,11 @@ public class TaskService {
     }
 
     public Task update(Task task) {
-        return taskRepository.save(task);
+        return taskRepository.saveAndFlush(task);
+    }
+
+    public List<Task> updateAll(List<Task> tasks) {
+        return taskRepository.saveAllAndFlush(tasks);
     }
 
     public void deleteById(Long id) {

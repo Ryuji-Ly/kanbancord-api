@@ -1,5 +1,6 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.Permission;
 import java.time.LocalDateTime;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -116,5 +117,26 @@ public class PermissionResponse {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public static PermissionResponse from(Permission permission) {
+        PermissionResponse response = new PermissionResponse();
+        response.setId(permission.getId());
+        response.setScopeType(permission.getScopeType());
+        response.setScopeId(permission.getScopeId());
+        response.setSubjectType(permission.getSubjectType());
+        response.setSubjectId(permission.getSubjectId());
+
+        if (permission.getKanbanPermission() != null) {
+            response.setKanbanPermissionId(permission.getKanbanPermission().getPermissionId());
+            response.setKanbanPermissionKey(permission.getKanbanPermission().getKey());
+        }
+
+        response.setState(permission.getState());
+        response.setPriority(permission.getPriority());
+        response.setIsImmutable(permission.getIsImmutable());
+        response.setCreatedAt(permission.getCreatedAt());
+        response.setUpdatedAt(permission.getUpdatedAt());
+        return response;
     }
 }
