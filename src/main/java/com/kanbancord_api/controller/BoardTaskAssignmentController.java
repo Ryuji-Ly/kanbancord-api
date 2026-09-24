@@ -1,7 +1,6 @@
 package com.kanbancord_api.controller;
 
 import com.kanbancord_api.dto.TaskAssignmentResponse;
-import com.kanbancord_api.model.TaskAssignment;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskAssignmentService;
@@ -44,19 +43,9 @@ public class BoardTaskAssignmentController {
         resourceValidator.requireBoardInServer(boardId, serverId);
 
         List<TaskAssignmentResponse> responses = taskAssignmentService.findByBoardId(boardId).stream()
-                .map(this::mapToResponse)
+                .map(TaskAssignmentResponse::from)
                 .toList();
 
         return ResponseEntity.ok(responses);
-    }
-
-    private TaskAssignmentResponse mapToResponse(TaskAssignment assignment) {
-        TaskAssignmentResponse response = new TaskAssignmentResponse();
-        response.setId(assignment.getId());
-        response.setTaskId(assignment.getTask().getTaskId());
-        response.setUserId(assignment.getUser().getUserId());
-        response.setAssignedBy(assignment.getAssignedBy().getUserId());
-        response.setAssignedAt(assignment.getAssignedAt());
-        return response;
     }
 }

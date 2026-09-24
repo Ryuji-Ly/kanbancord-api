@@ -61,10 +61,6 @@ public class User {
     @JsonIgnore
     private Set<TaskComment> taskComments = new HashSet<>();
 
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
-    @JsonIgnore
-    private Set<AuditLog> auditLogs = new HashSet<>();
-
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private Set<Notification> notifications = new HashSet<>();
@@ -187,14 +183,6 @@ public class User {
 
     public void setTaskComments(Set<TaskComment> taskComments) {
         this.taskComments = taskComments;
-    }
-
-    public Set<AuditLog> getAuditLogs() {
-        return auditLogs;
-    }
-
-    public void setAuditLogs(Set<AuditLog> auditLogs) {
-        this.auditLogs = auditLogs;
     }
 
     public Set<Notification> getNotifications() {

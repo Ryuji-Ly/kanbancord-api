@@ -51,10 +51,6 @@ public class Board {
     @JsonIgnore
     private Set<Label> labels = new HashSet<>();
 
-    @OneToMany(mappedBy = "board", cascade = CascadeType.ALL)
-    @JsonIgnore
-    private Set<AuditLog> auditLogs = new HashSet<>();
-
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -162,11 +158,4 @@ public class Board {
         this.labels = labels;
     }
 
-    public Set<AuditLog> getAuditLogs() {
-        return auditLogs;
-    }
-
-    public void setAuditLogs(Set<AuditLog> auditLogs) {
-        this.auditLogs = auditLogs;
-    }
 }

@@ -1,5 +1,6 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.BoardColumn;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -76,5 +77,18 @@ public class BoardColumnResponse {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public static BoardColumnResponse from(BoardColumn column) {
+        BoardColumnResponse response = new BoardColumnResponse();
+        response.setColumnId(column.getColumnId());
+        response.setBoardId(column.getBoard().getBoardId());
+        response.setName(column.getName());
+        response.setPosition(column.getPosition());
+        response.setColor(column.getColor());
+        response.setWipLimit(column.getWipLimit());
+        response.setCreatedAt(column.getCreatedAt());
+        response.setUpdatedAt(column.getUpdatedAt());
+        return response;
     }
 }

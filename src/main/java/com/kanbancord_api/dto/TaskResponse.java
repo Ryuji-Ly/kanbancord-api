@@ -1,5 +1,6 @@
 package com.kanbancord_api.dto;
 
+import com.kanbancord_api.model.Task;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -131,5 +132,26 @@ public class TaskResponse {
 
     public void setCompletedAt(LocalDateTime completedAt) {
         this.completedAt = completedAt;
+    }
+
+    public static TaskResponse from(Task task) {
+        TaskResponse response = new TaskResponse();
+        response.setTaskId(task.getTaskId());
+        response.setBoardId(task.getBoard().getBoardId());
+        response.setColumnId(task.getColumn().getColumnId());
+        response.setTitle(task.getTitle());
+        response.setDescription(task.getDescription());
+        response.setPosition(task.getPosition());
+        response.setPriority(task.getPriority());
+        response.setDueDate(task.getDueDate());
+        response.setIsArchived(task.getIsArchived());
+        response.setMetadata(task.getMetadata());
+        if (task.getCreatedBy() != null) {
+            response.setCreatedBy(task.getCreatedBy().getUserId());
+        }
+        response.setCreatedAt(task.getCreatedAt());
+        response.setUpdatedAt(task.getUpdatedAt());
+        response.setCompletedAt(task.getCompletedAt());
+        return response;
     }
 }

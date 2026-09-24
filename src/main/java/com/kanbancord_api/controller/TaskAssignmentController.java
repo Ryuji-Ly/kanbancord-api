@@ -1,16 +1,12 @@
 package com.kanbancord_api.controller;
 
+import com.kanbancord_api.command.TaskAssignmentCommands;
 import com.kanbancord_api.dto.TaskAssignmentRequest;
 import com.kanbancord_api.dto.TaskAssignmentResponse;
-import com.kanbancord_api.exception.ResourceNotFoundException;
-import com.kanbancord_api.model.Task;
 import com.kanbancord_api.model.TaskAssignment;
-import com.kanbancord_api.model.User;
-import com.kanbancord_api.realtime.RealtimeEventPublisher;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.ResourceValidator;
 import com.kanbancord_api.service.TaskAssignmentService;
-import com.kanbancord_api.service.UserService;
 import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -27,22 +23,19 @@ import java.util.stream.Collectors;
 public class TaskAssignmentController {
 
     private final TaskAssignmentService taskAssignmentService;
-    private final UserService userService;
     private final AccessValidator accessValidator;
     private final ResourceValidator resourceValidator;
-    private final RealtimeEventPublisher realtimeEventPublisher;
+    private final TaskAssignmentCommands taskAssignmentCommands;
 
     public TaskAssignmentController(
             TaskAssignmentService taskAssignmentService,
-            UserService userService,
             AccessValidator accessValidator,
             ResourceValidator resourceValidator,
-            RealtimeEventPublisher realtimeEventPublisher) {
+            TaskAssignmentCommands taskAssignmentCommands) {
         this.taskAssignmentService = taskAssignmentService;
-        this.userService = userService;
         this.accessValidator = accessValidator;
         this.resourceValidator = resourceValidator;
-        this.realtimeEventPublisher = realtimeEventPublisher;
+        this.taskAssignmentCommands = taskAssignmentCommands;
     }
 
     @PostMapping
@@ -52,43 +45,8 @@ public class TaskAssignmentController {
             @PathVariable Long taskId,
             @Valid @RequestBody TaskAssignmentRequest request,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, assignPermissionFor(userId, request.getUserId()));
-        resourceValidator.validatePermissionSubjectBelongsToServer("USER", request.getUserId(), serverId);
-
-        User user = userService.findById(request.getUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", request.getUserId()));
-
-        // The assigner is always the authenticated user; request.assignedBy is ignored.
-        User assignedBy = userService.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
-
-        TaskAssignment taskAssignment = new TaskAssignment();
-        taskAssignment.setTask(task);
-        taskAssignment.setUser(user);
-        taskAssignment.setAssignedBy(assignedBy);
-
-        TaskAssignment created = taskAssignmentService.create(taskAssignment);
-        TaskAssignmentResponse response = mapToResponse(created);
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_ASSIGNMENT_CREATED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_ASSIGNMENT",
-                        created.getId(),
-                        userId,
-                        response));
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(taskAssignmentCommands.assign(serverId, boardId, taskId, userId, request));
     }
 
     @GetMapping
@@ -106,7 +64,7 @@ public class TaskAssignmentController {
         List<TaskAssignment> assignments = taskAssignmentService.findByTaskId(taskId);
 
         List<TaskAssignmentResponse> responses = assignments.stream()
-                .map(this::mapToResponse)
+                .map(TaskAssignmentResponse::from)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
@@ -127,7 +85,7 @@ public class TaskAssignmentController {
 
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
 
-        return ResponseEntity.ok(mapToResponse(assignment));
+        return ResponseEntity.ok(TaskAssignmentResponse.from(assignment));
     }
 
     @DeleteMapping("/{assignmentId}")
@@ -137,45 +95,12 @@ public class TaskAssignmentController {
             @PathVariable Long taskId,
             @PathVariable Long assignmentId,
             @CurrentUser Long userId) {
-
-        accessValidator.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
-        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
-
-        TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
-
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, assignment.getTask().getTaskId());
-        accessValidator.requireBoardPermission(userId, serverId, boardId,
-                assignPermissionFor(userId, assignment.getUser().getUserId()));
-
-        TaskAssignmentResponse response = mapToResponse(assignment);
-        taskAssignmentService.deleteById(assignment.getId());
-        realtimeEventPublisher.publishToBoardTopic(
-                serverId,
-                boardId,
-                realtimeEventPublisher.newEvent(
-                        "TASK_ASSIGNMENT_DELETED",
-                        "BOARD",
-                        serverId,
-                        boardId,
-                        "TASK_ASSIGNMENT",
-                        assignmentId,
-                        userId,
-                        response));
+        taskAssignmentCommands.unassign(serverId, boardId, taskId, assignmentId, userId);
         return ResponseEntity.noContent().build();
     }
 
     /** Assigning or unassigning yourself needs ASSIGN_TASK_SELF; anyone else needs ASSIGN_TASK_OTHERS. */
     private static String assignPermissionFor(Long actorUserId, Long assigneeUserId) {
         return actorUserId.equals(assigneeUserId) ? "ASSIGN_TASK_SELF" : "ASSIGN_TASK_OTHERS";
-    }
-
-    private TaskAssignmentResponse mapToResponse(TaskAssignment assignment) {
-        TaskAssignmentResponse response = new TaskAssignmentResponse();
-        response.setId(assignment.getId());
-        response.setTaskId(assignment.getTask().getTaskId());
-        response.setUserId(assignment.getUser().getUserId());
-        response.setAssignedBy(assignment.getAssignedBy().getUserId());
-        response.setAssignedAt(assignment.getAssignedAt());
-        return response;
     }
 }
