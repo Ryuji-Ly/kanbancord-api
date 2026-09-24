@@ -71,7 +71,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI().substring(request.getContextPath().length());
         if (path.startsWith("/api/auth/")) {
-            // The client IP; behind the Cloudflare Tunnel, Tomcat resolves it from CF-Connecting-IP.
+            // The client IP; behind Cloudflare and nginx, Tomcat resolves it from CF-Connecting-IP.
             return limiter.tryAcquire("ip:" + request.getRemoteAddr() + ":auth", properties.getAuth());
         }
         return 0;
