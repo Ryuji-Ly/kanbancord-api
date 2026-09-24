@@ -31,6 +31,11 @@
       "description": "Lifetime of one-time websocket handshake tickets in seconds."
     },
     {
+      "name": "kanbancord.realtime.access-cache-ttl-seconds",
+      "type": "java.lang.Long",
+      "description": "How long a decision on whether a user may receive a server's or board's realtime events is reused, in seconds."
+    },
+    {
       "name": "kanbancord.discord.api-base-url",
       "type": "java.lang.String",
       "description": "Discord API base URL used for identity lookup via /users/@me."

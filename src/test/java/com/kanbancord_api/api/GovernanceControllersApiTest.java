@@ -153,7 +153,7 @@ class GovernanceControllersApiTest {
 
         when(kanbanPermissionService.findById(11)).thenReturn(Optional.of(kanbanPermission));
         when(permissionService.create(any(Permission.class))).thenReturn(permission);
-        when(permissionService.findAll()).thenReturn(List.of(permission));
+        when(permissionService.findAllInServer(1L)).thenReturn(List.of(permission));
         when(resourceValidator.requirePermissionInServer(33L, 1L)).thenReturn(permission);
         when(permissionService.update(any(Permission.class))).thenReturn(permission);
 
