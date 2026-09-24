@@ -11,6 +11,7 @@ import com.kanbancord_api.model.Role;
 import com.kanbancord_api.model.Server;
 import com.kanbancord_api.model.ServerMember;
 import com.kanbancord_api.model.User;
+import com.kanbancord_api.realtime.RealtimeAccessCache;
 import com.kanbancord_api.service.AccessValidator;
 import com.kanbancord_api.service.PermissionBootstrapService;
 import com.kanbancord_api.service.RoleService;
@@ -64,6 +65,8 @@ class InternalSyncControllerApiTest {
     private PermissionBootstrapService permissionBootstrapService;
     @MockitoBean
     private MemberRoleService memberRoleService;
+    @MockitoBean
+    private RealtimeAccessCache realtimeAccessCache;
 
     @Test
     void upsertServer_returnsNoContent_onHappyPath() throws Exception {
