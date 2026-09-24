@@ -1,7 +1,5 @@
 package com.kanbancord_api.realtime;
 
-import com.kanbancord_api.dto.RealtimeSessionResponse;
-import com.kanbancord_api.dto.RealtimeSubscriptionResponse;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.annotation.SendToUser;

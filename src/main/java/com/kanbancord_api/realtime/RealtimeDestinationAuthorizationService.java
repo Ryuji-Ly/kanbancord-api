@@ -1,7 +1,7 @@
 package com.kanbancord_api.realtime;
 
+import com.kanbancord_api.access.ServerAccessValidator;
 import com.kanbancord_api.exception.AccessDeniedException;
-import com.kanbancord_api.service.ServerAccessValidator;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;

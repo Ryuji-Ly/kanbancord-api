@@ -2,12 +2,11 @@ package com.kanbancord_api.audit;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kanbancord_api.board.Board;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
-import com.kanbancord_api.model.AuditLog;
-import com.kanbancord_api.model.Board;
-import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.User;
+import com.kanbancord_api.server.Server;
+import com.kanbancord_api.user.User;
 import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;

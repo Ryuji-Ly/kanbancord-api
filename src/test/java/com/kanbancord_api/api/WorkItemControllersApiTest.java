@@ -1,51 +1,52 @@
 package com.kanbancord_api.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kanbancord_api.controller.BoardColumnController;
-import com.kanbancord_api.controller.BoardController;
-import com.kanbancord_api.controller.LabelController;
-import com.kanbancord_api.controller.TaskAssignmentController;
-import com.kanbancord_api.controller.TaskCommentController;
-import com.kanbancord_api.controller.TaskController;
-import com.kanbancord_api.controller.TaskLabelController;
-import com.kanbancord_api.dto.BoardColumnRequest;
-import com.kanbancord_api.dto.BoardRequest;
-import com.kanbancord_api.dto.LabelRequest;
-import com.kanbancord_api.dto.TaskAssignmentRequest;
-import com.kanbancord_api.dto.TaskCommentRequest;
-import com.kanbancord_api.dto.TaskLabelRequest;
-import com.kanbancord_api.dto.TaskRequest;
+import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.access.ResourceValidator;
+import com.kanbancord_api.board.Board;
+import com.kanbancord_api.board.BoardColumn;
+import com.kanbancord_api.board.BoardColumnController;
+import com.kanbancord_api.board.BoardColumnRequest;
+import com.kanbancord_api.board.BoardColumnService;
+import com.kanbancord_api.board.BoardCommands;
+import com.kanbancord_api.board.BoardController;
+import com.kanbancord_api.board.BoardRequest;
+import com.kanbancord_api.board.BoardService;
+import com.kanbancord_api.board.BoardSnapshotQuery;
+import com.kanbancord_api.board.ColumnCommands;
+import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.exception.GlobalExceptionHandler;
 import com.kanbancord_api.exception.ResourceNotFoundException;
-import com.kanbancord_api.model.Board;
-import com.kanbancord_api.model.BoardColumn;
-import com.kanbancord_api.model.Label;
-import com.kanbancord_api.model.Server;
-import com.kanbancord_api.model.Task;
-import com.kanbancord_api.model.TaskAssignment;
-import com.kanbancord_api.model.TaskComment;
-import com.kanbancord_api.model.TaskLabel;
-import com.kanbancord_api.model.User;
-import com.kanbancord_api.service.AccessValidator;
-import com.kanbancord_api.service.BoardColumnService;
-import com.kanbancord_api.service.BoardService;
-import com.kanbancord_api.service.LabelService;
-import com.kanbancord_api.service.ResourceValidator;
-import com.kanbancord_api.service.ServerService;
-import com.kanbancord_api.service.TaskAssignmentService;
-import com.kanbancord_api.service.TaskCommentService;
-import com.kanbancord_api.service.TaskLabelService;
-import com.kanbancord_api.command.BoardCommands;
-import com.kanbancord_api.command.ColumnCommands;
-import com.kanbancord_api.command.TaskAssignmentCommands;
-import com.kanbancord_api.command.TaskCommands;
-import com.kanbancord_api.command.TaskCommentCommands;
-import com.kanbancord_api.event.DomainEvent;
-import com.kanbancord_api.query.BoardSnapshotQuery;
-import com.kanbancord_api.repository.TaskCommentEditRepository;
-import com.kanbancord_api.service.PermissionEvaluationService;
-import com.kanbancord_api.service.TaskService;
-import com.kanbancord_api.service.UserService;
+import com.kanbancord_api.label.Label;
+import com.kanbancord_api.label.LabelController;
+import com.kanbancord_api.label.LabelRequest;
+import com.kanbancord_api.label.LabelService;
+import com.kanbancord_api.label.TaskLabel;
+import com.kanbancord_api.label.TaskLabelController;
+import com.kanbancord_api.label.TaskLabelRequest;
+import com.kanbancord_api.label.TaskLabelService;
+import com.kanbancord_api.permission.PermissionEvaluationService;
+import com.kanbancord_api.server.Server;
+import com.kanbancord_api.server.ServerService;
+import com.kanbancord_api.task.Task;
+import com.kanbancord_api.task.TaskAssignment;
+import com.kanbancord_api.task.TaskAssignmentCommands;
+import com.kanbancord_api.task.TaskAssignmentController;
+import com.kanbancord_api.task.TaskAssignmentRequest;
+import com.kanbancord_api.task.TaskAssignmentService;
+import com.kanbancord_api.task.TaskCommands;
+import com.kanbancord_api.task.TaskComment;
+import com.kanbancord_api.task.TaskCommentCommands;
+import com.kanbancord_api.task.TaskCommentController;
+import com.kanbancord_api.task.TaskCommentEditRepository;
+import com.kanbancord_api.task.TaskCommentRequest;
+import com.kanbancord_api.task.TaskCommentService;
+import com.kanbancord_api.task.TaskController;
+import com.kanbancord_api.task.TaskRequest;
+import com.kanbancord_api.task.TaskService;
+import com.kanbancord_api.user.User;
+import com.kanbancord_api.user.UserService;
+import static com.kanbancord_api.api.ApiTestAuth.asUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -79,7 +80,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static com.kanbancord_api.api.ApiTestAuth.asUser;
 
 @WebMvcTest(controllers = {
         BoardController.class,
@@ -131,7 +131,7 @@ class WorkItemControllersApiTest {
         @MockitoBean
     private UserService userService;
         @MockitoBean
-    private AccessValidator accessValidator;
+    private Authorizer authorizer;
         @MockitoBean
     private ResourceValidator resourceValidator;
         @MockitoBean
@@ -450,7 +450,7 @@ class WorkItemControllersApiTest {
     void unauthenticatedRequest_isRejectedWith401() throws Exception {
         mockMvc.perform(get("/api/servers/1/boards/100"))
                 .andExpect(status().isUnauthorized());
-        verifyNoInteractions(accessValidator);
+        verifyNoInteractions(authorizer);
     }
 
     @Test
@@ -474,7 +474,7 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdBy").value("10"));
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK");
         verify(userService, never()).findById(99L);
     }
 
@@ -489,8 +489,8 @@ class WorkItemControllersApiTest {
                 .content(objectMapper.writeValueAsString(taskUpdate("Task", 201L))))
                 .andExpect(status().isOk());
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
-        verify(accessValidator, never()).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
+        verify(authorizer, never()).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
     }
 
     @Test
@@ -504,8 +504,8 @@ class WorkItemControllersApiTest {
                 .content(objectMapper.writeValueAsString(taskUpdate("Renamed", 200L))))
                 .andExpect(status().isOk());
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
-        verify(accessValidator, never()).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK");
+        verify(authorizer, never()).requireBoardPermission(10L, 1L, 100L, "MOVE_TASK");
     }
 
     @Test
@@ -519,7 +519,7 @@ class WorkItemControllersApiTest {
                 .content(objectMapper.writeValueAsString(taskUpdate("Task", 200L))))
                 .andExpect(status().isOk());
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "VIEW_TASK");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "VIEW_TASK");
         verify(taskService, never()).update(any(Task.class));
         assertEquals(0, applicationEvents.stream(DomainEvent.class).count());
     }
@@ -540,7 +540,7 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.assignedBy").value("10"));
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_SELF");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_SELF");
         verify(userService, never()).findById(77L);
     }
 
@@ -558,7 +558,7 @@ class WorkItemControllersApiTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
 
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_OTHERS");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "ASSIGN_TASK_OTHERS");
         verify(resourceValidator).validatePermissionSubjectBelongsToServer("USER", 11L, 1L);
     }
 
@@ -580,17 +580,17 @@ class WorkItemControllersApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK_COMMENT");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK_COMMENT");
 
         mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK_COMMENT");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK_COMMENT");
 
         mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L)))
                 .andExpect(status().isNoContent());
-        verify(accessValidator).requireBoardPermission(10L, 1L, 100L, "DELETE_TASK_COMMENT");
+        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "DELETE_TASK_COMMENT");
     }
 
     private void stubTaskUpdate(Board board, Task task) {
