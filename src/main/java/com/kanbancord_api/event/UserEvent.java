@@ -14,6 +14,8 @@ public record UserEvent(Type type, Long userId, Object payload) {
         /** A notification was created, read or deleted. */
         NOTIFICATIONS_CHANGED,
         /** A session started or was signed out. */
-        SESSIONS_CHANGED
+        SESSIONS_CHANGED,
+        /** What the user wants by direct message from the bot changed. */
+        NOTIFICATION_SETTINGS_CHANGED
     }
 }

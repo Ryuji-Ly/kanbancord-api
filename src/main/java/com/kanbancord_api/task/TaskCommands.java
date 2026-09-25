@@ -1,5 +1,7 @@
 package com.kanbancord_api.task;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.board.Board;
@@ -22,6 +24,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -40,6 +43,8 @@ public class TaskCommands {
     private final ApplicationEventPublisher events;
     private final BoardPriorityService boardPriorityService;
     private final ServerFeatureService features;
+    private final TaskAssignmentRepository taskAssignmentRepository;
+    private final ObjectMapper objectMapper;
 
     public TaskCommands(
             TaskService taskService,
@@ -49,7 +54,9 @@ public class TaskCommands {
             ResourceValidator resourceValidator,
             ApplicationEventPublisher events,
             BoardPriorityService boardPriorityService,
-            ServerFeatureService features) {
+            ServerFeatureService features,
+            TaskAssignmentRepository taskAssignmentRepository,
+            ObjectMapper objectMapper) {
         this.taskService = taskService;
         this.boardColumnService = boardColumnService;
         this.userService = userService;
@@ -58,6 +65,8 @@ public class TaskCommands {
         this.events = events;
         this.boardPriorityService = boardPriorityService;
         this.features = features;
+        this.taskAssignmentRepository = taskAssignmentRepository;
+        this.objectMapper = objectMapper;
     }
 
     public TaskResponse create(Long serverId, Long boardId, Long actorUserId, TaskRequest request) {
@@ -204,7 +213,13 @@ public class TaskCommands {
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
-        TaskResponse before = TaskResponse.from(task);
+        // The task's assignments go with it; they are kept in its audit entry, so the people who were
+        // assigned can still be told it was deleted.
+        Map<String, Object> before = objectMapper.convertValue(TaskResponse.from(task), new TypeReference<>() {
+        });
+        before.put("_assigneeIds", taskAssignmentRepository.findByTask_TaskId(task.getTaskId()).stream()
+                .map(assignment -> String.valueOf(assignment.getUser().getUserId()))
+                .toList());
         taskService.deleteById(task.getTaskId());
         events.publishEvent(DomainEvent.deleted(EventType.TASK_DELETED, serverId, boardId, taskId, actorUserId,
                 before));
