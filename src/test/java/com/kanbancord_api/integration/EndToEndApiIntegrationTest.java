@@ -1095,6 +1095,12 @@ class EndToEndApiIntegrationTest {
         assertTrue(plan.get("task").get("deleted").asBoolean());
         assertEquals("ALWAYS", directMessage(plan, MEMBER).get("mode").asText());
 
+        // Changes the bot could not deliver for over an hour are dropped, not posted late all at once.
+        w.createTask(MOD, board, todo, "Stale");
+        jdbcTemplate.update("UPDATE notification_queue SET created_at = created_at - INTERVAL '2 hours' "
+                + "WHERE server_id = ? AND delivered_at IS NULL", w.serverId);
+        assertEquals(List.of(), drainPlans(w.serverId));
+
         // Feeds can be changed and removed; the changes are in the audit log.
         call("PUT", feeds + "/" + boardFeed, OWNER, Map.of("events", Map.of("TASK_CREATED", false))).expect(200);
         call("DELETE", feeds + "/" + boardFeed, OWNER, null).expect(204);
