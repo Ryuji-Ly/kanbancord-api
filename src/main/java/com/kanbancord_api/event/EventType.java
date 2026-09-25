@@ -49,6 +49,8 @@ public enum EventType {
     PERMISSION_UPDATED(EntityType.PERMISSION, true),
     PERMISSION_DELETED(EntityType.PERMISSION, true),
 
+    SERVER_FEATURES_UPDATED(EntityType.SETTINGS, true),
+
     SERVER_SYNCED(EntityType.SERVER, true),
     ROLE_SYNCED(EntityType.ROLE, true),
     ROLE_REMOVED(EntityType.ROLE, true),
@@ -56,7 +58,7 @@ public enum EventType {
     MEMBER_REMOVED(EntityType.MEMBER, true);
 
     public enum EntityType {
-        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, LABEL, TASK_LABEL, PRIORITY, PERMISSION,
+        BOARD, BOARD_COLUMN, TASK, TASK_ASSIGNMENT, TASK_COMMENT, LABEL, TASK_LABEL, PRIORITY, PERMISSION, SETTINGS,
         SERVER, ROLE, MEMBER
     }
 

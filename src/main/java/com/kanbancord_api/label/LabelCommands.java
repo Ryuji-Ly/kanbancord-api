@@ -5,6 +5,8 @@ import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.board.Board;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,19 +20,23 @@ public class LabelCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final ServerFeatureService features;
 
     public LabelCommands(
             LabelService labelService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerFeatureService features) {
         this.labelService = labelService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.features = features;
     }
 
     public LabelResponse create(Long serverId, Long boardId, Long actorUserId, LabelRequest request) {
+        features.require(serverId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -48,6 +54,7 @@ public class LabelCommands {
     }
 
     public LabelResponse update(Long serverId, Long boardId, Long labelId, Long actorUserId, LabelRequest request) {
+        features.require(serverId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
@@ -66,6 +73,7 @@ public class LabelCommands {
     }
 
     public void delete(Long serverId, Long boardId, Long labelId, Long actorUserId) {
+        features.require(serverId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "DELETE_LABEL");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);

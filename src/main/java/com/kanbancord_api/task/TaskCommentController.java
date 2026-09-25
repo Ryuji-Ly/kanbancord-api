@@ -2,6 +2,8 @@ package com.kanbancord_api.task;
 
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import com.kanbancord_api.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -22,16 +24,19 @@ public class TaskCommentController {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final TaskCommentCommands taskCommentCommands;
+    private final ServerFeatureService features;
 
     public TaskCommentController(
             TaskCommentService taskCommentService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            TaskCommentCommands taskCommentCommands) {
+            TaskCommentCommands taskCommentCommands,
+            ServerFeatureService features) {
         this.taskCommentService = taskCommentService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.taskCommentCommands = taskCommentCommands;
+        this.features = features;
     }
 
     @PostMapping
@@ -56,6 +61,7 @@ public class TaskCommentController {
             Pageable pageable) {
 
         authorizer.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
+        features.require(serverId, Feature.COMMENTS);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         resourceValidator.requireTaskInServer(taskId, serverId);
@@ -82,6 +88,7 @@ public class TaskCommentController {
             @CurrentUser Long userId) {
 
         authorizer.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
+        features.require(serverId, Feature.COMMENTS);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);
