@@ -15,6 +15,8 @@ import com.kanbancord_api.priority.BoardPriorityResponse;
 import com.kanbancord_api.priority.BoardPriorityService;
 import com.kanbancord_api.task.TaskAssignmentResponse;
 import com.kanbancord_api.task.TaskAssignmentService;
+import com.kanbancord_api.task.TaskRoleAssignmentRepository;
+import com.kanbancord_api.task.TaskRoleAssignmentResponse;
 import com.kanbancord_api.task.TaskResponse;
 import com.kanbancord_api.task.TaskService;
 import org.springframework.stereotype.Service;
@@ -46,6 +48,7 @@ public class BoardSnapshotQuery {
     private final TaskLabelService taskLabelService;
     private final BoardPriorityService boardPriorityService;
     private final ServerFeatureService serverFeatureService;
+    private final TaskRoleAssignmentRepository taskRoleAssignmentRepository;
 
     public BoardSnapshotQuery(
             Authorizer authorizer,
@@ -57,7 +60,8 @@ public class BoardSnapshotQuery {
             LabelService labelService,
             TaskLabelService taskLabelService,
             BoardPriorityService boardPriorityService,
-            ServerFeatureService serverFeatureService) {
+            ServerFeatureService serverFeatureService,
+            TaskRoleAssignmentRepository taskRoleAssignmentRepository) {
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
@@ -68,6 +72,7 @@ public class BoardSnapshotQuery {
         this.taskLabelService = taskLabelService;
         this.boardPriorityService = boardPriorityService;
         this.serverFeatureService = serverFeatureService;
+        this.taskRoleAssignmentRepository = taskRoleAssignmentRepository;
     }
 
     /**
@@ -94,6 +99,10 @@ public class BoardSnapshotQuery {
                 ? taskAssignmentService.findByBoardId(boardId).stream().map(TaskAssignmentResponse::from).toList()
                 : List.of();
 
+        List<TaskRoleAssignmentResponse> roleAssignments = canViewTasks && enabled.contains(Feature.ASSIGNEES)
+                ? taskRoleAssignmentRepository.findByBoardId(boardId).stream().map(TaskRoleAssignmentResponse::from).toList()
+                : List.of();
+
         boolean labelsOn = enabled.contains(Feature.LABELS);
         List<LabelResponse> labels = labelsOn
                 ? labelService.findByBoardId(boardId).stream().map(LabelResponse::from).toList()
@@ -111,7 +120,7 @@ public class BoardSnapshotQuery {
             features.put(feature.name(), enabled.contains(feature));
         }
 
-        return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, labels, taskLabels,
-                priorities, permissions, features);
+        return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
+                taskLabels, priorities, permissions, features);
     }
 }
