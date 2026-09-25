@@ -6,6 +6,7 @@ import com.kanbancord_api.board.Board;
 import com.kanbancord_api.board.BoardColumn;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
+import com.kanbancord_api.security.BotActingUser;
 import com.kanbancord_api.server.Server;
 import com.kanbancord_api.user.User;
 import jakarta.persistence.EntityManager;
@@ -29,7 +30,6 @@ import java.util.Set;
 @Component
 public class AuditLogRecorder {
 
-    static final String SOURCE_API = "API";
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
     /** Keys of a task update entry naming the column the task is in, and the one it left if it changed column. */
@@ -67,7 +67,7 @@ public class AuditLogRecorder {
         log.setAction(event.type().name());
         log.setEntityType(event.type().entityType().name());
         log.setEntityId(event.entityId());
-        log.setSource(SOURCE_API);
+        log.setSource(BotActingUser.currentSource());
         Map<String, Object> changes = changes(event);
         if (event.type().entityType() == EventType.EntityType.TASK && event.before() != null && event.after() != null) {
             addColumnNames(changes, event);
