@@ -812,6 +812,40 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of("DISCORD_PERMISSION:DENY", "ROLE:ALLOW"), remaining);
     }
 
+    // ── Role assignments ────────────────────────────────────────────────────────
+
+    @Test
+    void roleAssignments_needAssignOthers_mustBeServerRoles_andAppearInTheSnapshot() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Roles");
+        long task = w.createTask(MOD, board, w.column(board, "Todo"), "For the mods");
+        String path = w.boardPath(board, "/tasks/" + task + "/role-assignments");
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(w.topic(board));
+        Thread.sleep(500);
+
+        assertEquals(403, call("POST", path, MEMBER, Map.of("roleId", w.modsRole)).status(),
+                "assigning a role is assigning others");
+        long assignment = call("POST", path, MOD, Map.of("roleId", w.modsRole)).expect(201).json().get("id").asLong();
+        assertEquals("TASK_ROLE_ASSIGNED", member.next().get("eventType"));
+        assertEquals(400, call("POST", path, MOD, Map.of("roleId", w.modsRole)).status(), "at most once per task");
+        assertEquals(400, call("POST", path, MOD, Map.of("roleId", 123L)).status(), "only this server's roles");
+
+        JsonNode listed = w.snapshot(MEMBER, board).get("roleAssignments");
+        assertEquals(1, listed.size());
+        assertEquals(String.valueOf(w.modsRole), listed.get(0).get("roleId").asText());
+        assertTrue(auditLog(w).stream().anyMatch(e -> "TASK_ROLE_ASSIGNED".equals(e.get("action").asText())));
+
+        // Deleting the role in Discord removes it from tasks.
+        assertEquals(204, sync("DELETE", "/api/internal/sync/servers/" + w.serverId + "/roles/" + w.membersRole, Map.of()));
+        call("POST", path, MOD, Map.of("roleId", w.membersRole)).expect(400);
+
+        call("DELETE", path + "/" + assignment, MOD, null).expect(204);
+        // Without the Members role the member no longer sees the board; the mod still does.
+        assertEquals(0, w.snapshot(MOD, board).get("roleAssignments").size());
+    }
+
     // ── Simple mode ─────────────────────────────────────────────────────────────
 
     @Test
