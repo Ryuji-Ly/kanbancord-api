@@ -24,6 +24,8 @@ public class NotificationQueue {
     /** A claim not reported back within this is assumed lost. */
     static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(5);
     static final int MAX_ATTEMPTS = 5;
+    /** Changes older than this when they could be delivered are dropped instead. */
+    static final Duration MAX_AGE = Duration.ofHours(1);
 
     private final JdbcTemplate jdbcTemplate;
     /** How long a group stays open for more changes. */
@@ -68,6 +70,12 @@ public class NotificationQueue {
      */
     @Transactional
     public List<Batch> claim(int limit) {
+        // Old news is not worth posting: after the bot was away for a while, what it missed is dropped
+        // rather than delivered all at once.
+        jdbcTemplate.update("""
+                UPDATE notification_queue SET delivered_at = CURRENT_TIMESTAMP
+                WHERE delivered_at IS NULL AND created_at < CURRENT_TIMESTAMP - CAST(? AS INTERVAL)
+                """, MAX_AGE.toSeconds() + " seconds");
         return jdbcTemplate.query("""
                 UPDATE notification_queue SET claimed_at = CURRENT_TIMESTAMP, attempts = attempts + 1
                 WHERE batch_id IN (
@@ -99,13 +107,12 @@ public class NotificationQueue {
                 """, batchId);
     }
 
-    /** Keeps the queue small: delivered groups and ones that kept failing are dropped after a week. */
+    /**
+     * Keeps the queue small: after a week a group is of no use, delivered or not (undelivered ones are
+     * long past being worth posting, see {@link #MAX_AGE}).
+     */
     @Scheduled(cron = "0 37 4 * * *")
     public void cleanUp() {
-        jdbcTemplate.update("""
-                DELETE FROM notification_queue
-                WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'
-                  AND (delivered_at IS NOT NULL OR attempts >= ?)
-                """, MAX_ATTEMPTS);
+        jdbcTemplate.update("DELETE FROM notification_queue WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'");
     }
 }
