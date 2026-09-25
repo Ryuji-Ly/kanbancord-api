@@ -137,6 +137,8 @@ class WorkItemControllersApiTest {
     private com.kanbancord_api.feature.ServerFeatureService serverFeatureService;
     @MockitoBean
     private com.kanbancord_api.task.TaskRoleAssignmentRepository taskRoleAssignmentRepository;
+    @MockitoBean
+    private com.kanbancord_api.task.TaskAssignmentRepository taskAssignmentRepository;
         @MockitoBean
     private ServerService serverService;
         @MockitoBean
