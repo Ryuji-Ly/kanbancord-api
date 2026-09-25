@@ -1,8 +1,11 @@
 package com.kanbancord_api.task;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.kanbancord_api.user.User;
 
 public class TaskCommentEditorResponse {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private String username;
     private String globalName;

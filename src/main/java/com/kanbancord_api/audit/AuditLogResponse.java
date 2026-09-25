@@ -15,7 +15,7 @@ import java.util.Map;
  */
 public record AuditLogResponse(
         Long logId,
-        Long serverId,
+        @JsonSerialize(using = ToStringSerializer.class) Long serverId,
         Long boardId,
         String boardName,
         @JsonSerialize(using = ToStringSerializer.class) Long userId,
