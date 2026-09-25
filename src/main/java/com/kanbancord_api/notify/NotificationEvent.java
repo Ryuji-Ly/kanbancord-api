@@ -17,6 +17,9 @@ public enum NotificationEvent {
     TASK_DESCRIPTION(Category.TASKS, "Description changed", true, false),
     TASK_DUE(Category.TASKS, "Due date changed", true, true),
     TASK_PRIORITY(Category.TASKS, "Priority changed", true, false),
+    /** Reminders: not something anyone did, so never in the audit log channel. */
+    DUE_SOON(Category.TASKS, "Due within a day (reminder)", false, true),
+    OVERDUE(Category.TASKS, "Overdue (reminder)", false, true),
 
     USER_ASSIGNED(Category.PEOPLE, "Someone assigned", true, true),
     USER_UNASSIGNED(Category.PEOPLE, "Someone unassigned", true, true),

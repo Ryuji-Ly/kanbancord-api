@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,6 +54,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -95,6 +97,8 @@ class EndToEndApiIntegrationTest {
         registry.add("kanbancord.imgur.api-base-url", FAKE_IMGUR::baseUrl);
         // Notifications are grouped for a while in production; tests want them straight away.
         registry.add("kanbancord.notifications.group-window-seconds", () -> "0");
+        // Tests run the reminder check themselves, when they want it.
+        registry.add("kanbancord.notifications.reminder-first-check-ms", () -> String.valueOf(24L * 60 * 60 * 1000));
     }
 
     @LocalServerPort
@@ -109,6 +113,8 @@ class EndToEndApiIntegrationTest {
     private javax.sql.DataSource dataSource;
     @Autowired
     private UserSessionService userSessionService;
+    @Autowired
+    private com.kanbancord_api.notify.DueReminderScheduler dueReminderScheduler;
 
     /** One signed-in session per user, reused across calls. */
     private final Map<Long, String> accessTokens = new ConcurrentHashMap<>();
@@ -1107,6 +1113,64 @@ class EndToEndApiIntegrationTest {
         assertTrue(auditLog(w).stream().anyMatch(e -> "NOTIFICATIONS_UPDATED".equals(e.get("action").asText())));
     }
 
+    @Test
+    void dueReminders_remindTheTasksPeopleOnce_whenDueSoonOrJustOverdue() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Deadlines");
+        long todo = w.column(board, "Todo");
+        long done = w.column(board, "Doing"); // the last column counts as done
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).withNano(0);
+
+        long soon = dueTask(w, board, todo, "Soon", now.plusHours(2));
+        call("POST", w.boardPath(board, "/tasks/" + soon + "/assignments"), MOD, Map.of("taskId", soon, "userId", MEMBER))
+                .expect(201);
+        long finished = dueTask(w, board, done, "Finished", now.plusHours(2));
+        long overdue = dueTask(w, board, todo, "Just overdue", now.minusMinutes(10));
+        long longAgo = dueTask(w, board, todo, "Long overdue", now.minusHours(3));
+        long later = dueTask(w, board, todo, "Next week", now.plusDays(7));
+        call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", "")).expect(200);
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", "903" + w.serverId, "name", "audit", "botCanPost", true))));
+        call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", "903" + w.serverId)).expect(200);
+        drainPlans(w.serverId);
+
+        dueReminderScheduler.remind();
+        Map<Long, JsonNode> byTask = new HashMap<>();
+        for (JsonNode plan : drainPlans(w.serverId)) {
+            byTask.put(plan.get("task").get("taskId").asLong(), plan);
+        }
+        assertEquals(Set.of(soon, overdue), byTask.keySet(),
+                "not for done tasks, long-overdue ones or ones due next week (" + finished + ", " + longAgo + ", " + later + ")");
+        JsonNode reminder = byTask.get(soon);
+        assertEquals("TASK_DUE_SOON", reminder.get("entries").get(0).get("action").asText());
+        assertNotNull(directMessage(reminder, MEMBER), "the assignee is reminded");
+        assertNotNull(directMessage(reminder, MOD), "and whoever created the task");
+        assertNull(channel(reminder, "903" + w.serverId), "reminders are not something anyone did: not in the audit channel");
+        assertEquals("TASK_OVERDUE", byTask.get(overdue).get("entries").get(0).get("action").asText());
+
+        // Once per due date: nothing more now, a new reminder after the due date changes.
+        dueReminderScheduler.remind();
+        assertEquals(List.of(), drainPlans(w.serverId));
+        call("PUT", w.boardPath(board, "/tasks/" + soon), MOD, Map.of("title", "Soon", "boardId", board, "columnId", todo,
+                "dueDate", now.plusHours(5).toString())).expect(200);
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        assertEquals(1, drainPlans(w.serverId).size());
+
+        // Boards without due dates get no reminders.
+        call("PUT", w.boardPath(board, "/features"), OWNER, Map.of("DUE_DATES", false)).expect(200);
+        call("PUT", w.boardPath(board, "/tasks/" + soon), MOD, Map.of("title", "Soon", "boardId", board, "columnId", todo,
+                "dueDate", now.plusHours(6).toString())).expect(200);
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        assertEquals(List.of(), drainPlans(w.serverId));
+    }
+
+    private long dueTask(World w, long board, long column, String title, java.time.LocalDateTime due) throws Exception {
+        return call("POST", w.boardPath(board, "/tasks"), MOD, Map.of("title", title, "boardId", board, "columnId", column,
+                "dueDate", due.toString())).expect(201).json().get("taskId").asLong();
+    }
+
     /** Claims everything due, returning this server's plans and marking every claimed plan delivered. */
     private List<JsonNode> drainPlans(long serverId) throws Exception {
         List<JsonNode> mine = new ArrayList<>();
@@ -1248,6 +1312,11 @@ class EndToEndApiIntegrationTest {
         assertEquals(403, asBot("GET", other.path("/boards"), BOT_TOKEN, OWNER, w.serverId, null).status(),
                 "a command in one server cannot reach another, even where the user is a member");
         assertEquals(403, asBot("GET", "/api/me", BOT_TOKEN, OWNER, w.serverId, null).status());
+        assertEquals(403, asBot("GET", "/api/me/sessions", BOT_TOKEN, OWNER, w.serverId, null).status());
+        assertEquals(200, asBot("PUT", "/api/me/notifications", BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("dmMode", "NEVER")).status(), "except the user's own notification settings");
+        assertEquals("NEVER", call("GET", "/api/me/notifications", MEMBER, null).json().get("dmMode").asText());
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("dmMode", "UNLESS_PINGED")).expect(200);
         assertEquals(403, asBot("GET", "/api/audit-logs", BOT_TOKEN, OWNER, w.serverId, null).status());
         assertEquals(400, asBot("GET", w.path("/boards"), BOT_TOKEN, "abc", w.serverId, null).status());
         HttpResponse<String> both = http.send(HttpRequest.newBuilder(uri(w.path("/boards")))
