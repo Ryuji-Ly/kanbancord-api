@@ -5,6 +5,7 @@ import com.kanbancord_api.label.TaskLabelResponse;
 import com.kanbancord_api.permission.PermissionDecisionResponse;
 import com.kanbancord_api.priority.BoardPriorityResponse;
 import com.kanbancord_api.task.TaskAssignmentResponse;
+import com.kanbancord_api.task.TaskRoleAssignmentResponse;
 import com.kanbancord_api.task.TaskResponse;
 
 import java.util.List;
@@ -23,6 +24,7 @@ public record BoardSnapshotResponse(
         List<BoardColumnResponse> columns,
         List<TaskResponse> tasks,
         List<TaskAssignmentResponse> assignments,
+        List<TaskRoleAssignmentResponse> roleAssignments,
         List<LabelResponse> labels,
         List<TaskLabelResponse> taskLabels,
         List<BoardPriorityResponse> priorities,
