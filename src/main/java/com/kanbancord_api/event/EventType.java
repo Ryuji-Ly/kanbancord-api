@@ -52,6 +52,8 @@ public enum EventType {
     PERMISSION_DELETED(EntityType.PERMISSION, true),
 
     SERVER_FEATURES_UPDATED(EntityType.SETTINGS, true),
+    /** Only the board's own page needs to know; the server's board list does not change. */
+    BOARD_FEATURES_UPDATED(EntityType.SETTINGS, false),
 
     SERVER_SYNCED(EntityType.SERVER, true),
     ROLE_SYNCED(EntityType.ROLE, true),

@@ -61,7 +61,7 @@ public class TaskCommentController {
             Pageable pageable) {
 
         authorizer.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
-        features.require(serverId, Feature.COMMENTS);
+        features.require(serverId, boardId, Feature.COMMENTS);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         resourceValidator.requireTaskInServer(taskId, serverId);
@@ -88,7 +88,7 @@ public class TaskCommentController {
             @CurrentUser Long userId) {
 
         authorizer.requireBoardPermission(userId, serverId, boardId, "VIEW_TASK");
-        features.require(serverId, Feature.COMMENTS);
+        features.require(serverId, boardId, Feature.COMMENTS);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
 
         TaskComment comment = resourceValidator.requireCommentInServer(commentId, serverId);

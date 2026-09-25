@@ -36,7 +36,7 @@ public class TaskLabelCommands {
     }
 
     public TaskLabelResponse add(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskLabelRequest request) {
-        features.require(serverId, Feature.LABELS);
+        features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "APPLY_LABEL_TO_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
@@ -55,7 +55,7 @@ public class TaskLabelCommands {
     }
 
     public void remove(Long serverId, Long boardId, Long taskId, Long taskLabelId, Long actorUserId) {
-        features.require(serverId, Feature.LABELS);
+        features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "REMOVE_LABEL_FROM_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);

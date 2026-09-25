@@ -26,4 +26,9 @@ public enum Feature {
     public String label() {
         return label;
     }
+
+    /** Whether a board can switch the feature off for itself; permissions are managed server-wide. */
+    public boolean boardScoped() {
+        return this != PERMISSIONS;
+    }
 }
