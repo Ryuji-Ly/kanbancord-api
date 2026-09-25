@@ -5,7 +5,6 @@ import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
-import com.kanbancord_api.permission.PermissionBootstrapService;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -45,7 +44,7 @@ public class InternalSyncController {
     private final RoleService roleService;
     private final ServerMemberService serverMemberService;
     private final MemberRoleService memberRoleService;
-    private final PermissionBootstrapService permissionBootstrapService;
+    private final ServerBootstrapService serverBootstrapService;
     private final ApplicationEventPublisher events;
 
     public InternalSyncController(
@@ -55,7 +54,7 @@ public class InternalSyncController {
             RoleService roleService,
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
-            PermissionBootstrapService permissionBootstrapService,
+            ServerBootstrapService serverBootstrapService,
             ApplicationEventPublisher events) {
         this.authorizer = authorizer;
         this.serverService = serverService;
@@ -63,7 +62,7 @@ public class InternalSyncController {
         this.roleService = roleService;
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
-        this.permissionBootstrapService = permissionBootstrapService;
+        this.serverBootstrapService = serverBootstrapService;
         this.events = events;
     }
 
@@ -234,57 +233,7 @@ public class InternalSyncController {
             @Valid @RequestBody InternalBootstrapRequest request) {
 
         authorizer.requireInternalSyncAccess(botToken);
-
-        User owner = userService.findById(request.getOwnerId()).orElseGet(User::new);
-        owner.setUserId(request.getOwnerId());
-        owner.setUsername(request.getOwnerUsername());
-        owner.setGlobalName(request.getOwnerGlobalName());
-        owner.setAvatarUrl(request.getOwnerAvatarUrl());
-        owner = userService.update(owner);
-
-        Server server = serverService.findById(serverId).orElseGet(Server::new);
-        server.setServerId(serverId);
-        server.setName(request.getName());
-        server.setIconUrl(request.getIconUrl());
-        server.setBotPresent(true);
-        server.setOwner(owner);
-        server = serverService.update(server);
-
-        for (InternalBootstrapRequest.RoleEntry entry : request.getRoles()) {
-            Role role = roleService.findById(entry.getRoleId()).orElseGet(Role::new);
-            role.setRoleId(entry.getRoleId());
-            role.setServer(server);
-            role.setName(entry.getName());
-            role.setColor(entry.getColor());
-            role.setPosition(entry.getPosition());
-            role.setDiscordPermissions(entry.getDiscordPermissions());
-            roleService.update(role);
-        }
-
-        for (InternalBootstrapRequest.MemberEntry entry : request.getMembers()) {
-            User user = userService.findById(entry.getUserId()).orElseGet(User::new);
-            user.setUserId(entry.getUserId());
-            user.setUsername(entry.getUsername());
-            user.setGlobalName(entry.getGlobalName());
-            user.setAvatarUrl(entry.getAvatarUrl());
-            user = userService.update(user);
-
-            ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, entry.getUserId())
-                    .orElseGet(ServerMember::new);
-            member.setServer(server);
-            member.setUser(user);
-            member.setNickname(entry.getNickname());
-            if (entry.getJoinedAt() != null) {
-                member.setJoinedAt(entry.getJoinedAt());
-            }
-            member = serverMemberService.update(member);
-
-            if (entry.getRoleIds() != null) {
-                memberRoleService.replaceForMember(member, entry.getRoleIds());
-            }
-        }
-
-        permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
+        serverBootstrapService.bootstrap(serverId, request);
 
         announce(EventType.SERVER_SYNCED, serverId, serverId);
         return ResponseEntity.noContent().build();
