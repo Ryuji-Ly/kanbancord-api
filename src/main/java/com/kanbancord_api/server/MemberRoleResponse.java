@@ -1,13 +1,18 @@
 package com.kanbancord_api.server;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.time.LocalDateTime;
 
 public class MemberRoleResponse {
 
     private Long id;
     private Long serverMemberId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long roleId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long serverId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private LocalDateTime assignedAt;
 

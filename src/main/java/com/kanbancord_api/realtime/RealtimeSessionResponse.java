@@ -1,5 +1,7 @@
 package com.kanbancord_api.realtime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -8,6 +10,7 @@ public class RealtimeSessionResponse {
 
     private String type;
     private String sessionId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private Instant connectedAt;
     private Instant lastSeenAt;

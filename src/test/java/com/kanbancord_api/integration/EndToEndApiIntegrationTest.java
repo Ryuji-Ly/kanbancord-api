@@ -144,6 +144,13 @@ class EndToEndApiIntegrationTest {
                 Map.of("taskId", task, "content", "edited")).status(), "authors edit their own comments");
         assertEquals(403, call("PUT", comments + "/" + modComment, MEMBER,
                 Map.of("taskId", task, "content", "hijack")).status(), "others' comments need moderation rights");
+
+        // Discord ids go out as strings: real ones are too large for a JavaScript number.
+        JsonNode comment = call("GET", comments + "/" + ownComment, MEMBER, null).expect(200).json();
+        assertTrue(comment.get("userId").isTextual(), comment.toString());
+        JsonNode snapshot = w.snapshot(MEMBER, board);
+        assertTrue(snapshot.get("tasks").get(0).get("createdBy").isTextual());
+        assertTrue(snapshot.get("assignments").get(0).get("userId").isTextual());
     }
 
     // ── Board overrides and EDIT_BOARD_PERMISSIONS ─────────────────────────────
