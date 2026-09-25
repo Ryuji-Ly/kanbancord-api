@@ -52,6 +52,8 @@ public enum EventType {
     PERMISSION_DELETED(EntityType.PERMISSION, true),
 
     SERVER_FEATURES_UPDATED(EntityType.SETTINGS, true),
+    /** The server's Discord notification channels and feeds. */
+    NOTIFICATIONS_UPDATED(EntityType.SETTINGS, true),
     /** Only the board's own page needs to know; the server's board list does not change. */
     BOARD_FEATURES_UPDATED(EntityType.SETTINGS, false),
 
