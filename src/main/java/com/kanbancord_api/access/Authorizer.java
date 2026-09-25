@@ -3,12 +3,10 @@ package com.kanbancord_api.access;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.UnauthenticatedException;
 import com.kanbancord_api.security.CurrentUserArgumentResolver;
+import com.kanbancord_api.sync.InternalBotToken;
 import com.kanbancord_api.sync.InternalSyncProperties;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 @Service
 public class Authorizer {
@@ -61,14 +59,7 @@ public class Authorizer {
             throw new AccessDeniedException("Internal sync token is not configured");
         }
 
-        if (providedBotToken == null || providedBotToken.isBlank()) {
-            throw new AccessDeniedException("Invalid internal sync bot token");
-        }
-
-        byte[] expectedHashBytes = decodeSha256Hex(expectedBotTokenHash);
-        byte[] providedHashBytes = sha256(providedBotToken);
-
-        if (!MessageDigest.isEqual(expectedHashBytes, providedHashBytes)) {
+        if (!InternalBotToken.matches(expectedBotTokenHash, providedBotToken)) {
             throw new AccessDeniedException("Invalid internal sync bot token");
         }
     }
@@ -83,27 +74,5 @@ public class Authorizer {
             throw new AccessDeniedException("Authenticated user does not match requested userId");
         }
         return authenticatedUserId;
-    }
-
-    private byte[] decodeSha256Hex(String value) {
-        String normalized = value.trim();
-        if (!normalized.matches("(?i)^[0-9a-f]{64}$")) {
-            throw new AccessDeniedException("Internal sync token hash must be a 64-character SHA-256 hex value");
-        }
-
-        byte[] bytes = new byte[32];
-        for (int index = 0; index < normalized.length(); index += 2) {
-            bytes[index / 2] = (byte) Integer.parseInt(normalized.substring(index, index + 2), 16);
-        }
-        return bytes;
-    }
-
-    private byte[] sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return digest.digest(value.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 algorithm is not available", ex);
-        }
     }
 }
