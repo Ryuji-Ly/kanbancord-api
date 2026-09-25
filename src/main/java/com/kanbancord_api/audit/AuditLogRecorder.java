@@ -3,6 +3,7 @@ package com.kanbancord_api.audit;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kanbancord_api.board.Board;
+import com.kanbancord_api.board.BoardColumn;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.server.Server;
@@ -17,6 +18,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -30,6 +32,9 @@ public class AuditLogRecorder {
     static final String SOURCE_API = "API";
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {
     };
+    /** Keys of a task update entry naming the column the task is in, and the one it left if it changed column. */
+    static final String COLUMN_KEY = "_column";
+    static final String FROM_COLUMN_KEY = "_fromColumn";
     /** Key of an update entry that names the changed entity, so the log can say what was changed. */
     static final String SUBJECT_KEY = "_subject";
     /** Fields that name an entity, in order of preference. */
@@ -63,8 +68,32 @@ public class AuditLogRecorder {
         log.setEntityType(event.type().entityType().name());
         log.setEntityId(event.entityId());
         log.setSource(SOURCE_API);
-        log.setChanges(changes(event));
+        Map<String, Object> changes = changes(event);
+        if (event.type().entityType() == EventType.EntityType.TASK && event.before() != null && event.after() != null) {
+            addColumnNames(changes, event);
+        }
+        log.setChanges(changes);
         entityManager.persist(log);
+    }
+
+    /**
+     * Columns are recorded by id, which means nothing to someone reading the log later, and a
+     * column can be renamed or deleted since. Keeps their names as they were at the time.
+     */
+    private void addColumnNames(Map<String, Object> changes, DomainEvent event) {
+        Map<String, Object> before = toMap(event.before());
+        Map<String, Object> after = toMap(event.after());
+        columnName(after.get("columnId")).ifPresent(name -> changes.put(COLUMN_KEY, name));
+        if (changes.containsKey("columnId")) {
+            columnName(before.get("columnId")).ifPresent(name -> changes.put(FROM_COLUMN_KEY, name));
+        }
+    }
+
+    private Optional<String> columnName(Object columnId) {
+        if (!(columnId instanceof Number id)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(entityManager.find(BoardColumn.class, id.longValue())).map(BoardColumn::getName);
     }
 
     /**
