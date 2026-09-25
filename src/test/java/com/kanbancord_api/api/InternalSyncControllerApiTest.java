@@ -62,7 +62,7 @@ class InternalSyncControllerApiTest {
     @MockitoBean
     private ServerMemberService serverMemberService;
     @MockitoBean
-    private PermissionBootstrapService permissionBootstrapService;
+    private com.kanbancord_api.sync.ServerBootstrapService serverBootstrapService;
     @MockitoBean
     private MemberRoleService memberRoleService;
     @MockitoBean
@@ -201,29 +201,14 @@ class InternalSyncControllerApiTest {
         member.setUsername("member1");
         request.setMembers(java.util.List.of(member));
 
-        User owner = new User();
-        owner.setUserId(200L);
-        Server server = new Server();
-        server.setServerId(123L);
-        User memberUser = new User();
-        memberUser.setUserId(300L);
-
-        when(userService.findById(200L)).thenReturn(Optional.of(owner));
-        when(userService.update(any(User.class))).thenReturn(owner).thenReturn(memberUser);
-        when(serverService.findById(eq(123L))).thenReturn(Optional.of(server));
-        when(serverService.update(any(Server.class))).thenReturn(server);
-        when(roleService.findById(10L)).thenReturn(Optional.empty());
-        when(serverMemberService.findByServerIdAndUserId(eq(123L), eq(300L))).thenReturn(Optional.empty());
-
         mockMvc.perform(post("/api/internal/sync/servers/123/bootstrap")
                 .header("X-Internal-Bot-Token", "valid-bot-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
 
-        verify(roleService).update(any(Role.class));
-        verify(serverMemberService).update(any(ServerMember.class));
-        verify(permissionBootstrapService).initializeDefaultServerConfiguration(123L);
+        // What the sync writes is covered end to end, against a real database.
+        verify(serverBootstrapService).bootstrap(eq(123L), any(InternalBootstrapRequest.class));
     }
 
     @Test
