@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -92,6 +93,8 @@ class EndToEndApiIntegrationTest {
         registry.add("kanbancord.internal-sync.bot-token", () -> sha256Hex(BOT_TOKEN));
         registry.add("kanbancord.imgur.client-id", () -> "test-client-id");
         registry.add("kanbancord.imgur.api-base-url", FAKE_IMGUR::baseUrl);
+        // Notifications are grouped for a while in production; tests want them straight away.
+        registry.add("kanbancord.notifications.group-window-seconds", () -> "0");
     }
 
     @LocalServerPort
@@ -992,6 +995,163 @@ class EndToEndApiIntegrationTest {
         call("PUT", features, OWNER, Map.of("LABELS", true)).expect(200);
         assertTrue(w.snapshot(MEMBER, plain).get("features").get("LABELS").asBoolean());
         assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
+    }
+
+    // ── Discord notifications ───────────────────────────────────────────────────
+
+    @Test
+    void notifications_routeChangesToFeedsTheAuditChannelAndDirectMessages() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Notified");
+        long other = w.createBoard(OWNER, "Elsewhere");
+        long todo = w.column(board, "Todo");
+        long doing = w.column(board, "Doing");
+        String feeds = w.path("/notifications/feeds");
+        String updates = "900" + w.serverId;
+        String everything = "901" + w.serverId;
+        String audit = "902" + w.serverId;
+
+        // The bot reports the server's channels; only server administrators see and change settings.
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true),
+                Map.of("channelId", everything, "name", "everything", "position", 2, "botCanPost", true),
+                Map.of("channelId", audit, "name", "audit-log", "category", "Staff", "position", 3, "botCanPost", true))));
+        assertEquals(403, call("GET", w.path("/notifications"), MEMBER, null).status());
+        JsonNode settings = call("GET", w.path("/notifications"), OWNER, null).expect(200).json();
+        assertEquals(3, settings.get("channels").size());
+        assertEquals("audit-log", settings.get("channels").get(2).get("name").asText());
+        assertTrue(settings.get("catalogue").size() >= 5);
+
+        assertEquals(400, call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", "12345")).status(),
+                "only channels of this server");
+        call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", audit)).expect(200);
+        // A board feed that mentions people for comments too, and a server-wide one that mentions nobody.
+        long boardFeed = call("POST", feeds, OWNER, Map.of("channelId", updates, "boardIds", List.of(board),
+                "mentions", Map.of("COMMENTS", true))).expect(201).json().get("feedId").asLong();
+        call("POST", feeds, OWNER, Map.of("channelId", everything,
+                "mentions", Map.of("PEOPLE", false))).expect(201);
+        assertEquals(400, call("POST", feeds, OWNER, Map.of("channelId", updates, "boardIds", List.of(999_999_999L))).status());
+        assertEquals(400, call("POST", feeds, OWNER, Map.of("channelId", updates, "events", Map.of("NOPE", true))).status());
+        drainPlans(w.serverId);
+
+        // MOD creates a task, assigns MEMBER and comments: one group, delivered together.
+        long task = w.createTask(MOD, board, todo, "Ship it");
+        call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), MOD, Map.of("taskId", task, "userId", MEMBER))
+                .expect(201);
+        call("POST", w.boardPath(board, "/tasks/" + task + "/comments"), MOD, Map.of("taskId", task, "content", "Go"))
+                .expect(201);
+        List<JsonNode> plans = drainPlans(w.serverId);
+        assertEquals(1, plans.size(), "changes to one task are grouped");
+        JsonNode plan = plans.get(0);
+        assertEquals("Ship it", plan.get("task").get("title").asText());
+        assertEquals(3, plan.get("entries").size());
+        assertEquals("Todo", plan.get("names").get("columns").get(String.valueOf(todo)).asText());
+
+        JsonNode toUpdates = channel(plan, updates);
+        assertEquals(3, toUpdates.get("entryIds").size());
+        assertEquals(List.of(String.valueOf(MEMBER)), texts(toUpdates.get("mentionUserIds")),
+                "the assignee is mentioned; the person who made the changes never is");
+        assertEquals(List.of(), texts(channel(plan, everything).get("mentionUserIds")));
+        JsonNode toAudit = channel(plan, audit);
+        assertEquals("AUDIT", toAudit.get("kind").asText());
+        assertEquals(3, toAudit.get("entryIds").size());
+
+        JsonNode dm = directMessage(plan, MEMBER);
+        assertEquals("UNLESS_PINGED", dm.get("mode").asText());
+        assertEquals(2, dm.get("entryIds").size(), "being assigned, and the new comment on their task");
+        assertNull(directMessage(plan, MOD), "never about your own changes");
+        assertNull(directMessage(plan, OWNER), "not about tasks you have nothing to do with");
+
+        // Reordering within a column goes to the audit channel only; other boards stay out of the board feed.
+        long second = w.createTask(MOD, board, todo, "Second");
+        drainPlans(w.serverId);
+        call("POST", w.boardPath(board, "/tasks/" + second + "/move"), MOD, Map.of("columnId", todo, "index", 0)).expect(200);
+        plan = drainPlans(w.serverId).get(0);
+        assertNull(channel(plan, updates));
+        assertNull(channel(plan, everything));
+        assertEquals(1, channel(plan, audit).get("entryIds").size());
+        w.createTask(OWNER, other, w.column(other, "Todo"), "Other board");
+        plan = drainPlans(w.serverId).get(0);
+        assertNull(channel(plan, updates), "the board feed covers its own board only");
+        assertEquals(1, channel(plan, everything).get("entryIds").size());
+
+        // MEMBER turns this server's direct messages off; the feeds still announce the change.
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("servers", Map.of(String.valueOf(w.serverId), "NONE")))
+                .expect(200);
+        w.updateTask(MOD, board, task, "Ship it", doing).expect(200);
+        plan = drainPlans(w.serverId).get(0);
+        assertNull(directMessage(plan, MEMBER));
+        assertEquals(1, channel(plan, updates).get("entryIds").size());
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("servers", Map.of(String.valueOf(w.serverId), "DEFAULT"),
+                "dmMode", "ALWAYS")).expect(200);
+        JsonNode mine = call("GET", "/api/me/notifications", MEMBER, null).expect(200).json();
+        assertEquals("ALWAYS", mine.get("dmMode").asText());
+        assertEquals(400, call("PUT", "/api/me/notifications", MEMBER, Map.of("events", Map.of("COLUMN_CHANGED", true)))
+                .status(), "board changes are never sent by direct message");
+
+        // Deleting the task: the people who were assigned still hear about it.
+        call("DELETE", w.boardPath(board, "/tasks/" + task), OWNER, null).expect(204);
+        plan = drainPlans(w.serverId).get(0);
+        assertTrue(plan.get("task").get("deleted").asBoolean());
+        assertEquals("ALWAYS", directMessage(plan, MEMBER).get("mode").asText());
+
+        // Changes the bot could not deliver for over an hour are dropped, not posted late all at once.
+        w.createTask(MOD, board, todo, "Stale");
+        jdbcTemplate.update("UPDATE notification_queue SET created_at = created_at - INTERVAL '2 hours' "
+                + "WHERE server_id = ? AND delivered_at IS NULL", w.serverId);
+        assertEquals(List.of(), drainPlans(w.serverId));
+
+        // Feeds can be changed and removed; the changes are in the audit log.
+        call("PUT", feeds + "/" + boardFeed, OWNER, Map.of("events", Map.of("TASK_CREATED", false))).expect(200);
+        call("DELETE", feeds + "/" + boardFeed, OWNER, null).expect(204);
+        assertTrue(auditLog(w).stream().anyMatch(e -> "NOTIFICATIONS_UPDATED".equals(e.get("action").asText())));
+    }
+
+    /** Claims everything due, returning this server's plans and marking every claimed plan delivered. */
+    private List<JsonNode> drainPlans(long serverId) throws Exception {
+        List<JsonNode> mine = new ArrayList<>();
+        while (true) {
+            HttpResponse<String> response = http.send(HttpRequest.newBuilder(uri("/api/internal/notifications/claim?limit=50"))
+                    .header("X-Internal-Bot-Token", BOT_TOKEN)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), response.body());
+            JsonNode plans = objectMapper.readTree(response.body());
+            if (plans.isEmpty()) {
+                return mine;
+            }
+            for (JsonNode plan : plans) {
+                if (plan.get("serverId").asText().equals(String.valueOf(serverId))) {
+                    mine.add(plan);
+                }
+                http.send(HttpRequest.newBuilder(uri("/api/internal/notifications/" + plan.get("batchId").asLong() + "/delivered"))
+                        .header("X-Internal-Bot-Token", BOT_TOKEN)
+                        .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            }
+        }
+    }
+
+    private static JsonNode channel(JsonNode plan, String channelId) {
+        for (JsonNode delivery : plan.get("channels")) {
+            if (delivery.get("channelId").asText().equals(channelId)) {
+                return delivery;
+            }
+        }
+        return null;
+    }
+
+    private static JsonNode directMessage(JsonNode plan, long userId) {
+        for (JsonNode message : plan.get("directMessages")) {
+            if (message.get("userId").asText().equals(String.valueOf(userId))) {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    private static List<String> texts(JsonNode array) {
+        List<String> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.asText()));
+        return values;
     }
 
     // ── Full server sync ────────────────────────────────────────────────────────

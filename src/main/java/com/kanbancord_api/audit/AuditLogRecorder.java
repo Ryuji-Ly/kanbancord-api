@@ -6,6 +6,7 @@ import com.kanbancord_api.board.Board;
 import com.kanbancord_api.board.BoardColumn;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
+import com.kanbancord_api.notify.NotificationQueue;
 import com.kanbancord_api.security.BotActingUser;
 import com.kanbancord_api.server.Server;
 import com.kanbancord_api.user.User;
@@ -44,10 +45,12 @@ public class AuditLogRecorder {
 
     private final EntityManager entityManager;
     private final ObjectMapper objectMapper;
+    private final NotificationQueue notificationQueue;
 
-    public AuditLogRecorder(EntityManager entityManager, ObjectMapper objectMapper) {
+    public AuditLogRecorder(EntityManager entityManager, ObjectMapper objectMapper, NotificationQueue notificationQueue) {
         this.entityManager = entityManager;
         this.objectMapper = objectMapper;
+        this.notificationQueue = notificationQueue;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT, fallbackExecution = true)
@@ -74,6 +77,8 @@ public class AuditLogRecorder {
         }
         log.setChanges(changes);
         entityManager.persist(log);
+        // In the same transaction: a change that is rolled back is never announced in Discord.
+        notificationQueue.enqueue(log);
     }
 
     /**
