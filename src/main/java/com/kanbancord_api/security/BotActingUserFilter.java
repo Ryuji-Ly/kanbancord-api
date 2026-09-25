@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * through exactly the same permission checks as the website would, as that user.
  *
  * <p>Deliberately narrow: only paths under {@code /api/servers/{id}} for the server the command ran
- * in, never with a user's own token as well, and never for anything tied to a sign-in session.
+ * in (and the user's own notification settings), never with a user's own token as well, and never for anything tied to a sign-in session.
  * Created by SecurityConfig rather than as a bean, so it runs only inside the security chain.
  */
 public class BotActingUserFilter extends OncePerRequestFilter {
@@ -35,6 +35,8 @@ public class BotActingUserFilter extends OncePerRequestFilter {
     public static final String ACTING_GUILD_HEADER = "X-Acting-Guild-Id";
 
     private static final Pattern SERVER_PATH = Pattern.compile("^/api/servers/(\\d+)(/.*)?$");
+    /** The user's own settings the bot may change for them, from /notifications. Nothing else of theirs. */
+    private static final java.util.Set<String> OWN_SETTINGS_PATHS = java.util.Set.of("/api/me/notifications");
     private static final Pattern SNOWFLAKE = Pattern.compile("^\\d{1,20}$");
 
     private final InternalSyncProperties internalSyncProperties;
@@ -69,7 +71,8 @@ public class BotActingUserFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI().substring(request.getContextPath().length());
         Matcher matcher = SERVER_PATH.matcher(path);
-        if (!matcher.matches() || !matcher.group(1).equals(guildId)) {
+        boolean ownSettings = OWN_SETTINGS_PATHS.contains(path);
+        if (!ownSettings && (!matcher.matches() || !matcher.group(1).equals(guildId))) {
             reject(response, HttpStatus.FORBIDDEN, "The bot can only act within the server the command ran in");
             return;
         }

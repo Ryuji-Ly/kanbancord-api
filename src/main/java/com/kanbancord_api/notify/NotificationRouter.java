@@ -72,40 +72,81 @@ public class NotificationRouter {
     }
 
     /** An entry with what it means for notifications. */
-    private record Entry(AuditLog log, Set<NotificationEvent> events, Long actorId, Long subjectId) {
+    private record Entry(AuditLogResponse log, Set<NotificationEvent> events, Long actorId, Long subjectId) {
+
+        static Entry of(AuditLogResponse log) {
+            return new Entry(log, AuditClassifier.eventsOf(log.action(), log.changes()), log.userId(),
+                    AuditClassifier.subjectIdOf(log.action(), log.changes()));
+        }
     }
 
     @Transactional(readOnly = true)
     public Plan route(NotificationQueue.Batch batch) {
         Long serverId = batch.serverId();
-        List<Entry> entries = auditLogRepository.findAllById(batch.auditIds()).stream()
-                .sorted(Comparator.comparing(AuditLog::getLogId))
-                .map(log -> new Entry(log, AuditClassifier.eventsOf(log.getAction(), log.getChanges()),
-                        log.getUser() == null ? null : log.getUser().getUserId(),
-                        AuditClassifier.subjectIdOf(log.getAction(), log.getChanges())))
-                .toList();
-        if (entries.isEmpty() || !botPresent(serverId)) {
+        if (!botPresent(serverId)) {
+            return empty(batch);
+        }
+        List<Entry> entries = batch.isReminder()
+                ? reminderEntry(batch).map(Entry::of).stream().toList()
+                : auditLogRepository.findAllById(batch.auditIds()).stream()
+                        .sorted(Comparator.comparing(AuditLog::getLogId))
+                        .map(log -> Entry.of(AuditLogResponse.from(log)))
+                        .toList();
+        if (entries.isEmpty()) {
             return empty(batch);
         }
 
-        AuditLog first = entries.get(0).log();
-        Long boardId = first.getBoard() == null ? null : first.getBoard().getBoardId();
-        BoardRef board = boardId == null ? null : new BoardRef(boardId, first.getBoard().getName());
-        Long taskId = AuditClassifier.taskIdOf(first.getEntityType(), first.getAction(), first.getEntityId(), first.getChanges());
+        AuditLogResponse first = entries.get(0).log();
+        Long boardId = first.boardId();
+        BoardRef board = boardId == null ? null : new BoardRef(boardId, first.boardName());
+        Long taskId = AuditClassifier.taskIdOf(first.entityType(), first.action(), first.entityId(), first.changes());
         TaskContext task = taskId == null ? null : taskContext(taskId, entries);
 
         List<ChannelDelivery> channels = new ArrayList<>(feedDeliveries(serverId, boardId, entries, task));
-        settings.auditChannel(serverId).ifPresent(channelId -> channels.add(new ChannelDelivery(String.valueOf(channelId),
-                "AUDIT", entries.stream().map(entry -> entry.log().getLogId()).toList(), List.of(), List.of())));
+        // The audit channel records what people did; a reminder is only time passing.
+        if (!batch.isReminder()) {
+            settings.auditChannel(serverId).ifPresent(channelId -> channels.add(new ChannelDelivery(String.valueOf(channelId),
+                    "AUDIT", entries.stream().map(entry -> entry.log().logId()).toList(), List.of(), List.of())));
+        }
         List<DirectMessage> directMessages = task == null || boardId == null
                 ? List.of()
                 : directMessages(serverId, boardId, entries, task);
 
         return new Plan(batch.batchId(), String.valueOf(serverId), board,
                 task == null ? null : new TaskRef(taskId, task.title(), task.deleted()),
-                entries.stream().map(entry -> AuditLogResponse.from(entry.log())).toList(),
+                entries.stream().map(Entry::log).toList(),
                 boardId == null ? new Names(Map.of(), Map.of(), Map.of()) : names(boardId),
                 channels, directMessages);
+    }
+
+    /**
+     * A reminder as an entry: made up, since nobody did anything, and only while it still applies (the
+     * task exists, still has that due date, is not done, and its board is in use with due dates on).
+     * A task in its board's last column counts as done.
+     */
+    private java.util.Optional<AuditLogResponse> reminderEntry(NotificationQueue.Batch batch) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT t.board_id, b.name AS board_name, t.due_date,
+                       t.column_id = (SELECT c.column_id FROM columns c WHERE c.board_id = t.board_id
+                                      ORDER BY c.position DESC LIMIT 1) AS done,
+                       b.is_archived
+                FROM tasks t JOIN boards b ON b.board_id = t.board_id
+                WHERE t.task_id = ?
+                """, batch.reminderTaskId());
+        if (rows.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        Map<String, Object> row = rows.get(0);
+        Object due = row.get("due_date");
+        boolean sameDue = due instanceof java.sql.Timestamp stamp && stamp.toLocalDateTime().equals(batch.reminderDue());
+        if (!sameDue || Boolean.TRUE.equals(row.get("done")) || Boolean.TRUE.equals(row.get("is_archived"))) {
+            return java.util.Optional.empty();
+        }
+        String action = "OVERDUE".equals(batch.reminderKind()) ? AuditClassifier.OVERDUE_ACTION : AuditClassifier.DUE_SOON_ACTION;
+        return java.util.Optional.of(new AuditLogResponse(-batch.batchId(), batch.serverId(),
+                ((Number) row.get("board_id")).longValue(), (String) row.get("board_name"), null, null, null, null,
+                action, "TASK", batch.reminderTaskId(), "SYSTEM", Map.of("dueDate", batch.reminderDue().toString()),
+                java.time.LocalDateTime.now()));
     }
 
     private Plan empty(NotificationQueue.Batch batch) {
@@ -130,7 +171,7 @@ public class NotificationRouter {
                 if (wanted.isEmpty()) {
                     continue;
                 }
-                entriesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>()).add(entry.log().getLogId());
+                entriesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>()).add(entry.log().logId());
                 LinkedHashSet<String> users = usersByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 LinkedHashSet<String> roles = rolesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 for (NotificationEvent event : wanted) {
@@ -188,7 +229,7 @@ public class NotificationRouter {
                 boolean wanted = entry.events().stream().anyMatch(event -> mine.wants(serverId, event)
                         && (event.isAboutAssignee() ? userId.equals(entry.subjectId()) : related));
                 if (wanted) {
-                    ids.add(entry.log().getLogId());
+                    ids.add(entry.log().logId());
                 }
             }
             // Only people who can still see the board hear about it.
@@ -231,8 +272,8 @@ public class NotificationRouter {
         }
         // Deleted: what its deletion recorded.
         Map<String, Object> snapshot = entries.stream()
-                .filter(entry -> "TASK_DELETED".equals(entry.log().getAction()))
-                .map(entry -> AuditClassifier.snapshotOf(entry.log().getChanges()))
+                .filter(entry -> "TASK_DELETED".equals(entry.log().action()))
+                .map(entry -> AuditClassifier.snapshotOf(entry.log().changes()))
                 .findFirst().orElse(Map.of());
         Set<Long> assignees = new LinkedHashSet<>();
         if (snapshot.get("_assigneeIds") instanceof Collection<?> ids) {
