@@ -122,9 +122,9 @@ public class TaskCommands {
             task.setPosition(request.getPosition());
         }
         task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
-        if (request.getDueDate() != null) {
-            task.setDueDate(request.getDueDate());
-        }
+        // Like the priority, the due date is part of every edit: none means the task has none. Clients
+        // send the whole task; a due date hidden by a switched-off feature was kept above.
+        task.setDueDate(request.getDueDate());
         if (request.getMetadata() != null) {
             task.setMetadata(request.getMetadata());
         }
@@ -237,7 +237,7 @@ public class TaskCommands {
         return !Objects.equals(task.getTitle(), request.getTitle())
                 || !Objects.equals(task.getDescription(), request.getDescription())
                 || !Objects.equals(task.getPriorityId(), request.getPriorityId())
-                || (request.getDueDate() != null && !request.getDueDate().equals(task.getDueDate()))
+                || !Objects.equals(task.getDueDate(), request.getDueDate())
                 || (request.getMetadata() != null && !request.getMetadata().equals(task.getMetadata()));
     }
 
