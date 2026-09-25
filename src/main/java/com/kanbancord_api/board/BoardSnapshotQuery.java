@@ -2,6 +2,8 @@ package com.kanbancord_api.board;
 
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import com.kanbancord_api.label.LabelResponse;
 import com.kanbancord_api.label.LabelService;
 import com.kanbancord_api.label.TaskLabelResponse;
@@ -22,6 +24,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Loads a whole board for the board page in one read-only transaction. */
 @Service
@@ -42,6 +45,7 @@ public class BoardSnapshotQuery {
     private final LabelService labelService;
     private final TaskLabelService taskLabelService;
     private final BoardPriorityService boardPriorityService;
+    private final ServerFeatureService serverFeatureService;
 
     public BoardSnapshotQuery(
             Authorizer authorizer,
@@ -52,7 +56,8 @@ public class BoardSnapshotQuery {
             TaskAssignmentService taskAssignmentService,
             LabelService labelService,
             TaskLabelService taskLabelService,
-            BoardPriorityService boardPriorityService) {
+            BoardPriorityService boardPriorityService,
+            ServerFeatureService serverFeatureService) {
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
@@ -62,6 +67,7 @@ public class BoardSnapshotQuery {
         this.labelService = labelService;
         this.taskLabelService = taskLabelService;
         this.boardPriorityService = boardPriorityService;
+        this.serverFeatureService = serverFeatureService;
     }
 
     /**
@@ -83,20 +89,29 @@ public class BoardSnapshotQuery {
         List<TaskResponse> tasks = canViewTasks
                 ? taskService.findByBoardId(boardId).stream().map(TaskResponse::from).toList()
                 : List.of();
-        List<TaskAssignmentResponse> assignments = canViewTasks
+        Set<Feature> enabled = serverFeatureService.enabled(serverId);
+        List<TaskAssignmentResponse> assignments = canViewTasks && enabled.contains(Feature.ASSIGNEES)
                 ? taskAssignmentService.findByBoardId(boardId).stream().map(TaskAssignmentResponse::from).toList()
                 : List.of();
 
-        List<LabelResponse> labels = labelService.findByBoardId(boardId).stream().map(LabelResponse::from).toList();
-        List<TaskLabelResponse> taskLabels = canViewTasks
+        boolean labelsOn = enabled.contains(Feature.LABELS);
+        List<LabelResponse> labels = labelsOn
+                ? labelService.findByBoardId(boardId).stream().map(LabelResponse::from).toList()
+                : List.of();
+        List<TaskLabelResponse> taskLabels = canViewTasks && labelsOn
                 ? taskLabelService.findByBoardId(boardId).stream().map(TaskLabelResponse::from).toList()
                 : List.of();
 
-        List<BoardPriorityResponse> priorities = boardPriorityService.findByBoardId(boardId).stream()
-                .map(BoardPriorityResponse::from)
-                .toList();
+        List<BoardPriorityResponse> priorities = enabled.contains(Feature.PRIORITIES)
+                ? boardPriorityService.findByBoardId(boardId).stream().map(BoardPriorityResponse::from).toList()
+                : List.of();
+
+        Map<String, Boolean> features = new LinkedHashMap<>();
+        for (Feature feature : Feature.values()) {
+            features.put(feature.name(), enabled.contains(feature));
+        }
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, labels, taskLabels,
-                priorities, permissions);
+                priorities, permissions, features);
     }
 }

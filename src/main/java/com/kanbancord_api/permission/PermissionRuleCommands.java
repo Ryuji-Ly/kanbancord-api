@@ -6,6 +6,8 @@ import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,7 @@ public class PermissionRuleCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final ServerFeatureService features;
 
     public PermissionRuleCommands(
             PermissionService permissionService,
@@ -31,16 +34,19 @@ public class PermissionRuleCommands {
             PermissionEscalationGuardService permissionEscalationGuardService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerFeatureService features) {
         this.permissionService = permissionService;
         this.kanbanPermissionService = kanbanPermissionService;
         this.permissionEscalationGuardService = permissionEscalationGuardService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.features = features;
     }
 
     public PermissionResponse create(Long serverId, Long actorUserId, PermissionRequest request) {
+        features.require(serverId, Feature.PERMISSIONS);
         authorizer.requireUserInServer(actorUserId, serverId);
         KanbanPermission kanbanPermission = validateRequest(serverId, request);
 
@@ -55,6 +61,7 @@ public class PermissionRuleCommands {
     }
 
     public PermissionResponse update(Long serverId, Long permissionId, Long actorUserId, PermissionRequest request) {
+        features.require(serverId, Feature.PERMISSIONS);
         authorizer.requireUserInServer(actorUserId, serverId);
         Permission permission = requireMutableRule(serverId, permissionId, "modified");
         KanbanPermission kanbanPermission = validateRequest(serverId, request);
@@ -72,6 +79,7 @@ public class PermissionRuleCommands {
     }
 
     public PermissionResponse setState(Long serverId, Long permissionId, Long actorUserId, String state) {
+        features.require(serverId, Feature.PERMISSIONS);
         authorizer.requireUserInServer(actorUserId, serverId);
         Permission permission = requireMutableRule(serverId, permissionId, "modified");
         if (state == null || (!state.equals("ALLOW") && !state.equals("DENY"))) {
@@ -91,6 +99,7 @@ public class PermissionRuleCommands {
     }
 
     public void delete(Long serverId, Long permissionId, Long actorUserId) {
+        features.require(serverId, Feature.PERMISSIONS);
         authorizer.requireUserInServer(actorUserId, serverId);
         Permission permission = requireMutableRule(serverId, permissionId, "deleted");
         permissionEscalationGuardService.validateChange(actorUserId, serverId, copyOf(permission), null);

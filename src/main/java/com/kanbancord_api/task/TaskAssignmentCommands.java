@@ -7,6 +7,8 @@ import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,22 +26,26 @@ public class TaskAssignmentCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final ServerFeatureService features;
 
     public TaskAssignmentCommands(
             TaskAssignmentService taskAssignmentService,
             UserService userService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerFeatureService features) {
         this.taskAssignmentService = taskAssignmentService;
         this.userService = userService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.features = features;
     }
 
     public TaskAssignmentResponse assign(Long serverId, Long boardId, Long taskId, Long actorUserId,
             TaskAssignmentRequest request) {
+        features.require(serverId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
@@ -61,6 +67,7 @@ public class TaskAssignmentCommands {
     }
 
     public void unassign(Long serverId, Long boardId, Long taskId, Long assignmentId, Long actorUserId) {
+        features.require(serverId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
