@@ -437,6 +437,31 @@ class EndToEndApiIntegrationTest {
         assertTrue(leaked.isEmpty(), leaked.toString());
     }
 
+    @Test
+    void preferences_mergeByTopLevelKey_areLimitedInSize_andReachTheUsersOtherTabs() throws Exception {
+        World w = bootstrapServer();
+        RealtimeProbe otherTab = RealtimeProbe.connect(this, MEMBER);
+        otherTab.subscribe("/user/queue/me");
+        Thread.sleep(500);
+
+        call("PATCH", "/api/me/preferences", MEMBER, Map.of("theme", Map.of("preset", "high-contrast"))).expect(200);
+        Map<?, ?> event = otherTab.next();
+        assertEquals("PROFILE_UPDATED", event.get("eventType"));
+
+        call("PATCH", "/api/me/preferences", MEMBER, Map.of("simpleView", Map.of("COMMENTS", true))).expect(200);
+        JsonNode saved = call("GET", "/api/me/preferences", MEMBER, null).expect(200).json();
+        assertEquals("high-contrast", saved.at("/theme/preset").asText(), "saving one part keeps the others");
+        assertTrue(saved.at("/simpleView/COMMENTS").asBoolean());
+        assertEquals("high-contrast", call("GET", "/api/me", MEMBER, null).json().at("/preferences/theme/preset").asText());
+
+        Map<String, Object> removeTheme = new HashMap<>();
+        removeTheme.put("theme", null);
+        assertFalse(call("PATCH", "/api/me/preferences", MEMBER, removeTheme).expect(200).json().has("theme"));
+        assertEquals(400, call("PATCH", "/api/me/preferences", MEMBER, Map.of("junk", "x".repeat(40_000))).status());
+        assertFalse(call("GET", "/api/me/preferences", OWNER, null).expect(200).json().has("simpleView"),
+                "preferences are per user");
+    }
+
     // ── Sessions ─────────────────────────────────────────────────────────────
 
     @Test
