@@ -937,6 +937,12 @@ class EndToEndApiIntegrationTest {
         assertEquals(high, saved.get("priorityId").asLong(), "a hidden priority survives an edit");
         assertEquals("2030-01-01T09:00:00", saved.get("dueDate").asText(), "a hidden due date survives an edit");
 
+        // With due dates on, an edit without one clears it.
+        call("PUT", w.path("/features"), OWNER, Map.of("DUE_DATES", true)).expect(200);
+        JsonNode cleared = call("PUT", w.boardPath(board, "/tasks/" + task), MOD, hiddenEdit).expect(200).json();
+        assertTrue(cleared.get("dueDate").isNull(), "a due date can be removed");
+        call("PUT", w.path("/features"), OWNER, Map.of("DUE_DATES", false)).expect(200);
+
         // Only server administrators change features, and the change is audited.
         assertEquals(403, call("PUT", w.path("/features"), MOD, Map.of("LABELS", true)).status());
         assertEquals(400, call("PUT", w.path("/features"), OWNER, Map.of("NOPE", true)).status());
