@@ -1,5 +1,7 @@
 package com.kanbancord_api.task;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -15,6 +17,7 @@ public class TaskResponse {
     private LocalDateTime dueDate;
     private Boolean isArchived;
     private Map<String, Object> metadata;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

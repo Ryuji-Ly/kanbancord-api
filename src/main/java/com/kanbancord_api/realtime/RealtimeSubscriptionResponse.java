@@ -1,5 +1,7 @@
 package com.kanbancord_api.realtime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.time.Instant;
 
 public class RealtimeSubscriptionResponse {
@@ -7,6 +9,7 @@ public class RealtimeSubscriptionResponse {
     private String subscriptionId;
     private String destination;
     private String scopeType;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long serverId;
     private Long boardId;
     private Instant subscribedAt;

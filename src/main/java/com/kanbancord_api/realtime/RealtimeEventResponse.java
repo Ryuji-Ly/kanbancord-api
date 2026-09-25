@@ -1,5 +1,7 @@
 package com.kanbancord_api.realtime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.time.Instant;
 
 public class RealtimeEventResponse {
@@ -7,10 +9,12 @@ public class RealtimeEventResponse {
     private String eventId;
     private String eventType;
     private String scopeType;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long serverId;
     private Long boardId;
     private String entityType;
     private Long entityId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long actorUserId;
     private Instant occurredAt;
     private Object payload;
