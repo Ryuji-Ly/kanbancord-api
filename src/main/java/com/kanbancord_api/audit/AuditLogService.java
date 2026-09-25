@@ -1,5 +1,6 @@
 package com.kanbancord_api.audit;
 
+import com.kanbancord_api.user.User;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,11 @@ public class AuditLogService {
                 filterEntityTypes ? filter.entityTypes() : List.of(""),
                 beforeLogId,
                 Limit.of(limit));
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> actors(Long serverId) {
+        return auditLogRepository.findActors(serverId);
     }
 
     @Transactional(readOnly = true)
