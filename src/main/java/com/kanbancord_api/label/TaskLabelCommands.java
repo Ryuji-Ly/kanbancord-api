@@ -5,6 +5,8 @@ import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.task.Task;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,19 +20,23 @@ public class TaskLabelCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final ServerFeatureService features;
 
     public TaskLabelCommands(
             TaskLabelService taskLabelService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerFeatureService features) {
         this.taskLabelService = taskLabelService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.features = features;
     }
 
     public TaskLabelResponse add(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskLabelRequest request) {
+        features.require(serverId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "APPLY_LABEL_TO_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
@@ -49,6 +55,7 @@ public class TaskLabelCommands {
     }
 
     public void remove(Long serverId, Long boardId, Long taskId, Long taskLabelId, Long actorUserId) {
+        features.require(serverId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "REMOVE_LABEL_FROM_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         TaskLabel taskLabel = resourceValidator.requireTaskLabelInServer(taskLabelId, serverId);

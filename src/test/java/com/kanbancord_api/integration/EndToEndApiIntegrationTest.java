@@ -75,6 +75,8 @@ class EndToEndApiIntegrationTest {
     private static final long NEWBIE = 1_004L;
 
     private static final String WEB_ORIGIN = "https://kanbancord.com";
+    private static final Map<String, Boolean> ALL_FEATURES = Map.of("LABELS", true, "PRIORITIES", true,
+            "ASSIGNEES", true, "COMMENTS", true, "DUE_DATES", true, "PERMISSIONS", true);
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {
@@ -644,7 +646,10 @@ class EndToEndApiIntegrationTest {
         assertEquals(403, w.createRule(MEMBER, "SERVER", w.serverId, "USER", MEMBER, "VIEW_AUDIT_LOG", "ALLOW")
                 .status());
 
-        List<JsonNode> log = auditLog(w);
+        // Leave out the features switched on while setting up the test server.
+        List<JsonNode> log = auditLog(w).stream()
+                .filter(e -> !"SERVER_FEATURES_UPDATED".equals(e.get("action").asText()))
+                .toList();
         assertEquals(List.of("BOARD_CREATED", "TASK_CREATED", "TASK_UPDATED", "TASK_DELETED"),
                 log.stream().map(e -> e.get("action").asText()).toList());
 
@@ -663,7 +668,9 @@ class EndToEndApiIntegrationTest {
 
         // Deleting the board keeps its history (detached from the board) and records the deletion.
         call("DELETE", w.boardPath(board, ""), OWNER, null).expect(204);
-        List<JsonNode> afterDelete = auditLog(w);
+        List<JsonNode> afterDelete = auditLog(w).stream()
+                .filter(e -> !"SERVER_FEATURES_UPDATED".equals(e.get("action").asText()))
+                .toList();
         assertEquals(5, afterDelete.size());
         JsonNode deleted = afterDelete.get(4);
         assertEquals("BOARD_DELETED", deleted.get("action").asText());
@@ -805,6 +812,61 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of("DISCORD_PERMISSION:DENY", "ROLE:ALLOW"), remaining);
     }
 
+    // ── Simple mode ─────────────────────────────────────────────────────────────
+
+    @Test
+    void simpleMode_newServersStartWithTheCoreOnly_andSwitchedOffFeaturesKeepTheirData() throws Exception {
+        World w = bootstrapServer();
+        call("PUT", w.path("/features"), OWNER, Map.of("LABELS", false, "PRIORITIES", false, "ASSIGNEES", false,
+                "COMMENTS", false, "DUE_DATES", false, "PERMISSIONS", false)).expect(200);
+        long board = w.createBoard(OWNER, "Plain");
+        long todo = w.column(board, "Todo");
+
+        // A brand-new server, straight from the bot, is in simple mode.
+        World fresh = bootstrapServerWithoutFeatures();
+        JsonNode freshFeatures = call("GET", fresh.path("/features"), MEMBER, null).expect(200).json();
+        freshFeatures.fields().forEachRemaining(entry -> assertFalse(entry.getValue().asBoolean(), entry.getKey()));
+
+        // The core works: tasks with a title and description.
+        long task = w.createTask(MOD, board, todo, "Just a task");
+
+        // Everything optional is refused with 409 and a readable reason.
+        Response label = call("POST", w.boardPath(board, "/labels"), OWNER, Map.of("boardId", board, "name", "x", "color", "#ff0000"));
+        assertEquals(409, label.status());
+        assertTrue(label.body().contains("Labels are turned off"), label.body());
+        assertEquals(409, call("POST", w.boardPath(board, "/priorities"), OWNER, Map.of("name", "Urgent")).status());
+        assertEquals(409, call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), MOD,
+                Map.of("taskId", task, "userId", MOD)).status());
+        assertEquals(409, call("POST", w.boardPath(board, "/tasks/" + task + "/comments"), MOD,
+                Map.of("taskId", task, "content", "hi")).status());
+        assertEquals(409, call("GET", w.boardPath(board, "/tasks/" + task + "/comments"), MOD, null).status());
+        assertEquals(409, w.createRule(OWNER, "BOARD", board, "USER", MEMBER, "VIEW_BOARD", "DENY").status());
+
+        JsonNode snapshot = w.snapshot(MOD, board);
+        assertFalse(snapshot.get("features").get("LABELS").asBoolean());
+        assertEquals(0, snapshot.get("priorities").size(), "switched-off lists are left out");
+
+        // Switch priorities and due dates on, set them, switch them off: saving the task keeps them.
+        call("PUT", w.path("/features"), OWNER, Map.of("PRIORITIES", true, "DUE_DATES", true)).expect(200);
+        long high = w.snapshot(MOD, board).get("priorities").get(1).get("priorityId").asLong();
+        Map<String, Object> edit = new HashMap<>(Map.of("title", "Just a task", "boardId", board, "columnId", todo,
+                "dueDate", "2030-01-01T09:00:00"));
+        edit.put("priorityId", high);
+        call("PUT", w.boardPath(board, "/tasks/" + task), MOD, edit).expect(200);
+        call("PUT", w.path("/features"), OWNER, Map.of("PRIORITIES", false, "DUE_DATES", false)).expect(200);
+
+        Map<String, Object> hiddenEdit = new HashMap<>(Map.of("title", "Renamed", "boardId", board, "columnId", todo));
+        hiddenEdit.put("priorityId", null);
+        JsonNode saved = call("PUT", w.boardPath(board, "/tasks/" + task), MOD, hiddenEdit).expect(200).json();
+        assertEquals(high, saved.get("priorityId").asLong(), "a hidden priority survives an edit");
+        assertEquals("2030-01-01T09:00:00", saved.get("dueDate").asText(), "a hidden due date survives an edit");
+
+        // Only server administrators change features, and the change is audited.
+        assertEquals(403, call("PUT", w.path("/features"), MOD, Map.of("LABELS", true)).status());
+        assertEquals(400, call("PUT", w.path("/features"), OWNER, Map.of("NOPE", true)).status());
+        assertTrue(auditLog(w).stream().anyMatch(e -> "SERVER_FEATURES_UPDATED".equals(e.get("action").asText())));
+    }
+
     // ── Priority levels ─────────────────────────────────────────────────────────
 
     @Test
@@ -914,11 +976,20 @@ class EndToEndApiIntegrationTest {
         return bootstrapServer(false);
     }
 
+    /** A server as the bot creates it, before anyone has switched on optional features. */
+    private World bootstrapServerWithoutFeatures() throws Exception {
+        return bootstrapServer(false, false);
+    }
+
     /**
      * @param withEveryone also sync an @everyone role (id = server id) granting View Channels, and
      *                     NEWBIE, a member with no roles
      */
     private World bootstrapServer(boolean withEveryone) throws Exception {
+        return bootstrapServer(withEveryone, true);
+    }
+
+    private World bootstrapServer(boolean withEveryone, boolean allFeatures) throws Exception {
         long serverId = SERVER_IDS.addAndGet(1_000);
         World w = new World(serverId, serverId + 1, serverId + 2);
 
@@ -948,6 +1019,10 @@ class EndToEndApiIntegrationTest {
 
         for (JsonNode entry : call("GET", w.path("/permissions/catalog"), OWNER, null).expect(200).json()) {
             w.catalog.put(entry.get("key").asText(), entry.get("permissionId").asLong());
+        }
+        // New servers start in simple mode; most tests exercise every feature.
+        if (allFeatures) {
+            call("PUT", w.path("/features"), OWNER, ALL_FEATURES).expect(200);
         }
         return w;
     }

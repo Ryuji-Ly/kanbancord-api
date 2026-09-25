@@ -15,6 +15,8 @@ import java.util.Map;
  * levels, tasks with their assignments and labels, and what the caller may do on it.
  *
  * @param permissions every board-scope permission key and whether the caller has it
+ * @param features    every optional feature and whether the server has it on; the lists of a
+ *                    feature that is off are empty
  */
 public record BoardSnapshotResponse(
         BoardResponse board,
@@ -24,5 +26,6 @@ public record BoardSnapshotResponse(
         List<LabelResponse> labels,
         List<TaskLabelResponse> taskLabels,
         List<BoardPriorityResponse> priorities,
-        Map<String, PermissionDecisionResponse> permissions) {
+        Map<String, PermissionDecisionResponse> permissions,
+        Map<String, Boolean> features) {
 }
