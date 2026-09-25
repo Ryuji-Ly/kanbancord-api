@@ -48,7 +48,7 @@ public class PriorityCommands {
 
     /** Adds a level at the bottom of the list. */
     public BoardPriorityResponse create(Long serverId, Long boardId, Long actorUserId, BoardPriorityRequest request) {
-        features.require(serverId, Feature.PRIORITIES);
+        features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         String name = request.getName().trim();
         requireUniqueName(boardId, name, null);
@@ -68,7 +68,7 @@ public class PriorityCommands {
 
     public BoardPriorityResponse update(Long serverId, Long boardId, Long priorityId, Long actorUserId,
             BoardPriorityRequest request) {
-        features.require(serverId, Feature.PRIORITIES);
+        features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         String name = request.getName().trim();
@@ -87,7 +87,7 @@ public class PriorityCommands {
 
     /** Moves a level to {@code index} (0-based) and renumbers the others. */
     public List<BoardPriorityResponse> move(Long serverId, Long boardId, Long priorityId, Long actorUserId, int index) {
-        features.require(serverId, Feature.PRIORITIES);
+        features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         BoardPriorityResponse before = BoardPriorityResponse.from(priority);
@@ -103,7 +103,7 @@ public class PriorityCommands {
     }
 
     public void delete(Long serverId, Long boardId, Long priorityId, Long actorUserId) {
-        features.require(serverId, Feature.PRIORITIES);
+        features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         BoardPriorityResponse before = BoardPriorityResponse.from(priority);

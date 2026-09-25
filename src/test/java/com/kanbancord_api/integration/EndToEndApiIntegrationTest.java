@@ -926,6 +926,51 @@ class EndToEndApiIntegrationTest {
         assertTrue(auditLog(w).stream().anyMatch(e -> "SERVER_FEATURES_UPDATED".equals(e.get("action").asText())));
     }
 
+    @Test
+    void boardSimpleMode_narrowsTheServersFeatures_forThatBoardOnly() throws Exception {
+        World w = bootstrapServer();
+        long plain = w.createBoard(OWNER, "Plain");
+        long full = w.createBoard(OWNER, "Full");
+        long task = w.createTask(MOD, plain, w.column(plain, "Todo"), "Just a task");
+        String features = w.boardPath(plain, "/features");
+
+        RealtimeProbe member = RealtimeProbe.connect(this, MEMBER);
+        member.subscribe(w.topic(plain));
+        Thread.sleep(500);
+
+        // Only people who edit the board's details switch its features; permissions stay server-wide.
+        assertEquals(403, call("PUT", features, MEMBER, Map.of("LABELS", false)).status());
+        assertEquals(400, call("PUT", features, OWNER, Map.of("PERMISSIONS", false)).status());
+        JsonNode switches = call("PUT", features, OWNER, Map.of("LABELS", false, "COMMENTS", false)).expect(200).json();
+        assertFalse(switches.get("LABELS").asBoolean());
+        assertTrue(switches.get("PRIORITIES").asBoolean());
+        assertFalse(switches.has("PERMISSIONS"));
+        assertEquals("BOARD_FEATURES_UPDATED", lastEventType(member));
+
+        // The board refuses what it switched off; the other board keeps everything.
+        assertEquals(409, call("POST", w.boardPath(plain, "/labels"), OWNER,
+                Map.of("boardId", plain, "name", "x", "color", "#ff0000")).status());
+        assertEquals(409, call("POST", w.boardPath(plain, "/tasks/" + task + "/comments"), MOD,
+                Map.of("taskId", task, "content", "hi")).status());
+        call("POST", w.boardPath(full, "/labels"), OWNER, Map.of("boardId", full, "name", "x", "color", "#ff0000"))
+                .expect(201);
+
+        JsonNode snapshot = w.snapshot(MEMBER, plain);
+        assertFalse(snapshot.get("features").get("LABELS").asBoolean());
+        assertTrue(snapshot.get("serverFeatures").get("LABELS").asBoolean());
+        assertTrue(w.snapshot(MEMBER, full).get("features").get("LABELS").asBoolean());
+
+        // Switching on for the board cannot switch on what the server has off.
+        call("PUT", w.path("/features"), OWNER, Map.of("PRIORITIES", false)).expect(200);
+        call("PUT", features, OWNER, Map.of("PRIORITIES", true)).expect(200);
+        assertFalse(w.snapshot(MEMBER, plain).get("features").get("PRIORITIES").asBoolean());
+
+        // Switching back on restores the board, and every change is in the audit log.
+        call("PUT", features, OWNER, Map.of("LABELS", true)).expect(200);
+        assertTrue(w.snapshot(MEMBER, plain).get("features").get("LABELS").asBoolean());
+        assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
+    }
+
     // ── Priority levels ─────────────────────────────────────────────────────────
 
     @Test

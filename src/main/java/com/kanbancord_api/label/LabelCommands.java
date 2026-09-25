@@ -36,7 +36,7 @@ public class LabelCommands {
     }
 
     public LabelResponse create(Long serverId, Long boardId, Long actorUserId, LabelRequest request) {
-        features.require(serverId, Feature.LABELS);
+        features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
@@ -54,7 +54,7 @@ public class LabelCommands {
     }
 
     public LabelResponse update(Long serverId, Long boardId, Long labelId, Long actorUserId, LabelRequest request) {
-        features.require(serverId, Feature.LABELS);
+        features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_LABEL");
         resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
@@ -73,7 +73,7 @@ public class LabelCommands {
     }
 
     public void delete(Long serverId, Long boardId, Long labelId, Long actorUserId) {
-        features.require(serverId, Feature.LABELS);
+        features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "DELETE_LABEL");
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);

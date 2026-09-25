@@ -77,7 +77,7 @@ public class TaskRoleAssignmentCommands {
     }
 
     private void requireAllowed(Long serverId, Long boardId, Long taskId, Long actorUserId) {
-        features.require(serverId, Feature.ASSIGNEES);
+        features.require(serverId, boardId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "ASSIGN_TASK_OTHERS");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         resourceValidator.requireTaskInServer(taskId, serverId);
