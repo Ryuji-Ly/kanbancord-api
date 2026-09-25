@@ -981,6 +981,63 @@ class EndToEndApiIntegrationTest {
         assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
     }
 
+    // ── The bot acting for a user ───────────────────────────────────────────────
+
+    @Test
+    void botActingUser_runsAsThatUser_withTheirPermissions_onlyInTheirServer() throws Exception {
+        World w = bootstrapServer();
+        World other = bootstrapServer();
+        long board = w.createBoard(OWNER, "From Discord");
+        long todo = w.column(board, "Todo");
+        Map<String, Object> task = Map.of("title", "Made in Discord", "boardId", board, "columnId", todo);
+
+        // Runs as the user: a member can create tasks, and the audit log says it came from Discord.
+        long taskId = asBot("POST", w.boardPath(board, "/tasks"), BOT_TOKEN, MEMBER, w.serverId, task)
+                .expect(201).json().get("taskId").asLong();
+        JsonNode entry = auditLog(w).stream()
+                .filter(e -> "TASK_CREATED".equals(e.get("action").asText())).findFirst().orElseThrow();
+        assertEquals("DISCORD", entry.get("source").asText());
+        assertEquals(String.valueOf(MEMBER), entry.get("userId").asText());
+
+        // With that user's permissions: members cannot rename tasks or create boards.
+        assertEquals(403, asBot("PUT", w.boardPath(board, "/tasks/" + taskId), BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("title", "Renamed", "boardId", board, "columnId", todo)).status());
+        assertEquals(403, asBot("POST", w.path("/boards"), BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("name", "Nope", "serverId", w.serverId)).status());
+        assertEquals(403, asBot("GET", w.path("/boards"), BOT_TOKEN, 9_998L, w.serverId, null).status(),
+                "someone outside the server gets nothing");
+
+        // Only with the bot's token, only in the server the command ran in, never with a user token too.
+        assertEquals(401, asBot("GET", w.path("/boards"), "wrong-token", MEMBER, w.serverId, null).status());
+        assertEquals(403, asBot("GET", other.path("/boards"), BOT_TOKEN, OWNER, w.serverId, null).status(),
+                "a command in one server cannot reach another, even where the user is a member");
+        assertEquals(403, asBot("GET", "/api/me", BOT_TOKEN, OWNER, w.serverId, null).status());
+        assertEquals(403, asBot("GET", "/api/audit-logs", BOT_TOKEN, OWNER, w.serverId, null).status());
+        assertEquals(400, asBot("GET", w.path("/boards"), BOT_TOKEN, "abc", w.serverId, null).status());
+        HttpResponse<String> both = http.send(HttpRequest.newBuilder(uri(w.path("/boards")))
+                .header("Authorization", "Bearer " + accessToken(OWNER))
+                .header("X-Internal-Bot-Token", BOT_TOKEN)
+                .header("X-Acting-User-Id", String.valueOf(OWNER))
+                .header("X-Acting-Guild-Id", String.valueOf(w.serverId))
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, both.statusCode());
+    }
+
+    private Response asBot(String method, String path, String botToken, Object userId, long guildId, Object body)
+            throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .header("X-Internal-Bot-Token", botToken)
+                .header("X-Acting-User-Id", String.valueOf(userId))
+                .header("X-Acting-Guild-Id", String.valueOf(guildId))
+                .method(method, body == null
+                        ? HttpRequest.BodyPublishers.noBody()
+                        : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)));
+        HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        JsonNode json = response.body().startsWith("{") ? objectMapper.readTree(response.body()) : null;
+        return new Response(response.statusCode(), json, response.body());
+    }
+
     // ── Media uploads ───────────────────────────────────────────────────────────
 
     @Test
