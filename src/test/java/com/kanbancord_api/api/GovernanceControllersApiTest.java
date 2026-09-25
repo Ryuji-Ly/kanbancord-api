@@ -67,6 +67,8 @@ class GovernanceControllersApiTest {
 
         @MockitoBean
     private AuditLogService auditLogService;
+    @MockitoBean
+    private com.kanbancord_api.feature.ServerFeatureService serverFeatureService;
         @MockitoBean
     private ServerService serverService;
         @MockitoBean

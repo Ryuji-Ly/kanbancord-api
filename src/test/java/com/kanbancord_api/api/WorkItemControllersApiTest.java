@@ -133,6 +133,8 @@ class WorkItemControllersApiTest {
     private TaskLabelService taskLabelService;
     @MockitoBean
     private BoardPriorityService boardPriorityService;
+    @MockitoBean
+    private com.kanbancord_api.feature.ServerFeatureService serverFeatureService;
         @MockitoBean
     private ServerService serverService;
         @MockitoBean

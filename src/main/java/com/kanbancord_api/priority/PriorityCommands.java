@@ -5,6 +5,8 @@ import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,22 +29,26 @@ public class PriorityCommands {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
+    private final ServerFeatureService features;
 
     public PriorityCommands(
             BoardPriorityRepository boardPriorityRepository,
             BoardPriorityService boardPriorityService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerFeatureService features) {
         this.boardPriorityRepository = boardPriorityRepository;
         this.boardPriorityService = boardPriorityService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
+        this.features = features;
     }
 
     /** Adds a level at the bottom of the list. */
     public BoardPriorityResponse create(Long serverId, Long boardId, Long actorUserId, BoardPriorityRequest request) {
+        features.require(serverId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         String name = request.getName().trim();
         requireUniqueName(boardId, name, null);
@@ -62,6 +68,7 @@ public class PriorityCommands {
 
     public BoardPriorityResponse update(Long serverId, Long boardId, Long priorityId, Long actorUserId,
             BoardPriorityRequest request) {
+        features.require(serverId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         String name = request.getName().trim();
@@ -80,6 +87,7 @@ public class PriorityCommands {
 
     /** Moves a level to {@code index} (0-based) and renumbers the others. */
     public List<BoardPriorityResponse> move(Long serverId, Long boardId, Long priorityId, Long actorUserId, int index) {
+        features.require(serverId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         BoardPriorityResponse before = BoardPriorityResponse.from(priority);
@@ -95,6 +103,7 @@ public class PriorityCommands {
     }
 
     public void delete(Long serverId, Long boardId, Long priorityId, Long actorUserId) {
+        features.require(serverId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
         BoardPriorityResponse before = BoardPriorityResponse.from(priority);
