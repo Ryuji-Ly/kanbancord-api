@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -65,6 +66,17 @@ public class AuditLogController {
         List<AuditLogResponse> entries = logs.stream().limit(limit).map(AuditLogResponse::from).toList();
         Long nextBefore = more ? entries.get(entries.size() - 1).logId() : null;
         return ResponseEntity.ok(new AuditLogPage(entries, nextBefore));
+    }
+
+    /** The people who appear in the log, to filter it by; past members included. */
+    @GetMapping("/actors")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<AuditActorResponse>> getActors(@PathVariable Long serverId, @CurrentUser Long userId) {
+        authorizer.requireServerPermission(userId, serverId, "VIEW_AUDIT_LOG");
+        return ResponseEntity.ok(auditLogService.actors(serverId).stream()
+                .map(AuditActorResponse::from)
+                .sorted(Comparator.comparing(AuditActorResponse::displayName, String.CASE_INSENSITIVE_ORDER))
+                .toList());
     }
 
     @GetMapping("/{logId}")

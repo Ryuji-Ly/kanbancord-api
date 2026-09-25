@@ -1,5 +1,6 @@
 package com.kanbancord_api.audit;
 
+import com.kanbancord_api.user.User;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,10 @@ import java.util.List;
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
 
     List<AuditLog> findByServer_ServerId(Long serverId);
+
+    /** Everyone who has made a change recorded in the server's log. */
+    @Query("select distinct u from AuditLog a join a.user u where a.server.serverId = :serverId")
+    List<User> findActors(@Param("serverId") Long serverId);
 
     /**
      * A server's entries, newest first, with the actor and board loaded. Every filter is optional:

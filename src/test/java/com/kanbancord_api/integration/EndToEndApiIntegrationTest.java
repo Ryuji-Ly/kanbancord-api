@@ -709,6 +709,28 @@ class EndToEndApiIntegrationTest {
         assertEquals("TASK_UPDATED", edit.get("action").asText());
         assertEquals("One", edit.get("changes").get("_subject").asText());
         assertTrue(edit.get("changes").has("description"));
+
+        // Moves name the columns, as they were called at the time.
+        long doing = w.column(board, "Doing");
+        w.moveTask(MOD, board, one, doing, 0).expect(200);
+        JsonNode moved = call("GET", w.path("/audit-logs?limit=1"), OWNER, null).expect(200).json().get("entries").get(0);
+        assertEquals("TASK_MOVED", moved.get("action").asText());
+        assertEquals("Todo", moved.get("changes").get("_fromColumn").asText());
+        assertEquals("Doing", moved.get("changes").get("_column").asText());
+        long two = w.createTask(MOD, board, doing, "Four");
+        w.moveTask(MOD, board, two, doing, 0).expect(200);
+        JsonNode reordered = call("GET", w.path("/audit-logs?limit=1"), OWNER, null).expect(200).json().get("entries").get(0);
+        assertEquals("Doing", reordered.get("changes").get("_column").asText());
+        assertFalse(reordered.get("changes").has("_fromColumn"), "a reorder stays in its column");
+
+        // Only people who changed something are offered as filters.
+        List<String> actors = new ArrayList<>();
+        call("GET", w.path("/audit-logs/actors"), OWNER, null).expect(200).json()
+                .forEach(actor -> actors.add(actor.get("userId").asText()));
+        assertEquals(3, actors.size(), actors.toString());
+        assertTrue(actors.containsAll(List.of(String.valueOf(OWNER), String.valueOf(MOD), String.valueOf(MEMBER))));
+        assertFalse(actors.contains(String.valueOf(OTHER)));
+        assertEquals(403, call("GET", w.path("/audit-logs/actors"), MEMBER, null).status());
     }
 
     private List<JsonNode> auditLog(World w) throws Exception {
