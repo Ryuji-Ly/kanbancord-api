@@ -14,14 +14,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Which optional features each server has switched on. Checked on many requests, so the sets are
- * cached; a change evicts its server once it has committed.
+ * Which optional features each server has switched on, and which of those each board has switched
+ * off for itself. Checked on many requests, so both are cached; a change evicts its server or board
+ * once it has committed.
  */
 @Service
 public class ServerFeatureService {
 
     private final JdbcTemplate jdbcTemplate;
     private final Map<Long, Set<Feature>> cache = new ConcurrentHashMap<>();
+    private final Map<Long, Set<Feature>> boardCache = new ConcurrentHashMap<>();
 
     public ServerFeatureService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -29,6 +31,10 @@ public class ServerFeatureService {
 
     /** Published inside the transaction that changed a server's features. */
     public record FeaturesChanged(Long serverId) {
+    }
+
+    /** Published inside the transaction that changed a board's features. */
+    public record BoardFeaturesChanged(Long boardId) {
     }
 
     public Set<Feature> enabled(Long serverId) {
@@ -43,6 +49,44 @@ public class ServerFeatureService {
     public void require(Long serverId, Feature feature) {
         if (!isEnabled(serverId, feature)) {
             throw new FeatureDisabledException(feature.label());
+        }
+    }
+
+    /** The features on for a board: those the server has on, less those the board switched off. */
+    public Set<Feature> enabled(Long serverId, Long boardId) {
+        Set<Feature> disabled = disabledOnBoard(boardId);
+        if (disabled.isEmpty()) {
+            return enabled(serverId);
+        }
+        Set<Feature> enabled = EnumSet.noneOf(Feature.class);
+        enabled.addAll(enabled(serverId));
+        enabled.removeAll(disabled);
+        return Collections.unmodifiableSet(enabled);
+    }
+
+    public boolean isEnabled(Long serverId, Long boardId, Feature feature) {
+        return enabled(serverId, boardId).contains(feature);
+    }
+
+    /** Refuses the request with 409 when the server, or the board itself, has the feature switched off. */
+    public void require(Long serverId, Long boardId, Feature feature) {
+        if (!isEnabled(serverId, boardId, feature)) {
+            throw new FeatureDisabledException(feature.label());
+        }
+    }
+
+    /** The features the board has switched off for itself, whether or not the server has them on. */
+    public Set<Feature> disabledOnBoard(Long boardId) {
+        return boardCache.computeIfAbsent(boardId, this::loadBoard);
+    }
+
+    /** Replaces the features the board has switched off with exactly {@code disabled}. */
+    @Transactional
+    public void setDisabledOnBoard(Long boardId, Set<Feature> disabled) {
+        jdbcTemplate.update("DELETE FROM board_disabled_features WHERE board_id = ?", boardId);
+        for (Feature feature : disabled) {
+            jdbcTemplate.update("INSERT INTO board_disabled_features (board_id, feature) VALUES (?, ?)",
+                    boardId, feature.name());
         }
     }
 
@@ -70,16 +114,28 @@ public class ServerFeatureService {
         cache.remove(event.serverId());
     }
 
+    @TransactionalEventListener(fallbackExecution = true)
+    public void onBoardFeaturesChanged(BoardFeaturesChanged event) {
+        boardCache.remove(event.boardId());
+    }
+
     private Set<Feature> load(Long serverId) {
-        Set<Feature> enabled = EnumSet.noneOf(Feature.class);
-        for (String name : jdbcTemplate.queryForList(
-                "SELECT feature FROM server_features WHERE server_id = ?", String.class, serverId)) {
+        return features("SELECT feature FROM server_features WHERE server_id = ?", serverId);
+    }
+
+    private Set<Feature> loadBoard(Long boardId) {
+        return features("SELECT feature FROM board_disabled_features WHERE board_id = ?", boardId);
+    }
+
+    private Set<Feature> features(String sql, Long id) {
+        Set<Feature> features = EnumSet.noneOf(Feature.class);
+        for (String name : jdbcTemplate.queryForList(sql, String.class, id)) {
             try {
-                enabled.add(Feature.valueOf(name));
+                features.add(Feature.valueOf(name));
             } catch (IllegalArgumentException ignored) {
                 // A feature this version does not know; ignore it rather than fail.
             }
         }
-        return Collections.unmodifiableSet(enabled);
+        return Collections.unmodifiableSet(features);
     }
 }

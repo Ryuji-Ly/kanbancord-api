@@ -45,7 +45,7 @@ public class TaskAssignmentCommands {
 
     public TaskAssignmentResponse assign(Long serverId, Long boardId, Long taskId, Long actorUserId,
             TaskAssignmentRequest request) {
-        features.require(serverId, Feature.ASSIGNEES);
+        features.require(serverId, boardId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
@@ -67,7 +67,7 @@ public class TaskAssignmentCommands {
     }
 
     public void unassign(Long serverId, Long boardId, Long taskId, Long assignmentId, Long actorUserId) {
-        features.require(serverId, Feature.ASSIGNEES);
+        features.require(serverId, boardId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "VIEW_TASK");
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         TaskAssignment assignment = resourceValidator.requireAssignmentInServer(assignmentId, serverId);
