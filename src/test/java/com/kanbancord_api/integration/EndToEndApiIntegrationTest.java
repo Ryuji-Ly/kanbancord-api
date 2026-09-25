@@ -994,6 +994,69 @@ class EndToEndApiIntegrationTest {
         assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
     }
 
+    // ── Full server sync ────────────────────────────────────────────────────────
+
+    @Test
+    void serverSync_makesMembersAndRolesExactlyWhatDiscordHas_andIsFastForLargeServers() throws Exception {
+        World w = bootstrapServer();
+        String bootstrap = "/api/internal/sync/servers/" + w.serverId + "/bootstrap";
+        long gone = w.serverId + 3;
+
+        // Discord now: OTHER left, the Mods role was deleted, MEMBER changed avatar and became a mod
+        // of a new role, and 5000 more people joined.
+        List<Map<String, Object>> members = new ArrayList<>(List.of(
+                Map.of("userId", OWNER, "username", "owner", "roleIds", List.of()),
+                Map.of("userId", MOD, "username", "mod", "roleIds", List.of(w.membersRole)),
+                Map.of("userId", MEMBER, "username", "member", "avatarUrl", "https://cdn.example/new.png",
+                        "roleIds", List.of(w.membersRole, gone, 424242L))));
+        for (long i = 0; i < 5000; i++) {
+            members.add(Map.of("userId", 5_000_000L + i, "username", "crowd" + i, "roleIds", List.of(w.membersRole)));
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("name", "Renamed");
+        body.put("ownerId", OWNER);
+        body.put("ownerUsername", "owner");
+        body.put("roles", List.of(
+                Map.of("roleId", w.membersRole, "name", "Members", "position", 1, "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES),
+                Map.of("roleId", gone, "name", "New role", "position", 3, "discordPermissions", VIEW_CHANNEL)));
+        body.put("members", members);
+
+        long started = System.nanoTime();
+        assertEquals(204, sync("POST", bootstrap, body));
+        long millis = (System.nanoTime() - started) / 1_000_000;
+        assertTrue(millis < 10_000, "5000 members synced in " + millis + " ms");
+
+        Long count = jdbcTemplate.queryForObject("SELECT count(*) FROM server_members WHERE server_id = ?", Long.class, w.serverId);
+        assertEquals(5003L, count);
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM server_members WHERE server_id = ? AND user_id = ?", Integer.class, w.serverId, OTHER),
+                "people who left are removed");
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM roles WHERE role_id = ?", Integer.class, w.modsRole),
+                "deleted roles are removed");
+        assertEquals("https://cdn.example/new.png", jdbcTemplate.queryForObject(
+                "SELECT avatar_url FROM users WHERE user_id = ?", String.class, MEMBER));
+        assertEquals(List.of(w.membersRole, gone), jdbcTemplate.queryForList("""
+                SELECT mr.role_id FROM member_roles mr JOIN server_members sm ON sm.id = mr.server_member_id
+                WHERE sm.server_id = ? AND sm.user_id = ? ORDER BY mr.role_id
+                """, Long.class, w.serverId, MEMBER), "roles are replaced; ids the server does not have are skipped");
+        assertEquals("Renamed", jdbcTemplate.queryForObject("SELECT name FROM servers WHERE server_id = ?", String.class, w.serverId));
+
+        // MOD lost the Mods role, so they are an ordinary member now.
+        long board = w.createBoard(OWNER, "After sync");
+        long task = w.createTask(MOD, board, w.column(board, "Todo"), "Still a member");
+        assertEquals(403, w.updateTask(MOD, board, task, "Renamed", w.column(board, "Todo")).status());
+
+        // A sync that could not read the members (an empty list) removes nobody, and no one's roles.
+        body.put("members", List.of());
+        assertEquals(204, sync("POST", bootstrap, body));
+        assertEquals(5003L, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM server_members WHERE server_id = ?", Long.class, w.serverId));
+        assertEquals(5002L, jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM member_roles mr JOIN server_members sm ON sm.id = mr.server_member_id
+                WHERE sm.server_id = ? AND mr.role_id = ?
+                """, Long.class, w.serverId, w.membersRole));
+    }
+
     // ── The bot acting for a user ───────────────────────────────────────────────
 
     @Test
