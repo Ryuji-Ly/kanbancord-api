@@ -11,6 +11,10 @@ import java.util.Set;
  */
 public final class AuditClassifier {
 
+    /** Actions of reminder entries, which the queue makes up; they are not in the audit log. */
+    public static final String DUE_SOON_ACTION = "TASK_DUE_SOON";
+    public static final String OVERDUE_ACTION = "TASK_OVERDUE";
+
     private AuditClassifier() {
     }
 
@@ -20,6 +24,8 @@ public final class AuditClassifier {
         return switch (action) {
             case "TASK_CREATED" -> EnumSet.of(NotificationEvent.TASK_CREATED);
             case "TASK_DELETED" -> EnumSet.of(NotificationEvent.TASK_DELETED);
+            case DUE_SOON_ACTION -> EnumSet.of(NotificationEvent.DUE_SOON);
+            case OVERDUE_ACTION -> EnumSet.of(NotificationEvent.OVERDUE);
             // A move within one column only reorders it: not worth announcing.
             case "TASK_MOVED" -> fields.containsKey("_fromColumn")
                     ? EnumSet.of(NotificationEvent.TASK_MOVED)

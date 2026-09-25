@@ -7,7 +7,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -37,8 +39,42 @@ public class NotificationQueue {
         this.groupWindow = Duration.ofSeconds(groupWindowSeconds);
     }
 
-    /** A claimed group: its id, its server and its audit entries in order. */
-    public record Batch(long batchId, long serverId, List<Long> auditIds) {
+    /**
+     * A claimed group: its id, its server and its audit entries in order; or, for a reminder, which
+     * task it is about and why ({@code reminderKind} DUE_SOON or OVERDUE), with no audit entries.
+     */
+    public record Batch(long batchId, long serverId, List<Long> auditIds, String reminderKind, Long reminderTaskId,
+                        LocalDateTime reminderDue) {
+
+        public Batch(long batchId, long serverId, List<Long> auditIds) {
+            this(batchId, serverId, auditIds, null, null, null);
+        }
+
+        public boolean isReminder() {
+            return reminderKind != null;
+        }
+    }
+
+    /**
+     * Queues a reminder about a task's due date, once per task, kind and due date: returns false when
+     * that reminder was already sent.
+     */
+    @Transactional
+    public boolean enqueueReminder(long serverId, long taskId, String kind, LocalDateTime dueDate) {
+        int recorded = jdbcTemplate.update("""
+                INSERT INTO task_due_reminders (task_id, kind, due_date) VALUES (?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """, taskId, kind, Timestamp.valueOf(dueDate));
+        if (recorded == 0) {
+            return false;
+        }
+        jdbcTemplate.update("""
+                INSERT INTO notification_queue (server_id, group_key, audit_ids, deliver_after, claimed_at,
+                    reminder_kind, reminder_task_id, reminder_due)
+                VALUES (?, ?, '{}', CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """, serverId, "reminder:" + taskId + ":" + kind + ":" + dueDate, kind, taskId, Timestamp.valueOf(dueDate));
+        return true;
     }
 
     /**
@@ -85,9 +121,11 @@ public class NotificationQueue {
                     ORDER BY deliver_after
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
-                RETURNING batch_id, server_id, audit_ids
+                RETURNING batch_id, server_id, audit_ids, reminder_kind, reminder_task_id, reminder_due
                 """, (rs, row) -> new Batch(rs.getLong("batch_id"), rs.getLong("server_id"),
-                        List.of((Long[]) rs.getArray("audit_ids").getArray())),
+                        List.of((Long[]) rs.getArray("audit_ids").getArray()), rs.getString("reminder_kind"),
+                        (Long) rs.getObject("reminder_task_id"),
+                        rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime()),
                 MAX_ATTEMPTS, CLAIM_TIMEOUT.toSeconds() + " seconds", limit);
     }
 
