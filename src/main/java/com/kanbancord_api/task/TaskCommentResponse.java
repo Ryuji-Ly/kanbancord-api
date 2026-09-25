@@ -1,5 +1,7 @@
 package com.kanbancord_api.task;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.kanbancord_api.user.User;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -11,6 +13,7 @@ import java.util.List;
 public class TaskCommentResponse {
     private Long commentId;
     private Long taskId;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
     private String authorUsername;
     private String authorGlobalName;

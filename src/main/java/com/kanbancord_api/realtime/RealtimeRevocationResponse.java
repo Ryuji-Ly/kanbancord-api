@@ -1,5 +1,7 @@
 package com.kanbancord_api.realtime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 /**
  * Sent on the session queue when the server ends one of the client's subscriptions, so the page can
  * stop showing data the user may no longer see.
@@ -10,6 +12,6 @@ public record RealtimeRevocationResponse(
         String type,
         String reason,
         String destination,
-        Long serverId,
+        @JsonSerialize(using = ToStringSerializer.class) Long serverId,
         Long boardId) {
 }
