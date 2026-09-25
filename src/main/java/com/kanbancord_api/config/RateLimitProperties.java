@@ -20,6 +20,8 @@ public class RateLimitProperties {
     private Limit session = new Limit(60, 30);
     private Limit read = new Limit(600, 600);
     private Limit write = new Limit(300, 300);
+    /** Uploads to Imgur, on top of the write limit: Imgur limits us, so one user must not use it all. */
+    private Limit upload = new Limit(10, 2);
 
     public boolean isEnabled() {
         return enabled;
@@ -59,6 +61,14 @@ public class RateLimitProperties {
 
     public void setWrite(Limit write) {
         this.write = write;
+    }
+
+    public Limit getUpload() {
+        return upload;
+    }
+
+    public void setUpload(Limit upload) {
+        this.upload = upload;
     }
 
     /** A token bucket: up to {@code capacity} requests at once, refilled at {@code perMinute}. */

@@ -24,7 +24,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
+import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -78,10 +83,15 @@ class EndToEndApiIntegrationTest {
     private static final Map<String, Boolean> ALL_FEATURES = Map.of("LABELS", true, "PRIORITIES", true,
             "ASSIGNEES", true, "COMMENTS", true, "DUE_DATES", true, "PERMISSIONS", true);
 
+    /** Stands in for Imgur, so uploads can be checked without a real account. */
+    private static final FakeImgur FAKE_IMGUR = new FakeImgur();
+
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {
         registry.add("kanbancord.auth.jwt.secret", () -> JWT_SECRET);
         registry.add("kanbancord.internal-sync.bot-token", () -> sha256Hex(BOT_TOKEN));
+        registry.add("kanbancord.imgur.client-id", () -> "test-client-id");
+        registry.add("kanbancord.imgur.api-base-url", FAKE_IMGUR::baseUrl);
     }
 
     @LocalServerPort
@@ -969,6 +979,130 @@ class EndToEndApiIntegrationTest {
         call("PUT", features, OWNER, Map.of("LABELS", true)).expect(200);
         assertTrue(w.snapshot(MEMBER, plain).get("features").get("LABELS").asBoolean());
         assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
+    }
+
+    // ── Media uploads ───────────────────────────────────────────────────────────
+
+    @Test
+    void mediaUploads_passFilesOnToImgur_andReturnOnlyTheLink() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Media");
+        String media = w.boardPath(board, "/media");
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0, 0, 0, 13};
+
+        JsonNode image = upload(media, MOD, "holiday photo.png", png).expect(201).json();
+        assertEquals("https://i.imgur.com/fake1.png", image.get("url").asText());
+        assertEquals("IMAGE", image.get("kind").asText());
+        FakeImgur.Request sent = FAKE_IMGUR.last();
+        assertEquals("Client-ID test-client-id", sent.authorization());
+        assertEquals(String.valueOf(sent.body().length()), sent.contentLength(), "sent with its exact length, not chunked");
+        assertTrue(sent.body().contains("name=\"type\"\r\n\r\nfile"), sent.body());
+        assertTrue(sent.body().contains("name=\"image\"; filename=\"upload.png\""),
+                "sent as an image, without the user's own file name: " + sent.body());
+        assertEquals("fakehash1", jdbcTemplate.queryForObject(
+                "SELECT delete_hash FROM media_uploads WHERE board_id = ?", String.class, board),
+                "the delete hash is kept so the file can be taken down later");
+
+        byte[] mp4 = "\0\0\0 ftypisom\0\0\0\0".getBytes(StandardCharsets.ISO_8859_1);
+        assertEquals("VIDEO", upload(media, MOD, "clip.mp4", mp4).expect(201).json().get("kind").asText());
+        assertTrue(FAKE_IMGUR.last().body().contains("name=\"video\""));
+
+        // Anyone who can create tasks may upload; outsiders may not, and nothing reaches Imgur.
+        upload(media, MEMBER, "a.png", png).expect(201);
+        int sentSoFar = FAKE_IMGUR.count();
+        assertEquals(403, upload(media, 9_999L, "a.png", png).status());
+
+        // What the file is decides, not what it is called.
+        Response svg = upload(media, MOD, "cat.png", "<svg onload=alert(1)>".getBytes(StandardCharsets.UTF_8));
+        assertEquals(400, svg.status());
+        assertTrue(svg.body().contains("Only PNG"), svg.body());
+        assertEquals(sentSoFar, FAKE_IMGUR.count());
+
+        // When Imgur is limiting us, the reason is readable and nothing is recorded.
+        FAKE_IMGUR.respondWith(429);
+        try {
+            Response busy = upload(media, MOD, "a.png", png);
+            assertEquals(503, busy.status());
+            assertTrue(busy.body().contains("limiting uploads"), busy.body());
+        } finally {
+            FAKE_IMGUR.respondWith(200);
+        }
+        assertEquals(3, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM media_uploads WHERE board_id = ?", Integer.class, board));
+    }
+
+    private Response upload(String path, long userId, String filename, byte[] content) throws Exception {
+        String boundary = "kc" + UUID.randomUUID();
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + filename
+                + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(content);
+        body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        HttpResponse<String> response = http.send(HttpRequest.newBuilder(uri(path))
+                .header("Authorization", "Bearer " + accessToken(userId))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .build(), HttpResponse.BodyHandlers.ofString());
+        JsonNode json = response.body().startsWith("{") ? objectMapper.readTree(response.body()) : null;
+        return new Response(response.statusCode(), json, response.body());
+    }
+
+    /** A local stand-in for Imgur's upload endpoint that records what it was sent. */
+    static final class FakeImgur {
+
+        record Request(String authorization, String contentLength, String body) {
+        }
+
+        private final HttpServer server;
+        private final List<Request> requests = new ArrayList<>();
+        private volatile int status = 200;
+
+        FakeImgur() {
+            try {
+                server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            } catch (IOException ex) {
+                throw new UncheckedIOException(ex);
+            }
+            server.createContext("/3/upload", exchange -> {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1);
+                int n;
+                synchronized (requests) {
+                    requests.add(new Request(exchange.getRequestHeaders().getFirst("Authorization"),
+                            exchange.getRequestHeaders().getFirst("Content-Length"), body));
+                    n = requests.size();
+                }
+                String extension = body.contains("name=\"video\"") ? "mp4" : "png";
+                byte[] response = (status == 200
+                        ? "{\"data\":{\"id\":\"fake" + n + "\",\"deletehash\":\"fakehash" + n
+                                + "\",\"link\":\"https://i.imgur.com/fake" + n + "." + extension + "\"},\"success\":true}"
+                        : "{\"data\":{\"error\":\"limited\"},\"success\":false}").getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(status, response.length);
+                exchange.getResponseBody().write(response);
+                exchange.close();
+            });
+            server.start();
+        }
+
+        String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        void respondWith(int status) {
+            this.status = status;
+        }
+
+        int count() {
+            synchronized (requests) {
+                return requests.size();
+            }
+        }
+
+        Request last() {
+            synchronized (requests) {
+                return requests.get(requests.size() - 1);
+            }
+        }
     }
 
     // ── Priority levels ─────────────────────────────────────────────────────────
