@@ -48,7 +48,7 @@ public class TaskCommentCommands {
 
     public TaskCommentResponse create(Long serverId, Long boardId, Long taskId, Long actorUserId,
             TaskCommentRequest request) {
-        features.require(serverId, Feature.COMMENTS);
+        features.require(serverId, boardId, Feature.COMMENTS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_TASK_COMMENT");
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
@@ -72,7 +72,7 @@ public class TaskCommentCommands {
 
     public TaskCommentResponse edit(Long serverId, Long boardId, Long taskId, Long commentId, Long actorUserId,
             TaskCommentRequest request) {
-        features.require(serverId, Feature.COMMENTS);
+        features.require(serverId, boardId, Feature.COMMENTS);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         TaskComment comment = requireComment(serverId, boardId, taskId, commentId);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId,
@@ -95,7 +95,7 @@ public class TaskCommentCommands {
     }
 
     public void delete(Long serverId, Long boardId, Long taskId, Long commentId, Long actorUserId) {
-        features.require(serverId, Feature.COMMENTS);
+        features.require(serverId, boardId, Feature.COMMENTS);
         TaskComment comment = requireComment(serverId, boardId, taskId, commentId);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId,
                 isAuthor(comment, actorUserId) ? "CREATE_TASK_COMMENT" : "DELETE_TASK_COMMENT");

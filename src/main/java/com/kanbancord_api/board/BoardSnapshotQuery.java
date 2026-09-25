@@ -94,7 +94,8 @@ public class BoardSnapshotQuery {
         List<TaskResponse> tasks = canViewTasks
                 ? taskService.findByBoardId(boardId).stream().map(TaskResponse::from).toList()
                 : List.of();
-        Set<Feature> enabled = serverFeatureService.enabled(serverId);
+        Set<Feature> enabled = serverFeatureService.enabled(serverId, boardId);
+        Set<Feature> serverEnabled = serverFeatureService.enabled(serverId);
         List<TaskAssignmentResponse> assignments = canViewTasks && enabled.contains(Feature.ASSIGNEES)
                 ? taskAssignmentService.findByBoardId(boardId).stream().map(TaskAssignmentResponse::from).toList()
                 : List.of();
@@ -116,11 +117,13 @@ public class BoardSnapshotQuery {
                 : List.of();
 
         Map<String, Boolean> features = new LinkedHashMap<>();
+        Map<String, Boolean> serverFeatures = new LinkedHashMap<>();
         for (Feature feature : Feature.values()) {
             features.put(feature.name(), enabled.contains(feature));
+            serverFeatures.put(feature.name(), serverEnabled.contains(feature));
         }
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
-                taskLabels, priorities, permissions, features);
+                taskLabels, priorities, permissions, features, serverFeatures);
     }
 }

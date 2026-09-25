@@ -75,7 +75,7 @@ public class TaskCommands {
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
         task.setPosition(request.getPosition() != null ? request.getPosition() : endOf(column.getColumnId()));
-        keepSwitchedOffFields(serverId, null, request);
+        keepSwitchedOffFields(serverId, boardId, null, request);
         task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
         task.setDueDate(request.getDueDate());
         task.setMetadata(request.getMetadata());
@@ -100,7 +100,7 @@ public class TaskCommands {
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
-        keepSwitchedOffFields(serverId, task, request);
+        keepSwitchedOffFields(serverId, boardId, task, request);
         boolean contentChanged = contentChanged(task, request);
         boolean moved = moved(task, request);
         if (!contentChanged && !moved) {
@@ -212,14 +212,14 @@ public class TaskCommands {
 
     /** The priority level, checked to belong to the board; null for none. */
     /**
-     * Fields of a feature the server has switched off keep what the task has (nothing, for a new
-     * task), so saving a task where they are hidden never clears them.
+     * Fields of a feature the server or board has switched off keep what the task has (nothing, for
+     * a new task), so saving a task where they are hidden never clears them.
      */
-    private void keepSwitchedOffFields(Long serverId, Task task, TaskRequest request) {
-        if (!features.isEnabled(serverId, Feature.PRIORITIES)) {
+    private void keepSwitchedOffFields(Long serverId, Long boardId, Task task, TaskRequest request) {
+        if (!features.isEnabled(serverId, boardId, Feature.PRIORITIES)) {
             request.setPriorityId(task == null ? null : task.getPriorityId());
         }
-        if (!features.isEnabled(serverId, Feature.DUE_DATES)) {
+        if (!features.isEnabled(serverId, boardId, Feature.DUE_DATES)) {
             request.setDueDate(task == null ? null : task.getDueDate());
         }
     }
