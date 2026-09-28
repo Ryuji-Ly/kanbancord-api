@@ -1231,6 +1231,66 @@ class EndToEndApiIntegrationTest {
                 .get("interactive").asBoolean());
     }
 
+    @Test
+    void feedMentions_arePerEvent_categoriesSetAllTheirEvents_andOldFeedsKeepTheirs() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Mentions");
+        long todo = w.column(board, "Todo");
+        long doing = w.column(board, "Doing");
+        String updates = "920" + w.serverId;
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
+        String feeds = w.path("/notifications/feeds");
+
+        // New feeds mention people for what they need to act on, not for every edit.
+        JsonNode feed = call("POST", feeds, OWNER, Map.of("channelId", updates)).expect(201).json();
+        long feedId = feed.get("feedId").asLong();
+        assertTrue(feed.get("mentions").get("TASK_MOVED").asBoolean());
+        assertTrue(feed.get("mentions").get("TASK_DUE").asBoolean());
+        assertTrue(feed.get("mentions").get("USER_ASSIGNED").asBoolean());
+        assertFalse(feed.get("mentions").get("TASK_CREATED").asBoolean());
+        assertFalse(feed.get("mentions").get("TASK_TITLE").asBoolean());
+        assertFalse(feed.get("mentions").get("COLUMN_CHANGED").asBoolean());
+        JsonNode catalogue = call("GET", w.path("/notifications"), OWNER, null).expect(200).json().get("catalogue");
+        JsonNode created = catalogue.get(0).get("events").get(0);
+        assertEquals("TASK_CREATED", created.get("key").asText());
+        assertTrue(created.get("canMention").asBoolean());
+        assertFalse(created.get("mentionDefault").asBoolean());
+
+        // A category sets all its events; single events in the same request win.
+        JsonNode changed = call("PUT", feeds + "/" + feedId, OWNER, Map.of("mentions",
+                Map.of("TASKS", true, "TASK_TITLE", false))).expect(200).json().get("mentions");
+        assertTrue(changed.get("TASK_CREATED").asBoolean());
+        assertFalse(changed.get("TASK_TITLE").asBoolean());
+        assertEquals(400, call("PUT", feeds + "/" + feedId, OWNER, Map.of("mentions", Map.of("COLUMN_CHANGED", true))).status(),
+                "board-wide changes concern nobody in particular");
+        assertEquals(400, call("PUT", feeds + "/" + feedId, OWNER, Map.of("mentions", Map.of("NOPE", true))).status());
+
+        // Only the events set to mention ping the task's people.
+        call("PUT", feeds + "/" + feedId, OWNER, Map.of("mentions", Map.of("TASKS", false, "TASK_MOVED", true))).expect(200);
+        long task = w.createTask(OWNER, board, todo, "Ping on move");
+        call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), OWNER, Map.of("taskId", task, "userId", MEMBER))
+                .expect(201);
+        drainPlans(w.serverId);
+        call("PUT", w.boardPath(board, "/tasks/" + task), OWNER,
+                Map.of("title", "Renamed", "boardId", board, "columnId", todo)).expect(200);
+        assertEquals(List.of(), texts(channel(drainPlans(w.serverId).get(0), updates).get("mentionUserIds")),
+                "a new title is posted without pinging anyone");
+        call("POST", w.boardPath(board, "/tasks/" + task + "/move"), OWNER, Map.of("columnId", doing, "index", 0))
+                .expect(200);
+        assertEquals(List.of(String.valueOf(MEMBER)),
+                texts(channel(drainPlans(w.serverId).get(0), updates).get("mentionUserIds")), "a move pings the assignee");
+
+        // A feed saved when mentions were per category reads as those categories' events.
+        jdbcTemplate.update("UPDATE notification_feeds SET mentions = CAST(? AS JSONB) WHERE feed_id = ?",
+                "{\"TASKS\": true, \"PEOPLE\": false}", feedId);
+        JsonNode old = call("GET", w.path("/notifications"), OWNER, null).expect(200).json().get("feeds").get(0).get("mentions");
+        assertTrue(old.get("TASK_CREATED").asBoolean());
+        assertTrue(old.get("TASK_MOVED").asBoolean());
+        assertFalse(old.get("USER_ASSIGNED").asBoolean());
+        assertFalse(old.get("COMMENT_CREATED").asBoolean(), "categories it did not mention keep the default");
+    }
+
     private List<JsonNode> drainPlans(long serverId) throws Exception {
         List<JsonNode> mine = new ArrayList<>();
         while (true) {
