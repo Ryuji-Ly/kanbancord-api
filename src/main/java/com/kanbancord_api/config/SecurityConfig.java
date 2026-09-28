@@ -40,6 +40,7 @@ public class SecurityConfig {
                                     "/api/auth/**",
                                     "/api/internal/sync/**",
                                     "/api/internal/notifications/**",
+                                    "/api/internal/board-posts/**",
                                     "/actuator/health",
                                     "/ws/**")
                             .permitAll()
