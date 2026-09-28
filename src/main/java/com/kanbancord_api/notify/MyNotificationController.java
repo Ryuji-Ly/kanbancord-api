@@ -34,14 +34,14 @@ public class MyNotificationController {
      * @param servers per server id (as a string), DEFAULT, ASSIGNMENTS or NONE; servers not listed use DEFAULT
      */
     public record Response(String dmMode, Map<String, Boolean> events, boolean includeCommented,
-                           Map<String, String> servers, List<Map<String, Object>> catalogue) {
+                           boolean includeFollowed, Map<String, String> servers, List<Map<String, Object>> catalogue) {
 
         static Response from(NotificationSettingsService.UserSettings mine) {
             Map<String, Boolean> events = new LinkedHashMap<>();
             mine.events().forEach((event, on) -> events.put(event.name(), on));
             Map<String, String> servers = new LinkedHashMap<>();
             mine.servers().forEach((id, mode) -> servers.put(String.valueOf(id), mode.name()));
-            return new Response(mine.dmMode().name(), events, mine.includeCommented(), servers,
+            return new Response(mine.dmMode().name(), events, mine.includeCommented(), mine.includeFollowed(), servers,
                     NotificationSettingsService.catalogue());
         }
     }
