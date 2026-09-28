@@ -1172,6 +1172,65 @@ class EndToEndApiIntegrationTest {
     }
 
     /** Claims everything due, returning this server's plans and marking every claimed plan delivered. */
+    @Test
+    void following_bringsDirectMessages_andInteractiveFeedsAskForButtons() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Followed");
+        long todo = w.column(board, "Todo");
+        String plain = "910" + w.serverId;
+        String buttons = "911" + w.serverId;
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", plain, "name", "plain", "position", 1, "botCanPost", true),
+                Map.of("channelId", buttons, "name", "buttons", "position", 2, "botCanPost", true))));
+        String feeds = w.path("/notifications/feeds");
+        assertTrue(call("POST", feeds, OWNER, Map.of("channelId", buttons)).expect(201).json().get("interactive").asBoolean(),
+                "new feeds are interactive");
+        long plainFeed = call("POST", feeds, OWNER, Map.of("channelId", plain, "interactive", false)).expect(201).json()
+                .get("feedId").asLong();
+        long task = w.createTask(MOD, board, todo, "Watch me");
+        drainPlans(w.serverId);
+
+        // Anyone who can see a task may follow it, from Discord or the website; it shows in their snapshot only.
+        String follow = w.boardPath(board, "/tasks/" + task + "/follow");
+        assertTrue(asBot("PUT", follow, BOT_TOKEN, OTHER, w.serverId, null).expect(200).json().get("following").asBoolean());
+        call("PUT", follow, OTHER, null).expect(200);
+        assertEquals(List.of(String.valueOf(task)),
+                texts(call("GET", w.boardPath(board, "/snapshot"), OTHER, null).expect(200).json().get("followedTaskIds")));
+        assertEquals(List.of(),
+                texts(call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).expect(200).json().get("followedTaskIds")));
+        assertEquals(403, asBot("PUT", follow, BOT_TOKEN, 9_998L, w.serverId, null).status(), "only people who can see it");
+
+        // A follower hears about the task like its people do; the interactive feed asks for buttons.
+        call("POST", w.boardPath(board, "/tasks/" + task + "/comments"), MOD, Map.of("taskId", task, "content", "Hi"))
+                .expect(201);
+        JsonNode plan = drainPlans(w.serverId).get(0);
+        assertNotNull(directMessage(plan, OTHER), "a follower is told");
+        assertNull(directMessage(plan, MEMBER), "someone not following is not");
+        assertTrue(channel(plan, buttons).get("interactive").asBoolean());
+        assertFalse(channel(plan, plain).get("interactive").asBoolean());
+
+        // Followed tasks can be switched off, like commented ones.
+        assertTrue(call("GET", "/api/me/notifications", OTHER, null).expect(200).json().get("includeFollowed").asBoolean(),
+                "on by default: following is asking to hear");
+        call("PUT", "/api/me/notifications", OTHER, Map.of("includeFollowed", false)).expect(200);
+        call("POST", w.boardPath(board, "/tasks/" + task + "/comments"), MOD, Map.of("taskId", task, "content", "Again"))
+                .expect(201);
+        assertNull(directMessage(drainPlans(w.serverId).get(0), OTHER));
+        call("PUT", "/api/me/notifications", OTHER, Map.of("includeFollowed", true)).expect(200);
+
+        // Unfollowing is idempotent.
+        assertFalse(asBot("DELETE", follow, BOT_TOKEN, OTHER, w.serverId, null).expect(200).json().get("following").asBoolean());
+        call("DELETE", follow, OTHER, null).expect(200);
+        assertEquals(List.of(),
+                texts(call("GET", w.boardPath(board, "/snapshot"), OTHER, null).expect(200).json().get("followedTaskIds")));
+
+        // A deleted task has nothing to show buttons for; switching a feed back to plain is remembered.
+        call("DELETE", w.boardPath(board, "/tasks/" + task), OWNER, null).expect(204);
+        assertFalse(channel(drainPlans(w.serverId).get(0), buttons).get("interactive").asBoolean());
+        assertTrue(call("PUT", feeds + "/" + plainFeed, OWNER, Map.of("interactive", true)).expect(200).json()
+                .get("interactive").asBoolean());
+    }
+
     private List<JsonNode> drainPlans(long serverId) throws Exception {
         List<JsonNode> mine = new ArrayList<>();
         while (true) {

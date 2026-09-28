@@ -48,7 +48,7 @@ public class ServerNotificationController {
     }
 
     public record FeedResponse(Long feedId, String channelId, List<Long> boardIds, Map<String, Boolean> events,
-                               Map<String, Boolean> mentions, boolean mentionRoles) {
+                               Map<String, Boolean> mentions, boolean mentionRoles, boolean interactive) {
 
         static FeedResponse from(NotificationSettingsService.Feed feed) {
             Map<String, Boolean> events = new LinkedHashMap<>();
@@ -56,7 +56,7 @@ public class ServerNotificationController {
             Map<String, Boolean> mentions = new LinkedHashMap<>();
             feed.mentions().forEach((category, on) -> mentions.put(category.name(), on));
             return new FeedResponse(feed.feedId(), String.valueOf(feed.channelId()), feed.boardIds(), events, mentions,
-                    feed.mentionRoles());
+                    feed.mentionRoles(), feed.interactive());
         }
     }
 
@@ -68,7 +68,7 @@ public class ServerNotificationController {
     }
 
     public record FeedRequest(String channelId, List<Long> boardIds, Map<String, Boolean> events,
-                              Map<String, Boolean> mentions, Boolean mentionRoles) {
+                              Map<String, Boolean> mentions, Boolean mentionRoles, Boolean interactive) {
     }
 
     @GetMapping
@@ -95,7 +95,7 @@ public class ServerNotificationController {
             @PathVariable Long serverId, @CurrentUser Long userId, @RequestBody FeedRequest request) {
         authorizer.requireServerPermission(userId, serverId, PERMISSION);
         FeedResponse created = FeedResponse.from(settings.saveFeed(serverId, null, channelId(request.channelId(), false),
-                request.boardIds(), request.events(), request.mentions(), request.mentionRoles()));
+                request.boardIds(), request.events(), request.mentions(), request.mentionRoles(), request.interactive()));
         audit(serverId, userId, null, feedSummary(created));
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -109,7 +109,7 @@ public class ServerNotificationController {
         FeedResponse before = findFeed(serverId, feedId);
         FeedResponse updated = FeedResponse.from(settings.saveFeed(serverId, feedId,
                 request.channelId() == null ? null : channelId(request.channelId(), false),
-                request.boardIds(), request.events(), request.mentions(), request.mentionRoles()));
+                request.boardIds(), request.events(), request.mentions(), request.mentionRoles(), request.interactive()));
         audit(serverId, userId, feedSummary(before), feedSummary(updated));
         return ResponseEntity.ok(updated);
     }
@@ -150,6 +150,7 @@ public class ServerNotificationController {
         summary.put("events", feed.events().entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList());
         summary.put("mentions", feed.mentions().entrySet().stream().filter(Map.Entry::getValue).map(Map.Entry::getKey).toList());
         summary.put("mentionRoles", feed.mentionRoles());
+        summary.put("interactive", feed.interactive());
         return summary;
     }
 
