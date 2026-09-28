@@ -86,8 +86,21 @@ public class BoardSnapshotQuery {
         Map<String, PermissionDecisionResponse> permissions = new LinkedHashMap<>();
         permissionEvaluationService.resolveAll(serverId, boardId, actorUserId, BOARD_PERMISSION_KEYS)
                 .forEach((key, decision) -> permissions.put(key, PermissionDecisionResponse.from(decision)));
-        boolean canViewTasks = permissions.get("VIEW_TASK").isAllowed();
+        return build(serverId, boardId, board, permissions, permissions.get("VIEW_TASK").isAllowed());
+    }
 
+    /**
+     * The whole board regardless of who is looking, for a board post in Discord: whoever posted it
+     * chose to show the board to that channel. Carries no permissions, since nobody in particular is
+     * asking.
+     */
+    public BoardSnapshotResponse loadComplete(Long serverId, Long boardId) {
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        return build(serverId, boardId, board, Map.of(), true);
+    }
+
+    private BoardSnapshotResponse build(Long serverId, Long boardId, Board board,
+                                        Map<String, PermissionDecisionResponse> permissions, boolean canViewTasks) {
         List<BoardColumnResponse> columns = boardColumnService.findByBoardIdOrdered(boardId).stream()
                 .map(BoardColumnResponse::from)
                 .toList();
