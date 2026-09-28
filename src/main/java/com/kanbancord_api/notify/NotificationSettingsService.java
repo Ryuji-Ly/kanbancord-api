@@ -100,11 +100,12 @@ public class NotificationSettingsService {
 
     /**
      * An update feed. {@code boardIds} empty means every board in the server. {@code events} and
-     * {@code mentions} hold every event and category, on or off.
+     * {@code mentions} hold every event, on or off: whether it is posted, and whether the people
+     * involved are mentioned when it is.
      */
     /** {@code interactive}: its posts show the whole task, with buttons to change it. */
     public record Feed(Long feedId, Long channelId, List<Long> boardIds, Map<NotificationEvent, Boolean> events,
-                       Map<NotificationEvent.Category, Boolean> mentions, boolean mentionRoles, boolean interactive) {
+                       Map<NotificationEvent, Boolean> mentions, boolean mentionRoles, boolean interactive) {
 
         public boolean covers(Long boardId) {
             return boardIds.isEmpty() || (boardId != null && boardIds.contains(boardId));
@@ -114,8 +115,8 @@ public class NotificationSettingsService {
             return Boolean.TRUE.equals(events.get(event));
         }
 
-        public boolean mentions(NotificationEvent.Category category) {
-            return Boolean.TRUE.equals(mentions.get(category));
+        public boolean mentions(NotificationEvent event) {
+            return event.canMention() && Boolean.TRUE.equals(mentions.get(event));
         }
     }
 
@@ -126,15 +127,15 @@ public class NotificationSettingsService {
                 """, feedMapper(), serverId);
     }
 
-    /** A new feed starts with each event's default and each category's default mention setting, interactive. */
+    /** A new feed starts with each event's default, posting and mentioning, and is interactive. */
     public Feed defaultFeed(Long channelId, List<Long> boardIds) {
         Map<NotificationEvent, Boolean> events = new EnumMap<>(NotificationEvent.class);
         for (NotificationEvent event : NotificationEvent.values()) {
             events.put(event, event.feedDefault());
         }
-        Map<NotificationEvent.Category, Boolean> mentions = new EnumMap<>(NotificationEvent.Category.class);
-        for (NotificationEvent.Category category : NotificationEvent.Category.values()) {
-            mentions.put(category, category.mentionByDefault());
+        Map<NotificationEvent, Boolean> mentions = new EnumMap<>(NotificationEvent.class);
+        for (NotificationEvent event : NotificationEvent.values()) {
+            mentions.put(event, event.canMention() && event.mentionDefault());
         }
         return new Feed(null, channelId, boardIds, events, mentions, false, true);
     }
@@ -162,10 +163,9 @@ public class NotificationSettingsService {
         if (events != null) {
             events.forEach((key, on) -> eventFlags.put(parse(NotificationEvent.class, key, "event"), Boolean.TRUE.equals(on)));
         }
-        Map<NotificationEvent.Category, Boolean> mentionFlags = new EnumMap<>(current.mentions());
+        Map<NotificationEvent, Boolean> mentionFlags = new EnumMap<>(current.mentions());
         if (mentions != null) {
-            mentions.forEach((key, on) ->
-                    mentionFlags.put(parse(NotificationEvent.Category.class, key, "category"), Boolean.TRUE.equals(on)));
+            applyMentions(mentionFlags, mentions, true);
         }
         boolean roles = mentionRoles != null ? mentionRoles : current.mentionRoles();
         boolean buttons = interactive != null ? interactive : current.interactive();
@@ -207,6 +207,40 @@ public class NotificationSettingsService {
         }
     }
 
+    /**
+     * Applies mention switches keyed by event, or by category for all of its events. Categories go
+     * first, so a request (or a feed saved before mentions were per event) can switch a category and
+     * then single events in it. Unknown keys are refused in requests and skipped in stored feeds.
+     */
+    private static void applyMentions(Map<NotificationEvent, Boolean> flags, Map<String, Boolean> changes, boolean strict) {
+        changes.forEach((key, on) -> tryParse(NotificationEvent.Category.class, key).ifPresent(category -> {
+            for (NotificationEvent event : NotificationEvent.values()) {
+                if (event.category() == category && event.canMention()) {
+                    flags.put(event, Boolean.TRUE.equals(on));
+                }
+            }
+        }));
+        changes.forEach((key, on) -> {
+            if (tryParse(NotificationEvent.Category.class, key).isPresent()) {
+                return;
+            }
+            java.util.Optional<NotificationEvent> event = tryParse(NotificationEvent.class, key);
+            if (event.isEmpty()) {
+                if (strict) {
+                    throw new BadRequestException("Unknown event or category: " + key);
+                }
+                return;
+            }
+            if (!event.get().canMention()) {
+                if (strict && Boolean.TRUE.equals(on)) {
+                    throw new BadRequestException(event.get().label() + " concerns no task, so there is nobody to mention");
+                }
+                return;
+            }
+            flags.put(event.get(), Boolean.TRUE.equals(on));
+        });
+    }
+
     private void requireBoards(Long serverId, List<Long> boardIds) {
         if (boardIds.isEmpty()) {
             return;
@@ -225,9 +259,8 @@ public class NotificationSettingsService {
             Map<NotificationEvent, Boolean> events = new EnumMap<>(defaults.events());
             readFlags(rs, "events").forEach((key, on) -> tryParse(NotificationEvent.class, key)
                     .ifPresent(event -> events.put(event, on)));
-            Map<NotificationEvent.Category, Boolean> mentions = new EnumMap<>(defaults.mentions());
-            readFlags(rs, "mentions").forEach((key, on) -> tryParse(NotificationEvent.Category.class, key)
-                    .ifPresent(category -> mentions.put(category, on)));
+            Map<NotificationEvent, Boolean> mentions = new EnumMap<>(defaults.mentions());
+            applyMentions(mentions, readFlags(rs, "mentions"), false);
             Array boards = rs.getArray("board_ids");
             List<Long> boardIds = boards == null ? List.of() : Arrays.asList((Long[]) boards.getArray());
             return new Feed(rs.getLong("feed_id"), rs.getLong("channel_id"), boardIds, events, mentions,
@@ -434,6 +467,8 @@ public class NotificationSettingsService {
                     entry.put("feedDefault", event.feedDefault());
                     entry.put("canDm", event.canDm());
                     entry.put("dmDefault", event.dmDefault());
+                    entry.put("canMention", event.canMention());
+                    entry.put("mentionDefault", event.canMention() && event.mentionDefault());
                     events.add(entry);
                 }
             }

@@ -54,7 +54,7 @@ public class ServerNotificationController {
             Map<String, Boolean> events = new LinkedHashMap<>();
             feed.events().forEach((event, on) -> events.put(event.name(), on));
             Map<String, Boolean> mentions = new LinkedHashMap<>();
-            feed.mentions().forEach((category, on) -> mentions.put(category.name(), on));
+            feed.mentions().forEach((event, on) -> mentions.put(event.name(), on));
             return new FeedResponse(feed.feedId(), String.valueOf(feed.channelId()), feed.boardIds(), events, mentions,
                     feed.mentionRoles(), feed.interactive());
         }

@@ -183,7 +183,7 @@ public class NotificationRouter {
                 LinkedHashSet<String> users = usersByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 LinkedHashSet<String> roles = rolesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 for (NotificationEvent event : wanted) {
-                    if (!feed.mentions(event.category())) {
+                    if (!feed.mentions(event)) {
                         continue;
                     }
                     if (event.isAboutAssignee() && entry.subjectId() != null) {

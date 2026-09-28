@@ -37,7 +37,10 @@ public enum NotificationEvent {
     BOARD_CHANGED(Category.BOARD, "Board created, renamed, archived or deleted", true, null),
     BOARD_SETTINGS_CHANGED(Category.BOARD, "Labels, priority levels and board features changed", false, null);
 
-    /** Groups of events, switched on and off together, each with its own mention setting. */
+    /**
+     * Groups of events, shown together. Each event has its own mention setting; a category's is the
+     * starting point for feeds saved before that, and switching it sets all of its events.
+     */
     public enum Category {
         TASKS("Tasks", false),
         PEOPLE("People", true),
@@ -94,6 +97,22 @@ public enum NotificationEvent {
 
     public boolean dmDefault() {
         return Boolean.TRUE.equals(dmDefault);
+    }
+
+    /** Board-wide events concern no task, so there is nobody in particular to mention. */
+    public boolean canMention() {
+        return category != Category.BOARD;
+    }
+
+    /**
+     * Whether a new feed mentions the people involved: for changes they need to act on (the task moved,
+     * its due date, reminders, being assigned), not for every edit.
+     */
+    public boolean mentionDefault() {
+        return switch (this) {
+            case TASK_MOVED, TASK_DUE, DUE_SOON, OVERDUE, USER_ASSIGNED, USER_UNASSIGNED, ROLE_ASSIGNED, ROLE_UNASSIGNED -> true;
+            default -> false;
+        };
     }
 
     /** Events about someone being assigned or unassigned: sent to that person, not to the task's people. */
