@@ -1328,6 +1328,162 @@ class EndToEndApiIntegrationTest {
         assertEquals(400, both.statusCode());
     }
 
+    // ── Board posts ─────────────────────────────────────────────────────────────
+
+    @Test
+    void boardPosts_redrawAfterChanges_settleBursts_retryAndDisappear() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Posted");
+        long todo = w.column(board, "Todo");
+        String posts = w.boardPath(board, "/posts");
+
+        assertEquals(403, asBot("POST", posts, BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "6001")).status(), "posting needs the right to edit the board");
+        long postId = asBot("POST", posts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "6001")).expect(201).json().get("postId").asLong();
+        assertEquals(400, asBot("POST", posts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "6001")).status(), "a message is one post");
+
+        // A new post is drawn from the whole board straight away.
+        JsonNode claimed = only(claimPosts(), postId);
+        assertEquals(String.valueOf(board), claimed.get("boardId").asText());
+        assertEquals("6001", claimed.get("messageId").asText());
+        assertTrue(claimed.get("boardExists").asBoolean());
+        JsonNode snapshot = internal("GET", "/api/internal/board-posts/snapshot?serverId=" + w.serverId + "&boardId=" + board,
+                null).expect(200).json();
+        assertEquals("Posted", snapshot.get("board").get("name").asText());
+        int asUser = callRaw("GET", "/api/internal/board-posts/snapshot?serverId=" + w.serverId + "&boardId=" + board,
+                "Bearer " + accessToken(OWNER), null).status();
+        assertTrue(asUser == 400 || asUser == 403, "only the bot may read whole boards, not even the owner: " + asUser);
+        reportPosts(List.of(postId), List.of(), List.of());
+        assertTrue(mine(claimPosts(), postId).isEmpty(), "an up-to-date post is left alone");
+
+        // A change marks it; it waits a moment for more changes, then is redrawn once.
+        w.createTask(OWNER, board, todo, "First");
+        w.createTask(OWNER, board, todo, "Second");
+        assertTrue(mine(claimPosts(), postId).isEmpty(), "a burst of changes settles first");
+        settle(postId);
+        only(claimPosts(), postId);
+
+        // A change while it is being redrawn is not lost: it is redrawn again once reported.
+        w.createTask(OWNER, board, todo, "Third");
+        settle(postId);
+        assertTrue(mine(claimPosts(), postId).isEmpty(), "not claimed twice at once");
+        reportPosts(List.of(postId), List.of(), List.of());
+        settle(postId);
+        only(claimPosts(), postId);
+
+        // A failed redraw is retried later, and given up on after a day.
+        reportPosts(List.of(), List.of(), List.of(postId));
+        assertTrue(mine(claimPosts(), postId).isEmpty(), "retried later, not at once");
+        jdbcTemplate.update("UPDATE board_posts SET retry_after = now() - interval '1 second' WHERE post_id = ?", postId);
+        only(claimPosts(), postId);
+        jdbcTemplate.update("UPDATE board_posts SET failing_since = now() - interval '25 hours' WHERE post_id = ?", postId);
+        reportPosts(List.of(), List.of(), List.of(postId));
+        assertEquals(0, count("SELECT count(*) FROM board_posts WHERE post_id = " + postId));
+
+        // Deleting the board leaves its posts, marked, so the bot can say so before they go.
+        long second = asBot("POST", posts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "6002")).expect(201).json().get("postId").asLong();
+        only(claimPosts(), second);
+        reportPosts(List.of(second), List.of(), List.of());
+        call("DELETE", w.path("/boards/" + board), OWNER, null).expect(204);
+        settle(second);
+        assertFalse(only(claimPosts(), second).get("boardExists").asBoolean());
+        reportPosts(List.of(), List.of(second), List.of());
+        assertEquals(0, count("SELECT count(*) FROM board_posts WHERE post_id = " + second));
+
+        // At most ten posts per board.
+        long busy = w.createBoard(OWNER, "Busy");
+        for (int i = 0; i < 10; i++) {
+            asBot("POST", w.boardPath(busy, "/posts"), BOT_TOKEN, OWNER, w.serverId,
+                    Map.of("channelId", "5001", "messageId", String.valueOf(7000 + i))).expect(201);
+        }
+        assertEquals(400, asBot("POST", w.boardPath(busy, "/posts"), BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "7999")).status());
+        claimPosts();
+    }
+
+    @Test
+    void boardPosts_audience_namesThoseWhoCouldNotSeeTheBoard() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Staff only");
+        w.createRule(OWNER, "BOARD", board, "DISCORD_PERMISSION", VIEW_CHANNEL, "VIEW_BOARD", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.modsRole, "VIEW_BOARD", "ALLOW").expect(201);
+        String audience = w.boardPath(board, "/posts/audience");
+        List<String> everyone = List.of(String.valueOf(OWNER), String.valueOf(MOD), String.valueOf(MEMBER),
+                String.valueOf(OTHER), "9998", String.valueOf(MEMBER));
+
+        JsonNode answer = asBot("POST", audience, BOT_TOKEN, OWNER, w.serverId, Map.of("userIds", everyone))
+                .expect(200).json();
+        assertEquals(5, answer.get("checked").asInt(), "each person counts once");
+        assertEquals(3, answer.get("hidden").asInt());
+        assertEquals(List.of(String.valueOf(MEMBER), String.valueOf(OTHER), "9998"), texts(answer.get("hiddenUserIds")),
+                "members outside the mods, and someone not in the server; the owner and mods can see it");
+        for (long user : List.of(OWNER, MOD, MEMBER, OTHER)) {
+            boolean sees = call("GET", w.path("/boards/" + board), user, null).status() == 200;
+            assertEquals(!sees, texts(answer.get("hiddenUserIds")).contains(String.valueOf(user)),
+                    "the same answer as asking about each person: " + user);
+        }
+
+        long open = w.createBoard(OWNER, "Open");
+        assertEquals(0, asBot("POST", w.boardPath(open, "/posts/audience"), BOT_TOKEN, OWNER, w.serverId,
+                Map.of("userIds", List.of(String.valueOf(MOD), String.valueOf(MEMBER)))).expect(200).json()
+                .get("hidden").asInt());
+        assertEquals(403, asBot("POST", audience, BOT_TOKEN, MEMBER, w.serverId, Map.of("userIds", everyone)).status(),
+                "only those who may post the board may ask");
+    }
+
+    private Response internal(String method, String path, Object body) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .header("X-Internal-Bot-Token", BOT_TOKEN)
+                .method(method, body == null
+                        ? HttpRequest.BodyPublishers.noBody()
+                        : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)));
+        HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        JsonNode json = response.body().isBlank() ? null : objectMapper.readTree(response.body());
+        return new Response(response.statusCode(), json, response.body());
+    }
+
+    private JsonNode claimPosts() throws Exception {
+        return internal("POST", "/api/internal/board-posts/claim?limit=50", null).expect(200).json();
+    }
+
+    private void reportPosts(List<Long> done, List<Long> gone, List<Long> retry) throws Exception {
+        internal("POST", "/api/internal/board-posts/report", Map.of(
+                "done", done.stream().map(String::valueOf).toList(),
+                "gone", gone.stream().map(String::valueOf).toList(),
+                "retry", retry.stream().map(String::valueOf).toList())).expect(204);
+    }
+
+    /** As if the post's change happened long enough ago to be redrawn. */
+    private void settle(long postId) {
+        jdbcTemplate.update("UPDATE board_posts SET dirty_at = now() - interval '10 seconds' "
+                + "WHERE post_id = ? AND dirty_at IS NOT NULL", postId);
+    }
+
+    private static List<JsonNode> mine(JsonNode claimed, long postId) {
+        List<JsonNode> found = new ArrayList<>();
+        claimed.forEach(post -> {
+            if (post.get("postId").asLong() == postId) {
+                found.add(post);
+            }
+        });
+        return found;
+    }
+
+    private static JsonNode only(JsonNode claimed, long postId) {
+        List<JsonNode> found = mine(claimed, postId);
+        assertEquals(1, found.size(), "post " + postId + " in " + claimed);
+        return found.get(0);
+    }
+
+    private int count(String sql) {
+        Integer value = jdbcTemplate.queryForObject(sql, Integer.class);
+        return value == null ? 0 : value;
+    }
+
     private Response asBot(String method, String path, String botToken, Object userId, long guildId, Object body)
             throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))

@@ -44,6 +44,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return !properties.isEnabled()
                 || !path.startsWith("/api/")
                 || path.startsWith("/api/internal/sync/")
+                || path.startsWith("/api/internal/board-posts/")
                 || "OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 
