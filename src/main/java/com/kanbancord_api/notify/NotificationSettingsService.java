@@ -102,8 +102,9 @@ public class NotificationSettingsService {
      * An update feed. {@code boardIds} empty means every board in the server. {@code events} and
      * {@code mentions} hold every event and category, on or off.
      */
+    /** {@code interactive}: its posts show the whole task, with buttons to change it. */
     public record Feed(Long feedId, Long channelId, List<Long> boardIds, Map<NotificationEvent, Boolean> events,
-                       Map<NotificationEvent.Category, Boolean> mentions, boolean mentionRoles) {
+                       Map<NotificationEvent.Category, Boolean> mentions, boolean mentionRoles, boolean interactive) {
 
         public boolean covers(Long boardId) {
             return boardIds.isEmpty() || (boardId != null && boardIds.contains(boardId));
@@ -120,12 +121,12 @@ public class NotificationSettingsService {
 
     public List<Feed> feeds(Long serverId) {
         return jdbcTemplate.query("""
-                SELECT feed_id, channel_id, board_ids, events, mentions, mention_roles FROM notification_feeds
+                SELECT feed_id, channel_id, board_ids, events, mentions, mention_roles, interactive FROM notification_feeds
                 WHERE server_id = ? ORDER BY feed_id
                 """, feedMapper(), serverId);
     }
 
-    /** A new feed starts with each event's default and each category's default mention setting. */
+    /** A new feed starts with each event's default and each category's default mention setting, interactive. */
     public Feed defaultFeed(Long channelId, List<Long> boardIds) {
         Map<NotificationEvent, Boolean> events = new EnumMap<>(NotificationEvent.class);
         for (NotificationEvent event : NotificationEvent.values()) {
@@ -135,7 +136,7 @@ public class NotificationSettingsService {
         for (NotificationEvent.Category category : NotificationEvent.Category.values()) {
             mentions.put(category, category.mentionByDefault());
         }
-        return new Feed(null, channelId, boardIds, events, mentions, false);
+        return new Feed(null, channelId, boardIds, events, mentions, false, true);
     }
 
     /**
@@ -144,7 +145,7 @@ public class NotificationSettingsService {
      */
     @Transactional
     public Feed saveFeed(Long serverId, Long feedId, Long channelId, List<Long> boardIds, Map<String, Boolean> events,
-                         Map<String, Boolean> mentions, Boolean mentionRoles) {
+                         Map<String, Boolean> mentions, Boolean mentionRoles, Boolean interactive) {
         Feed current = feedId == null
                 ? defaultFeed(channelId, List.of())
                 : feeds(serverId).stream().filter(feed -> feed.feedId().equals(feedId)).findFirst()
@@ -167,19 +168,22 @@ public class NotificationSettingsService {
                     mentionFlags.put(parse(NotificationEvent.Category.class, key, "category"), Boolean.TRUE.equals(on)));
         }
         boolean roles = mentionRoles != null ? mentionRoles : current.mentionRoles();
+        boolean buttons = interactive != null ? interactive : current.interactive();
 
         Long id = feedId;
         if (id == null) {
             id = jdbcTemplate.queryForObject("""
-                    INSERT INTO notification_feeds (server_id, channel_id, board_ids, events, mentions, mention_roles)
-                    VALUES (?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB), ?) RETURNING feed_id
-                    """, Long.class, serverId, channel, longArray(boards), json(eventFlags), json(mentionFlags), roles);
+                    INSERT INTO notification_feeds (server_id, channel_id, board_ids, events, mentions, mention_roles,
+                        interactive)
+                    VALUES (?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB), ?, ?) RETURNING feed_id
+                    """, Long.class, serverId, channel, longArray(boards), json(eventFlags), json(mentionFlags), roles,
+                    buttons);
         } else {
             Long existing = id;
             jdbcTemplate.update(connection -> {
                 PreparedStatement statement = connection.prepareStatement("""
                         UPDATE notification_feeds SET channel_id = ?, board_ids = ?, events = CAST(? AS JSONB),
-                            mentions = CAST(? AS JSONB), mention_roles = ?, updated_at = CURRENT_TIMESTAMP
+                            mentions = CAST(? AS JSONB), mention_roles = ?, interactive = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE feed_id = ? AND server_id = ?
                         """);
                 statement.setLong(1, channel);
@@ -187,12 +191,13 @@ public class NotificationSettingsService {
                 statement.setString(3, json(eventFlags));
                 statement.setString(4, json(mentionFlags));
                 statement.setBoolean(5, roles);
-                statement.setLong(6, existing);
-                statement.setLong(7, serverId);
+                statement.setBoolean(6, buttons);
+                statement.setLong(7, existing);
+                statement.setLong(8, serverId);
                 return statement;
             });
         }
-        return new Feed(id, channel, boards, eventFlags, mentionFlags, roles);
+        return new Feed(id, channel, boards, eventFlags, mentionFlags, roles, buttons);
     }
 
     public void deleteFeed(Long serverId, Long feedId) {
@@ -226,7 +231,7 @@ public class NotificationSettingsService {
             Array boards = rs.getArray("board_ids");
             List<Long> boardIds = boards == null ? List.of() : Arrays.asList((Long[]) boards.getArray());
             return new Feed(rs.getLong("feed_id"), rs.getLong("channel_id"), boardIds, events, mentions,
-                    rs.getBoolean("mention_roles"));
+                    rs.getBoolean("mention_roles"), rs.getBoolean("interactive"));
         };
     }
 
@@ -252,8 +257,12 @@ public class NotificationSettingsService {
      * assigned to or created, and optionally those they commented on), and per server a way to
      * narrow it down.
      */
+    /**
+     * {@code includeCommented}: also tasks this person commented on (off by default).
+     * {@code includeFollowed}: also tasks they follow (on by default: following is asking to hear).
+     */
     public record UserSettings(DmMode dmMode, Map<NotificationEvent, Boolean> events, boolean includeCommented,
-                               Map<Long, ServerMode> servers) {
+                               boolean includeFollowed, Map<Long, ServerMode> servers) {
 
         public ServerMode serverMode(Long serverId) {
             return servers.getOrDefault(serverId, ServerMode.DEFAULT);
@@ -279,7 +288,7 @@ public class NotificationSettingsService {
                 events.put(event, event.dmDefault());
             }
         }
-        return new UserSettings(DmMode.UNLESS_PINGED, events, false, Map.of());
+        return new UserSettings(DmMode.UNLESS_PINGED, events, false, true, Map.of());
     }
 
     public UserSettings userSettings(Long userId) {
@@ -315,6 +324,7 @@ public class NotificationSettingsService {
         stored.put("dmMode", updated.dmMode().name());
         stored.put("events", enumKeys(updated.events()));
         stored.put("includeCommented", updated.includeCommented());
+        stored.put("includeFollowed", updated.includeFollowed());
         Map<String, String> servers = new LinkedHashMap<>();
         updated.servers().forEach((id, mode) -> {
             if (mode != ServerMode.DEFAULT) {
@@ -346,6 +356,7 @@ public class NotificationSettingsService {
             });
         }
         boolean includeCommented = changes.get("includeCommented") instanceof Boolean flag ? flag : base.includeCommented();
+        boolean includeFollowed = changes.get("includeFollowed") instanceof Boolean flag ? flag : base.includeFollowed();
         Map<Long, ServerMode> servers = new LinkedHashMap<>(base.servers());
         if (changes.get("servers") instanceof Map<?, ?> map) {
             ((Map<String, Object>) map).forEach((key, mode) -> {
@@ -356,7 +367,7 @@ public class NotificationSettingsService {
                 servers.put(serverId, mode == null ? ServerMode.DEFAULT : parse(ServerMode.class, String.valueOf(mode), "server setting"));
             });
         }
-        return new UserSettings(dmMode, events, includeCommented, servers);
+        return new UserSettings(dmMode, events, includeCommented, includeFollowed, servers);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

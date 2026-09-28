@@ -139,6 +139,9 @@ class WorkItemControllersApiTest {
     private com.kanbancord_api.task.TaskRoleAssignmentRepository taskRoleAssignmentRepository;
     @MockitoBean
     private com.kanbancord_api.task.TaskAssignmentRepository taskAssignmentRepository;
+    /** The board snapshot reads who follows which task straight from the database. */
+    @MockitoBean
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
         @MockitoBean
     private ServerService serverService;
         @MockitoBean
