@@ -19,6 +19,7 @@ import com.kanbancord_api.task.TaskRoleAssignmentRepository;
 import com.kanbancord_api.task.TaskRoleAssignmentResponse;
 import com.kanbancord_api.task.TaskResponse;
 import com.kanbancord_api.task.TaskService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +50,7 @@ public class BoardSnapshotQuery {
     private final BoardPriorityService boardPriorityService;
     private final ServerFeatureService serverFeatureService;
     private final TaskRoleAssignmentRepository taskRoleAssignmentRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public BoardSnapshotQuery(
             Authorizer authorizer,
@@ -61,7 +63,8 @@ public class BoardSnapshotQuery {
             TaskLabelService taskLabelService,
             BoardPriorityService boardPriorityService,
             ServerFeatureService serverFeatureService,
-            TaskRoleAssignmentRepository taskRoleAssignmentRepository) {
+            TaskRoleAssignmentRepository taskRoleAssignmentRepository,
+            JdbcTemplate jdbcTemplate) {
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.permissionEvaluationService = permissionEvaluationService;
@@ -73,6 +76,7 @@ public class BoardSnapshotQuery {
         this.boardPriorityService = boardPriorityService;
         this.serverFeatureService = serverFeatureService;
         this.taskRoleAssignmentRepository = taskRoleAssignmentRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -86,7 +90,14 @@ public class BoardSnapshotQuery {
         Map<String, PermissionDecisionResponse> permissions = new LinkedHashMap<>();
         permissionEvaluationService.resolveAll(serverId, boardId, actorUserId, BOARD_PERMISSION_KEYS)
                 .forEach((key, decision) -> permissions.put(key, PermissionDecisionResponse.from(decision)));
-        return build(serverId, boardId, board, permissions, permissions.get("VIEW_TASK").isAllowed());
+        boolean canViewTasks = permissions.get("VIEW_TASK").isAllowed();
+        List<Long> followed = canViewTasks
+                ? jdbcTemplate.queryForList("""
+                        SELECT f.task_id FROM task_followers f JOIN tasks t ON t.task_id = f.task_id
+                        WHERE t.board_id = ? AND f.user_id = ? ORDER BY f.task_id
+                        """, Long.class, boardId, actorUserId)
+                : List.of();
+        return build(serverId, boardId, board, permissions, canViewTasks, followed);
     }
 
     /**
@@ -96,11 +107,12 @@ public class BoardSnapshotQuery {
      */
     public BoardSnapshotResponse loadComplete(Long serverId, Long boardId) {
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        return build(serverId, boardId, board, Map.of(), true);
+        return build(serverId, boardId, board, Map.of(), true, List.of());
     }
 
     private BoardSnapshotResponse build(Long serverId, Long boardId, Board board,
-                                        Map<String, PermissionDecisionResponse> permissions, boolean canViewTasks) {
+                                        Map<String, PermissionDecisionResponse> permissions, boolean canViewTasks,
+                                        List<Long> followedTaskIds) {
         List<BoardColumnResponse> columns = boardColumnService.findByBoardIdOrdered(boardId).stream()
                 .map(BoardColumnResponse::from)
                 .toList();
@@ -137,6 +149,6 @@ public class BoardSnapshotQuery {
         }
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
-                taskLabels, priorities, permissions, features, serverFeatures);
+                taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds);
     }
 }

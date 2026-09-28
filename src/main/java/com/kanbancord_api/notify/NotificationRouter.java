@@ -54,9 +54,13 @@ public class NotificationRouter {
     public record Names(Map<String, String> columns, Map<String, String> labels, Map<String, String> priorities) {
     }
 
-    /** A message to one channel. {@code kind} is FEED or AUDIT; the audit channel never mentions anyone. */
+    /**
+     * A message to one channel. {@code kind} is FEED or AUDIT; the audit channel never mentions anyone.
+     * {@code interactive}: a feed post that shows the whole task with buttons to change it, for a task
+     * that still exists and a feed (of those sharing the channel) that wants it.
+     */
     public record ChannelDelivery(String channelId, String kind, List<Long> entryIds, List<String> mentionUserIds,
-                                  List<String> mentionRoleIds) {
+                                  List<String> mentionRoleIds, boolean interactive) {
     }
 
     /** A direct message. {@code mode} UNLESS_PINGED leaves it to the bot to skip it if a channel already did. */
@@ -106,7 +110,7 @@ public class NotificationRouter {
         // The audit channel records what people did; a reminder is only time passing.
         if (!batch.isReminder()) {
             settings.auditChannel(serverId).ifPresent(channelId -> channels.add(new ChannelDelivery(String.valueOf(channelId),
-                    "AUDIT", entries.stream().map(entry -> entry.log().logId()).toList(), List.of(), List.of())));
+                    "AUDIT", entries.stream().map(entry -> entry.log().logId()).toList(), List.of(), List.of(), false)));
         }
         List<DirectMessage> directMessages = task == null || boardId == null
                 ? List.of()
@@ -161,6 +165,7 @@ public class NotificationRouter {
         Map<Long, LinkedHashSet<Long>> entriesByChannel = new LinkedHashMap<>();
         Map<Long, LinkedHashSet<String>> usersByChannel = new LinkedHashMap<>();
         Map<Long, LinkedHashSet<String>> rolesByChannel = new LinkedHashMap<>();
+        Set<Long> interactiveChannels = new java.util.HashSet<>();
 
         for (NotificationSettingsService.Feed feed : settings.feeds(serverId)) {
             if (boardId == null || !feed.covers(boardId)) {
@@ -172,6 +177,9 @@ public class NotificationRouter {
                     continue;
                 }
                 entriesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>()).add(entry.log().logId());
+                if (feed.interactive() && task != null && !task.deleted()) {
+                    interactiveChannels.add(feed.channelId());
+                }
                 LinkedHashSet<String> users = usersByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 LinkedHashSet<String> roles = rolesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 for (NotificationEvent event : wanted) {
@@ -200,7 +208,8 @@ public class NotificationRouter {
 
         List<ChannelDelivery> deliveries = new ArrayList<>();
         entriesByChannel.forEach((channelId, ids) -> deliveries.add(new ChannelDelivery(String.valueOf(channelId), "FEED",
-                List.copyOf(ids), List.copyOf(usersByChannel.get(channelId)), List.copyOf(rolesByChannel.get(channelId)))));
+                List.copyOf(ids), List.copyOf(usersByChannel.get(channelId)), List.copyOf(rolesByChannel.get(channelId)),
+                interactiveChannels.contains(channelId))));
         return deliveries;
     }
 
@@ -220,7 +229,8 @@ public class NotificationRouter {
         for (Long userId : candidates) {
             NotificationSettingsService.UserSettings mine = preferences.get(userId);
             boolean related = task.assignees().contains(userId) || userId.equals(task.creatorId())
-                    || (mine.includeCommented() && task.commenters().contains(userId));
+                    || (mine.includeCommented() && task.commenters().contains(userId))
+                    || (mine.includeFollowed() && task.followers().contains(userId));
             List<Long> ids = new ArrayList<>();
             for (Entry entry : entries) {
                 if (userId.equals(entry.actorId())) {
@@ -244,7 +254,7 @@ public class NotificationRouter {
 
     /** The task's people. For a deleted task, those assigned when it was deleted, kept in its audit entry. */
     private record TaskContext(String title, boolean deleted, Long creatorId, Set<Long> assignees, Set<Long> roles,
-                               Set<Long> commenters) {
+                               Set<Long> commenters, Set<Long> followers) {
 
         Set<Long> related() {
             Set<Long> related = new LinkedHashSet<>(assignees);
@@ -252,6 +262,7 @@ public class NotificationRouter {
                 related.add(creatorId);
             }
             related.addAll(commenters);
+            related.addAll(followers);
             return related;
         }
     }
@@ -261,6 +272,8 @@ public class NotificationRouter {
                 "SELECT title, created_by FROM tasks WHERE task_id = ?", taskId);
         Set<Long> commenters = new LinkedHashSet<>(jdbcTemplate.queryForList(
                 "SELECT DISTINCT user_id FROM task_comments WHERE task_id = ? AND deleted_at IS NULL", Long.class, taskId));
+        Set<Long> followers = new LinkedHashSet<>(jdbcTemplate.queryForList(
+                "SELECT user_id FROM task_followers WHERE task_id = ?", Long.class, taskId));
         if (!rows.isEmpty()) {
             return new TaskContext((String) rows.get(0).get("title"), false,
                     ((Number) rows.get(0).get("created_by")).longValue(),
@@ -268,7 +281,7 @@ public class NotificationRouter {
                             "SELECT user_id FROM task_assignments WHERE task_id = ?", Long.class, taskId)),
                     new LinkedHashSet<>(jdbcTemplate.queryForList(
                             "SELECT role_id FROM task_role_assignments WHERE task_id = ?", Long.class, taskId)),
-                    commenters);
+                    commenters, followers);
         }
         // Deleted: what its deletion recorded.
         Map<String, Object> snapshot = entries.stream()
@@ -281,7 +294,7 @@ public class NotificationRouter {
         }
         Object title = snapshot.get("title");
         return new TaskContext(title == null ? null : String.valueOf(title), true,
-                AuditClassifier.longOf(snapshot.get("createdBy")), assignees, Set.of(), Set.of());
+                AuditClassifier.longOf(snapshot.get("createdBy")), assignees, Set.of(), Set.of(), Set.of());
     }
 
     private Names names(Long boardId) {

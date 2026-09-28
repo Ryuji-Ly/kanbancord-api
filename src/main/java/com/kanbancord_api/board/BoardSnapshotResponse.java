@@ -33,5 +33,7 @@ public record BoardSnapshotResponse(
         List<BoardPriorityResponse> priorities,
         Map<String, PermissionDecisionResponse> permissions,
         Map<String, Boolean> features,
-        Map<String, Boolean> serverFeatures) {
+        Map<String, Boolean> serverFeatures,
+        /** Tasks on this board the person asking follows; always empty for a board post. */
+        List<Long> followedTaskIds) {
 }
