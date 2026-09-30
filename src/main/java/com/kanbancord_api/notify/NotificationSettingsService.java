@@ -17,6 +17,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -103,28 +104,123 @@ public class NotificationSettingsService {
      * {@code mentions} hold every event, on or off: whether it is posted, and whether the people
      * involved are mentioned when it is.
      */
-    /** {@code interactive}: its posts show the whole task, with buttons to change it. */
+    /**
+     * {@code interactive}: its posts show the whole task, with buttons to change it.
+     * {@code boardOverrides}: boards whose settings differ from the feed's, by board id.
+     */
     public record Feed(Long feedId, Long channelId, List<Long> boardIds, Map<NotificationEvent, Boolean> events,
-                       Map<NotificationEvent, Boolean> mentions, boolean mentionRoles, boolean interactive) {
+                       Map<NotificationEvent, Boolean> mentions, boolean mentionRoles, boolean interactive,
+                       Map<Long, BoardOverride> boardOverrides) {
 
         public boolean covers(Long boardId) {
             return boardIds.isEmpty() || (boardId != null && boardIds.contains(boardId));
         }
 
-        public boolean wants(NotificationEvent event) {
-            return Boolean.TRUE.equals(events.get(event));
+        /** Whether the feed posts this event for this board: the board's own setting, or the feed's. */
+        public boolean wants(Long boardId, NotificationEvent event) {
+            BoardOverride own = boardOverrides.get(boardId);
+            Boolean on = own != null && own.events().containsKey(event) ? own.events().get(event) : events.get(event);
+            return Boolean.TRUE.equals(on);
         }
 
-        public boolean mentions(NotificationEvent event) {
-            return event.canMention() && Boolean.TRUE.equals(mentions.get(event));
+        /** Whether posting this event for this board mentions the people involved. */
+        public boolean mentions(Long boardId, NotificationEvent event) {
+            BoardOverride own = boardOverrides.get(boardId);
+            Boolean on = own != null && own.mentions().containsKey(event) ? own.mentions().get(event) : mentions.get(event);
+            return event.canMention() && Boolean.TRUE.equals(on);
+        }
+
+        Feed withOverrides(Map<Long, BoardOverride> overrides) {
+            return new Feed(feedId, channelId, boardIds, events, mentions, mentionRoles, interactive, overrides);
+        }
+    }
+
+    /** Where a board's settings for a feed differ from the feed's; everything left out follows the feed. */
+    public record BoardOverride(Map<NotificationEvent, Boolean> events, Map<NotificationEvent, Boolean> mentions) {
+
+        public int changes() {
+            return events.size() + mentions.size();
         }
     }
 
     public List<Feed> feeds(Long serverId) {
-        return jdbcTemplate.query("""
+        List<Feed> feeds = jdbcTemplate.query("""
                 SELECT feed_id, channel_id, board_ids, events, mentions, mention_roles, interactive FROM notification_feeds
                 WHERE server_id = ? ORDER BY feed_id
                 """, feedMapper(), serverId);
+        Map<Long, Map<Long, BoardOverride>> overrides = new HashMap<>();
+        jdbcTemplate.query("""
+                SELECT o.feed_id, o.board_id, o.events, o.mentions FROM feed_board_settings o
+                JOIN notification_feeds f ON f.feed_id = o.feed_id WHERE f.server_id = ?
+                """, rs -> {
+            overrides.computeIfAbsent(rs.getLong("feed_id"), id -> new HashMap<>())
+                    .put(rs.getLong("board_id"), new BoardOverride(eventFlags(readFlags(rs, "events")),
+                            eventFlags(readFlags(rs, "mentions"))));
+        }, serverId);
+        return feeds.stream().map(feed -> feed.withOverrides(Map.copyOf(overrides.getOrDefault(feed.feedId(), Map.of()))))
+                .toList();
+    }
+
+    /** Stored flags as events, skipping any this version does not know. */
+    private static Map<NotificationEvent, Boolean> eventFlags(Map<String, Boolean> stored) {
+        Map<NotificationEvent, Boolean> flags = new EnumMap<>(NotificationEvent.class);
+        stored.forEach((key, on) -> tryParse(NotificationEvent.class, key).ifPresent(event -> flags.put(event, Boolean.TRUE.equals(on))));
+        return flags;
+    }
+
+    /**
+     * Changes a board's own settings for a feed. A null value goes back to following the feed, and so
+     * does a value equal to the feed's: only real differences are kept. Returns the feed afterwards.
+     */
+    @Transactional
+    public Feed saveBoardOverride(Long serverId, Long feedId, Long boardId, Map<String, Boolean> eventChanges,
+                                  Map<String, Boolean> mentionChanges) {
+        Feed feed = feeds(serverId).stream().filter(entry -> entry.feedId().equals(feedId)).findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Feed", "feedId", feedId));
+        if (!feed.covers(boardId)) {
+            throw new BadRequestException("That feed does not post about this board");
+        }
+        BoardOverride current = feed.boardOverrides().getOrDefault(boardId, new BoardOverride(Map.of(), Map.of()));
+        Map<NotificationEvent, Boolean> events = merged(current.events(), eventChanges, feed.events(), false);
+        Map<NotificationEvent, Boolean> mentions = merged(current.mentions(), mentionChanges, feed.mentions(), true);
+        if (events.isEmpty() && mentions.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM feed_board_settings WHERE feed_id = ? AND board_id = ?", feedId, boardId);
+        } else {
+            jdbcTemplate.update("""
+                    INSERT INTO feed_board_settings (feed_id, board_id, events, mentions)
+                    VALUES (?, ?, CAST(? AS JSONB), CAST(? AS JSONB))
+                    ON CONFLICT (feed_id, board_id) DO UPDATE SET events = EXCLUDED.events, mentions = EXCLUDED.mentions,
+                        updated_at = CURRENT_TIMESTAMP
+                    """, feedId, boardId, json(events), json(mentions));
+        }
+        return feeds(serverId).stream().filter(entry -> entry.feedId().equals(feedId)).findFirst().orElseThrow();
+    }
+
+    /** Board settings back to following the feed entirely. */
+    public void clearBoardOverride(Long feedId, Long boardId) {
+        jdbcTemplate.update("DELETE FROM feed_board_settings WHERE feed_id = ? AND board_id = ?", feedId, boardId);
+    }
+
+    private static Map<NotificationEvent, Boolean> merged(Map<NotificationEvent, Boolean> current,
+                                                          Map<String, Boolean> changes,
+                                                          Map<NotificationEvent, Boolean> feed, boolean mentions) {
+        Map<NotificationEvent, Boolean> result = new EnumMap<>(NotificationEvent.class);
+        result.putAll(current);
+        if (changes != null) {
+            changes.forEach((key, on) -> {
+                NotificationEvent event = parse(NotificationEvent.class, key, "event");
+                if (mentions && Boolean.TRUE.equals(on) && !event.canMention()) {
+                    throw new BadRequestException(event.label() + " concerns no task, so there is nobody to mention");
+                }
+                if (on == null) {
+                    result.remove(event);
+                } else {
+                    result.put(event, on);
+                }
+            });
+        }
+        result.entrySet().removeIf(entry -> entry.getValue().equals(Boolean.TRUE.equals(feed.get(entry.getKey()))));
+        return result;
     }
 
     /** A new feed starts with each event's default, posting and mentioning, and is interactive. */
@@ -137,7 +233,7 @@ public class NotificationSettingsService {
         for (NotificationEvent event : NotificationEvent.values()) {
             mentions.put(event, event.canMention() && event.mentionDefault());
         }
-        return new Feed(null, channelId, boardIds, events, mentions, false, true);
+        return new Feed(null, channelId, boardIds, events, mentions, false, true, Map.of());
     }
 
     /**
@@ -197,7 +293,12 @@ public class NotificationSettingsService {
                 return statement;
             });
         }
-        return new Feed(id, channel, boards, eventFlags, mentionFlags, roles, buttons);
+        // Boards the feed no longer covers lose their own settings for it.
+        if (!boards.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM feed_board_settings WHERE feed_id = ? AND NOT (board_id = ANY (?))",
+                    id, longArray(boards));
+        }
+        return new Feed(id, channel, boards, eventFlags, mentionFlags, roles, buttons, Map.of());
     }
 
     public void deleteFeed(Long serverId, Long feedId) {
@@ -264,7 +365,7 @@ public class NotificationSettingsService {
             Array boards = rs.getArray("board_ids");
             List<Long> boardIds = boards == null ? List.of() : Arrays.asList((Long[]) boards.getArray());
             return new Feed(rs.getLong("feed_id"), rs.getLong("channel_id"), boardIds, events, mentions,
-                    rs.getBoolean("mention_roles"), rs.getBoolean("interactive"));
+                    rs.getBoolean("mention_roles"), rs.getBoolean("interactive"), Map.of());
         };
     }
 

@@ -1344,6 +1344,68 @@ class EndToEndApiIntegrationTest {
                 "no details, just up or down");
     }
 
+    @Test
+    void boardFeedSettings_changeWhatAFeedPostsForOneBoard_andTheServerSeesThem() throws Exception {
+        World w = bootstrapServer();
+        long quiet = w.createBoard(OWNER, "Quiet");
+        long loud = w.createBoard(OWNER, "Loud");
+        String updates = "930" + w.serverId;
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
+        long feedId = call("POST", w.path("/notifications/feeds"), OWNER,
+                Map.of("channelId", updates, "boardIds", List.of(quiet, loud))).expect(201).json().get("feedId").asLong();
+        String quietSettings = w.boardPath(quiet, "/notifications");
+
+        assertEquals(403, call("GET", quietSettings, MEMBER, null).status(), "for the board's managers");
+        JsonNode feeds = call("GET", quietSettings, OWNER, null).expect(200).json().get("feeds");
+        assertEquals(1, feeds.size());
+        assertEquals("updates", feeds.get(0).get("channelName").asText());
+        assertEquals(0, feeds.get(0).get("own").get("changes").asInt(), "follows the feed until changed");
+
+        // The quiet board: no posts for new tasks, and moves without pinging anyone.
+        JsonNode own = call("PUT", quietSettings + "/feeds/" + feedId, OWNER, Map.of(
+                "events", Map.of("TASK_CREATED", false),
+                "mentions", Map.of("TASK_MOVED", false))).expect(200).json().get("feeds").get(0).get("own");
+        assertEquals(2, own.get("changes").asInt());
+        assertEquals(400, call("PUT", quietSettings + "/feeds/" + feedId, OWNER,
+                Map.of("mentions", Map.of("COLUMN_CHANGED", true))).status());
+        assertEquals(2, call("GET", w.path("/notifications"), OWNER, null).expect(200).json().get("feeds").get(0)
+                .get("boardOverrides").get(String.valueOf(quiet)).get("changes").asInt(), "the server sees the board's changes");
+        drainPlans(w.serverId);
+
+        w.createTask(OWNER, quiet, w.column(quiet, "Todo"), "Unannounced");
+        assertTrue(drainPlans(w.serverId).stream().allMatch(plan -> channel(plan, updates) == null),
+                "a new task on the quiet board is not posted");
+        long loudTask = w.createTask(OWNER, loud, w.column(loud, "Todo"), "Announced");
+        assertNotNull(channel(drainPlans(w.serverId).get(0), updates), "the other board still posts it");
+
+        long quietTask = w.createTask(OWNER, quiet, w.column(quiet, "Todo"), "Moves quietly");
+        call("POST", w.boardPath(quiet, "/tasks/" + quietTask + "/assignments"), OWNER,
+                Map.of("taskId", quietTask, "userId", MEMBER)).expect(201);
+        drainPlans(w.serverId);
+        call("POST", w.boardPath(quiet, "/tasks/" + quietTask + "/move"), OWNER,
+                Map.of("columnId", w.column(quiet, "Doing"), "index", 0)).expect(200);
+        JsonNode moved = channel(drainPlans(w.serverId).get(0), updates);
+        assertNotNull(moved, "the move is posted");
+        assertEquals(List.of(), texts(moved.get("mentionUserIds")), "but pings nobody on this board");
+
+        // Setting something back to the feed's value, or resetting, follows the feed again.
+        assertEquals(1, call("PUT", quietSettings + "/feeds/" + feedId, OWNER, Map.of("events", Map.of("TASK_CREATED", true)))
+                .expect(200).json().get("feeds").get(0).get("own").get("changes").asInt());
+        assertEquals(0, call("DELETE", quietSettings + "/feeds/" + feedId, OWNER, null).expect(200).json()
+                .get("feeds").get(0).get("own").get("changes").asInt());
+
+        // A board the feed stops covering loses its own settings for it.
+        call("PUT", quietSettings + "/feeds/" + feedId, OWNER, Map.of("events", Map.of("TASK_CREATED", false))).expect(200);
+        call("PUT", w.path("/notifications/feeds/" + feedId), OWNER, Map.of("boardIds", List.of(loud))).expect(200);
+        assertEquals(0, call("GET", quietSettings, OWNER, null).expect(200).json().get("feeds").size());
+        assertEquals(400, call("PUT", quietSettings + "/feeds/" + feedId, OWNER,
+                Map.of("events", Map.of("TASK_CREATED", false))).status(), "not a feed of this board any more");
+        assertTrue(call("GET", w.path("/notifications"), OWNER, null).expect(200).json().get("feeds").get(0)
+                .get("boardOverrides").isEmpty());
+        assertTrue(loudTask > 0);
+    }
+
     private List<JsonNode> drainPlans(long serverId) throws Exception {
         List<JsonNode> mine = new ArrayList<>();
         while (true) {

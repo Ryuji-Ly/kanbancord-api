@@ -172,7 +172,7 @@ public class NotificationRouter {
                 continue;
             }
             for (Entry entry : entries) {
-                List<NotificationEvent> wanted = entry.events().stream().filter(feed::wants).toList();
+                List<NotificationEvent> wanted = entry.events().stream().filter(event -> feed.wants(boardId, event)).toList();
                 if (wanted.isEmpty()) {
                     continue;
                 }
@@ -183,7 +183,7 @@ public class NotificationRouter {
                 LinkedHashSet<String> users = usersByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 LinkedHashSet<String> roles = rolesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
                 for (NotificationEvent event : wanted) {
-                    if (!feed.mentions(event)) {
+                    if (!feed.mentions(boardId, event)) {
                         continue;
                     }
                     if (event.isAboutAssignee() && entry.subjectId() != null) {
