@@ -4,6 +4,7 @@ import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
+import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
@@ -14,8 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Writing, editing and deleting task comments. Authors manage their own comments with the permission
- * that lets them comment at all; EDIT_TASK_COMMENT and DELETE_TASK_COMMENT moderate other people's.
+ * Writing, editing and deleting task comments. A comment is only ever edited by its author, with the
+ * permission that lets them comment at all: nobody can put words in someone else's mouth. Deleting
+ * other people's comments is moderation, with DELETE_TASK_COMMENT.
  */
 @Service
 @Transactional
@@ -75,8 +77,10 @@ public class TaskCommentCommands {
         features.require(serverId, boardId, Feature.COMMENTS);
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
         TaskComment comment = requireComment(serverId, boardId, taskId, commentId);
-        authorizer.requireBoardPermission(actorUserId, serverId, boardId,
-                isAuthor(comment, actorUserId) ? "CREATE_TASK_COMMENT" : "EDIT_TASK_COMMENT");
+        if (!isAuthor(comment, actorUserId)) {
+            throw new AccessDeniedException("Only the person who wrote a comment can edit it");
+        }
+        authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_TASK_COMMENT");
 
         TaskCommentResponse before = TaskCommentResponse.from(comment);
         comment.setContent(request.getContent());

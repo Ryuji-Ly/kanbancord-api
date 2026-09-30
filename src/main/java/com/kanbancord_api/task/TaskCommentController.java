@@ -121,7 +121,7 @@ public class TaskCommentController {
 
     /**
      * Authors manage their own comments with the same permission that lets them comment at all;
-     * EDIT_TASK_COMMENT / DELETE_TASK_COMMENT are moderation permissions for other people's comments.
+     * only they can edit them, and DELETE_TASK_COMMENT lets moderators delete other people's.
      */
     private static boolean isAuthor(TaskComment comment, Long userId) {
         return comment.getUser() != null && userId.equals(comment.getUser().getUserId());

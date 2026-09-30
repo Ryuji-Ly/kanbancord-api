@@ -405,10 +405,11 @@ class WorkItemControllersApiTest {
         mockMvc.perform(get("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L)))
                 .andExpect(status().isOk());
 
+        // The comment is user 11's: user 10 may delete it (moderation) but never edit it.
         mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden());
 
         mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L)))
                 .andExpect(status().isNoContent());
@@ -597,11 +598,11 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isOk());
         verify(authorizer).requireBoardPermission(10L, 1L, 100L, "CREATE_TASK_COMMENT");
 
+        // Someone else's comment cannot be edited, whatever their permissions.
         mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-        verify(authorizer).requireBoardPermission(10L, 1L, 100L, "EDIT_TASK_COMMENT");
+                .andExpect(status().isForbidden());
 
         mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/601").with(asUser(10L)))
                 .andExpect(status().isNoContent());

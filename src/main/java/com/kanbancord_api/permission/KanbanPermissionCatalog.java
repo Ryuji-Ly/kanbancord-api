@@ -55,8 +55,6 @@ public enum KanbanPermissionCatalog {
 
         CREATE_TASK_COMMENT("CREATE_TASK_COMMENT", "Create Task Comments", "Create comments on tasks", "COMMENT", true,
                         true, PermissionRank.STANDARD),
-        EDIT_TASK_COMMENT("EDIT_TASK_COMMENT", "Edit Task Comments", "Edit task comments", "COMMENT", true, true,
-                        PermissionRank.STANDARD),
         DELETE_TASK_COMMENT("DELETE_TASK_COMMENT", "Delete Task Comments", "Delete task comments", "COMMENT", true,
                         true, PermissionRank.STANDARD),
 

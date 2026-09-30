@@ -69,7 +69,7 @@ public class PermissionBootstrapService {
                 "ASSIGN_TASK_SELF",
                 // TIER 3 own
                 "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "DELETE_TASK_COMMENT",
                 "ASSIGN_TASK_OTHERS");
 
         // ── TIER 4 ── MANAGE_CHANNELS (180) — channel / board managers ───────────
@@ -81,7 +81,7 @@ public class PermissionBootstrapService {
                 "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
                 "ASSIGN_TASK_SELF",
                 "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "DELETE_TASK_COMMENT",
                 "ASSIGN_TASK_OTHERS",
                 // TIER 4 own
                 "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
@@ -105,7 +105,7 @@ public class PermissionBootstrapService {
                 "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
                 "ASSIGN_TASK_SELF",
                 "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "EDIT_TASK_COMMENT", "DELETE_TASK_COMMENT",
+                "DELETE_TASK_COMMENT",
                 "ASSIGN_TASK_OTHERS",
                 "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
                 "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
