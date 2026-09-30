@@ -47,8 +47,10 @@ public class ServerNotificationController {
     public record ChannelResponse(String channelId, String name, String category, int position, boolean botCanPost) {
     }
 
+    /** {@code boardOverrides}: by board id, that board's own settings where they differ from the feed's. */
     public record FeedResponse(Long feedId, String channelId, List<Long> boardIds, Map<String, Boolean> events,
-                               Map<String, Boolean> mentions, boolean mentionRoles, boolean interactive) {
+                               Map<String, Boolean> mentions, boolean mentionRoles, boolean interactive,
+                               Map<String, BoardOverrideResponse> boardOverrides) {
 
         static FeedResponse from(NotificationSettingsService.Feed feed) {
             Map<String, Boolean> events = new LinkedHashMap<>();
@@ -56,7 +58,24 @@ public class ServerNotificationController {
             Map<String, Boolean> mentions = new LinkedHashMap<>();
             feed.mentions().forEach((event, on) -> mentions.put(event.name(), on));
             return new FeedResponse(feed.feedId(), String.valueOf(feed.channelId()), feed.boardIds(), events, mentions,
-                    feed.mentionRoles(), feed.interactive());
+                    feed.mentionRoles(), feed.interactive(), BoardOverrideResponse.byBoard(feed));
+        }
+    }
+
+    public record BoardOverrideResponse(Map<String, Boolean> events, Map<String, Boolean> mentions, int changes) {
+
+        static Map<String, BoardOverrideResponse> byBoard(NotificationSettingsService.Feed feed) {
+            Map<String, BoardOverrideResponse> result = new LinkedHashMap<>();
+            feed.boardOverrides().forEach((boardId, own) -> result.put(String.valueOf(boardId), from(own)));
+            return result;
+        }
+
+        static BoardOverrideResponse from(NotificationSettingsService.BoardOverride own) {
+            Map<String, Boolean> events = new LinkedHashMap<>();
+            own.events().forEach((event, on) -> events.put(event.name(), on));
+            Map<String, Boolean> mentions = new LinkedHashMap<>();
+            own.mentions().forEach((event, on) -> mentions.put(event.name(), on));
+            return new BoardOverrideResponse(events, mentions, own.changes());
         }
     }
 
