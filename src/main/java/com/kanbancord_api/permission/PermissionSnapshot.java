@@ -16,6 +16,7 @@ import java.util.Set;
  * @param discordFlagBits Discord permission bits the member holds (server owner implies ADMINISTRATOR)
  * @param boardRules      rules scoped to the board (its overrides), or empty at server scope
  * @param serverRules     rules scoped to the server
+ * @param openPermissions the server has open permissions on (see {@link PermissionResolver#OPEN_KEYS})
  */
 public record PermissionSnapshot(
         Long userId,
@@ -23,10 +24,17 @@ public record PermissionSnapshot(
         Set<Long> roleIds,
         Set<Long> discordFlagBits,
         List<Permission> boardRules,
-        List<Permission> serverRules) {
+        List<Permission> serverRules,
+        boolean openPermissions) {
+
+    /** A snapshot of a server without open permissions. */
+    public PermissionSnapshot(Long userId, boolean member, Set<Long> roleIds, Set<Long> discordFlagBits,
+                              List<Permission> boardRules, List<Permission> serverRules) {
+        this(userId, member, roleIds, discordFlagBits, boardRules, serverRules, false);
+    }
 
     public PermissionSnapshot withBoardRules(List<Permission> rules) {
-        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, rules, serverRules);
+        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, rules, serverRules, openPermissions);
     }
 
     /**
@@ -43,7 +51,7 @@ public record PermissionSnapshot(
                 server.add(after);
             }
         }
-        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, board, server);
+        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, board, server, openPermissions);
     }
 
     private static List<Permission> without(List<Permission> rules, Permission removed) {

@@ -53,6 +53,7 @@ public class BoardAudienceQuery {
         List<Permission> boardRules = permissionRepository
                 .findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("BOARD", boardId);
         Long ownerId = serverRepository.findOwnerIdByServerId(serverId).orElse(null);
+        boolean open = serverRepository.findOpenPermissions(serverId).orElse(false);
 
         // @everyone has the server's id, and applies to every member without being assigned.
         Map<Long, Long> everyone = new HashMap<>();
@@ -85,7 +86,7 @@ public class BoardAudienceQuery {
         List<Long> lacking = new ArrayList<>();
         for (Long userId : wanted) {
             PermissionSnapshot snapshot = snapshotOf(userId, members.contains(userId), rolesOf, bitsOf, everyone,
-                    ownerId, boardRules, serverRules);
+                    ownerId, boardRules, serverRules, open);
             boolean allowed = keys.stream().allMatch(key -> PermissionResolver.resolve(snapshot, key).allowed());
             if (!allowed) {
                 lacking.add(userId);
@@ -97,9 +98,9 @@ public class BoardAudienceQuery {
     /** The same snapshot {@link PermissionEvaluationService#loadSnapshot} would load for this person. */
     private PermissionSnapshot snapshotOf(Long userId, boolean member, Map<Long, Set<Long>> rolesOf,
                                           Map<Long, Long> bitsOf, Map<Long, Long> everyone, Long ownerId,
-                                          List<Permission> boardRules, List<Permission> serverRules) {
+                                          List<Permission> boardRules, List<Permission> serverRules, boolean open) {
         if (!member) {
-            return new PermissionSnapshot(userId, false, Set.of(), Set.of(), boardRules, serverRules);
+            return new PermissionSnapshot(userId, false, Set.of(), Set.of(), boardRules, serverRules, open);
         }
         Set<Long> roleIds = new HashSet<>(rolesOf.getOrDefault(userId, Set.of()));
         long bits = bitsOf.getOrDefault(userId, 0L);
@@ -116,6 +117,6 @@ public class BoardAudienceQuery {
         for (DiscordPermissionFlag flag : flags) {
             flagBits.add(flag.getBit());
         }
-        return new PermissionSnapshot(userId, true, Set.copyOf(roleIds), Set.copyOf(flagBits), boardRules, serverRules);
+        return new PermissionSnapshot(userId, true, Set.copyOf(roleIds), Set.copyOf(flagBits), boardRules, serverRules, open);
     }
 }

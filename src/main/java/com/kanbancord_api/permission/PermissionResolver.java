@@ -19,10 +19,27 @@ import java.util.Set;
  * DENY beats any ALLOW. If no layer matches, the key is denied.
  *
  * <p>A user who resolves to ADMIN (at server scope) is allowed every key.
+ *
+ * <p>With open permissions on, every member who can view channels and send messages is allowed the
+ * {@link #OPEN_KEYS}, whatever the rules say: working with boards, columns, labels and tasks. Managing
+ * the server, board permissions, deleting or archiving boards, the audit log and moderating other
+ * people's comments still go by the rules.
  */
 public final class PermissionResolver {
 
     public static final String ADMIN_KEY = "ADMIN";
+
+    /** What everyone who can talk in the server may do with open permissions on. */
+    public static final Set<String> OPEN_KEYS = Set.of(
+            "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK", "CREATE_BOARD", "EDIT_BOARD_DETAILS",
+            "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
+            "CREATE_TASK", "EDIT_TASK", "MOVE_TASK", "DELETE_TASK", "ARCHIVE_TASK",
+            "ASSIGN_TASK_SELF", "ASSIGN_TASK_OTHERS", "CREATE_TASK_COMMENT",
+            "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL", "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
+            "MANAGE_PRIORITIES");
+    static final String OPEN_TIER = "OPEN";
+    private static final Set<Long> CAN_TALK = Set.of(DiscordPermissionFlag.VIEW_CHANNEL.getBit(),
+            DiscordPermissionFlag.SEND_MESSAGES.getBit());
 
     static final String SUBJECT_USER = "USER";
     static final String SUBJECT_ROLE = "ROLE";
@@ -38,6 +55,10 @@ public final class PermissionResolver {
     }
 
     public static PermissionEvaluationService.Decision resolve(PermissionSnapshot snapshot, String permissionKey) {
+        if (snapshot.openPermissions() && OPEN_KEYS.contains(permissionKey) && snapshot.member()
+                && snapshot.discordFlagBits().containsAll(CAN_TALK)) {
+            return new PermissionEvaluationService.Decision(true, OPEN_TIER, "SERVER", null, null);
+        }
         if (!ADMIN_KEY.equals(permissionKey)) {
             PermissionEvaluationService.Decision admin = resolveKey(snapshot, ADMIN_KEY);
             if (admin.allowed()) {

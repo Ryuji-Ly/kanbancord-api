@@ -174,7 +174,8 @@ public class PermissionEvaluationService {
                 roleIds,
                 discordFlagBits,
                 boardRules,
-                serverRules);
+                serverRules,
+                serverRepository.findOpenPermissions(serverId).orElse(false));
     }
 
     public record Decision(boolean allowed, String sourceTier, String sourceScopeType, Long sourceScopeId,
