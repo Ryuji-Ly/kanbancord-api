@@ -5,6 +5,7 @@ import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.security.CurrentUser;
+import com.kanbancord_api.server.ServerRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,14 +32,57 @@ public class ServerFeatureController {
     private final ServerFeatureService serverFeatureService;
     private final Authorizer authorizer;
     private final ApplicationEventPublisher events;
+    private final ServerRepository serverRepository;
 
     public ServerFeatureController(
             ServerFeatureService serverFeatureService,
             Authorizer authorizer,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ServerRepository serverRepository) {
         this.serverFeatureService = serverFeatureService;
         this.authorizer = authorizer;
         this.events = events;
+        this.serverRepository = serverRepository;
+    }
+
+    public record OpenPermissions(Boolean enabled) {
+    }
+
+    /**
+     * Open permissions: whether everyone who can talk in the server may do everything to boards,
+     * columns and tasks. Not a feature: simple mode and "everything on" leave it alone, and it is only
+     * ever switched on deliberately.
+     */
+    @GetMapping("/open-permissions")
+    public ResponseEntity<OpenPermissions> openPermissions(@PathVariable Long serverId, @CurrentUser Long userId) {
+        authorizer.requireServerPermission(userId, serverId, "VIEW_SERVER");
+        return ResponseEntity.ok(new OpenPermissions(serverRepository.findOpenPermissions(serverId).orElse(false)));
+    }
+
+    /** Needs custom permissions off first, since their rules would no longer apply. */
+    @PutMapping("/open-permissions")
+    @Transactional
+    public ResponseEntity<OpenPermissions> setOpenPermissions(
+            @PathVariable Long serverId,
+            @CurrentUser Long userId,
+            @RequestBody OpenPermissions request) {
+        authorizer.requireServerPermission(userId, serverId, "MANAGE_SERVER_PERMISSIONS");
+        if (request.enabled() == null) {
+            throw new BadRequestException("Say whether open permissions should be on");
+        }
+        boolean before = serverRepository.findOpenPermissions(serverId).orElse(false);
+        boolean after = request.enabled();
+        if (after && !before && serverFeatureService.isEnabled(serverId, Feature.PERMISSIONS)) {
+            throw new BadRequestException("Turn custom permissions off first: with open permissions everyone may do "
+                    + "everything, so custom rules would not apply.");
+        }
+        if (after != before) {
+            serverRepository.setOpenPermissions(serverId, after);
+            events.publishEvent(new ServerFeatureService.FeaturesChanged(serverId));
+            events.publishEvent(DomainEvent.changed(EventType.SERVER_FEATURES_UPDATED, serverId, null, serverId,
+                    userId, Map.of("openPermissions", before), Map.of("openPermissions", after)));
+        }
+        return ResponseEntity.ok(new OpenPermissions(after));
     }
 
     /** Every feature and whether it is on, e.g. {@code {"LABELS": true, "COMMENTS": false, ...}}. */
@@ -72,6 +116,11 @@ public class ServerFeatureController {
             }
         });
 
+        if (enabled.contains(Feature.PERMISSIONS) && !before.getOrDefault(Feature.PERMISSIONS.name(), false)
+                && serverRepository.findOpenPermissions(serverId).orElse(false)) {
+            throw new BadRequestException("Turn open permissions off before switching on custom permissions: "
+                    + "with open permissions everyone may do everything, so custom rules would not apply.");
+        }
         serverFeatureService.set(serverId, enabled);
         Map<String, Boolean> after = new LinkedHashMap<>();
         for (Feature feature : Feature.values()) {

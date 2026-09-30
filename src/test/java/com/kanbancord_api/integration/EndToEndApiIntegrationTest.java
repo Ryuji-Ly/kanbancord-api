@@ -1291,6 +1291,59 @@ class EndToEndApiIntegrationTest {
         assertFalse(old.get("COMMENT_CREATED").asBoolean(), "categories it did not mention keep the default");
     }
 
+    @Test
+    void openPermissions_letEveryoneWhoCanTalkWorkWithBoards_butNotManageTheServer() throws Exception {
+        World w = bootstrapServer(true);
+        long board = w.createBoard(OWNER, "Open");
+        long todo = w.column(board, "Todo");
+        long task = w.createTask(OWNER, board, todo, "Anyone may change this");
+        String open = w.path("/features/open-permissions");
+        Map<String, Object> column = Map.of("name", "Review", "boardId", board);
+
+        // Off by default: a member cannot manage columns or edit someone else's task.
+        assertFalse(call("GET", open, MEMBER, null).expect(200).json().get("enabled").asBoolean());
+        assertEquals(403, call("POST", w.boardPath(board, "/columns"), MEMBER, column).status());
+        assertEquals(403, call("PUT", open, MEMBER, Map.of("enabled", true)).status(), "only managers switch it");
+
+        // It cannot be on together with custom permissions, whose rules would no longer apply.
+        assertEquals(400, call("PUT", open, OWNER, Map.of("enabled", true)).status());
+        call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", false)).expect(200);
+        assertTrue(call("PUT", open, OWNER, Map.of("enabled", true)).expect(200).json().get("enabled").asBoolean());
+        assertEquals(400, call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", true)).status());
+        assertEquals(200, call("PUT", w.path("/features"), OWNER, Map.of("LABELS", false)).status(),
+                "other features switch as usual");
+
+        // On: anyone who can talk works with boards, columns and tasks.
+        call("POST", w.boardPath(board, "/columns"), MEMBER, column).expect(201);
+        call("PUT", w.boardPath(board, "/tasks/" + task), MEMBER,
+                Map.of("title", "Changed by a member", "boardId", board, "columnId", todo)).expect(200);
+        call("POST", w.path("/boards"), MEMBER, Map.of("name", "Members' board", "serverId", w.serverId)).expect(201);
+        JsonNode decision = call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).expect(200).json()
+                .get("permissions").get("DELETE_COLUMN");
+        assertTrue(decision.get("allowed").asBoolean());
+        assertEquals("OPEN", decision.get("sourceTier").asText());
+
+        // Managing the server stays with its managers.
+        assertEquals(403, call("DELETE", w.path("/boards/" + board), MEMBER, null).status(), "deleting a board");
+        assertEquals(403, call("PUT", w.path("/features"), MEMBER, Map.of("LABELS", true)).status(), "features");
+        assertEquals(403, call("GET", w.path("/audit-logs"), MEMBER, null).status(), "the audit log");
+
+        // Someone who cannot send messages is not "everyone who can talk".
+        assertEquals(403, w.createTaskStatus(NEWBIE, board, todo));
+
+        // Off again: back to the rules.
+        call("PUT", open, OWNER, Map.of("enabled", false)).expect(200);
+        assertEquals(403, call("POST", w.boardPath(board, "/columns"), MEMBER, Map.of("name", "Again", "boardId", board))
+                .status());
+    }
+
+    @Test
+    void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
+        Response health = callRaw("GET", "/api/health", null, null).expect(200);
+        assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),
+                "no details, just up or down");
+    }
+
     private List<JsonNode> drainPlans(long serverId) throws Exception {
         List<JsonNode> mine = new ArrayList<>();
         while (true) {

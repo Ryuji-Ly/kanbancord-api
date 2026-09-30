@@ -42,6 +42,7 @@ public class SecurityConfig {
                                     "/api/internal/notifications/**",
                                     "/api/internal/board-posts/**",
                                     "/actuator/health",
+                                    "/api/health",
                                     "/ws/**")
                             .permitAll()
                             .anyRequest().authenticated())
