@@ -1438,16 +1438,95 @@ class EndToEndApiIntegrationTest {
         long staff = w.createBoard(OWNER, "Staff");
         long elsewhere = w.createBoard(OWNER, "Elsewhere");
         for (long board : List.of(sprint, staff)) {
-            call("POST", w.boardPath(board, "/posts"), OWNER, Map.of("channelId", "5001", "messageId", "60" + board))
+            call("POST", w.boardPath(board, "/posts"), OWNER, Map.of("channelId", "5001", "messageId", w.serverId + "0" + board))
                     .expect(201);
         }
-        call("POST", w.boardPath(elsewhere, "/posts"), OWNER, Map.of("channelId", "5002", "messageId", "7001")).expect(201);
+        call("POST", w.boardPath(elsewhere, "/posts"), OWNER, Map.of("channelId", "5002", "messageId", w.serverId + "7001")).expect(201);
         w.createRule(OWNER, "BOARD", staff, "ROLE", w.membersRole, "CREATE_TASK", "DENY").expect(201);
 
         JsonNode mine = call("GET", w.path("/channels/5001/boards"), MEMBER, null).expect(200).json();
         assertEquals(List.of(sprint), objectMapper.convertValue(mine.get("boardIds"), new com.fasterxml.jackson.core.type.TypeReference<List<Long>>() { }));
         JsonNode owners = call("GET", w.path("/channels/5001/boards"), OWNER, null).expect(200).json();
         assertEquals(2, owners.get("boardIds").size());
+    }
+
+    @Test
+    void taskThreads_areOnPerBoard_inAFeedChannel_madeByTheBot_andCloseWithTheTask() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Threaded");
+        long todo = w.column(board, "Todo");
+        String feedChannel = "931" + w.serverId;
+        String announcements = "932" + w.serverId;
+        String other = "933" + w.serverId;
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", feedChannel, "name", "updates", "position", 1, "botCanPost", true,
+                        "botCanThread", true, "botCanPrivateThread", true),
+                Map.of("channelId", announcements, "name", "news", "position", 2, "botCanPost", true,
+                        "botCanThread", true, "botCanPrivateThread", false),
+                Map.of("channelId", other, "name", "other", "position", 3, "botCanPost", true))));
+        call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", feedChannel, "boardIds", List.of(board)))
+                .expect(201);
+        call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", announcements, "boardIds", List.of()))
+                .expect(201);
+        String settings = w.boardPath(board, "/threads");
+
+        // Off until switched on; for the board's managers; only in one of the board's feed channels.
+        JsonNode off = call("GET", settings, OWNER, null).expect(200).json();
+        assertFalse(off.get("enabled").asBoolean());
+        assertEquals(2, off.get("channels").size(), "the board's own feed and the every-board feed");
+        assertEquals(403, call("PUT", settings, MEMBER, Map.of("channelId", feedChannel)).status());
+        assertEquals(400, call("PUT", settings, OWNER, Map.of("channelId", other)).status(), "no feed for the board there");
+        assertEquals(400, call("PUT", settings, OWNER, Map.of("channelId", announcements, "privateThreads", true)).status(),
+                "no private threads where the bot cannot make them");
+        JsonNode on = call("PUT", settings, OWNER, Map.of("channelId", feedChannel)).expect(200).json();
+        assertTrue(on.get("enabled").asBoolean() && on.get("active").asBoolean());
+        assertEquals("BOTH", on.get("updates").asText(), "updates go to both by default");
+        assertFalse(on.get("privateThreads").asBoolean(), "public by default");
+        drainPlans(w.serverId);
+
+        // A new task: the bot is asked to make its thread, and reports it.
+        long task = w.createTask(OWNER, board, todo, "Discuss me");
+        JsonNode thread = drainPlans(w.serverId).get(0).get("thread");
+        assertEquals(feedChannel, thread.get("channelId").asText());
+        assertTrue(thread.get("threadId").isNull(), "made by the bot");
+        assertEquals("Discuss me", thread.get("name").asText());
+        internal("POST", "/api/internal/notifications/threads", Map.of("serverId", String.valueOf(w.serverId),
+                "taskId", task, "channelId", feedChannel, "threadId", "7777", "privateThread", false)).expect(204);
+
+        // Later changes know the thread, and where updates go.
+        call("PUT", settings, OWNER, Map.of("channelId", feedChannel, "updates", "THREAD")).expect(200);
+        w.updateTask(OWNER, board, task, "Discuss me more", todo).expect(200);
+        JsonNode later = drainPlans(w.serverId).get(0).get("thread");
+        assertEquals("7777", later.get("threadId").asText());
+        assertEquals("THREAD", later.get("updates").asText());
+        assertEquals("Discuss me more", later.get("name").asText());
+
+        // A thread deleted in Discord is forgotten, so the task gets a new one.
+        internal("POST", "/api/internal/notifications/threads", Map.of("serverId", String.valueOf(w.serverId),
+                "taskId", task, "channelId", feedChannel, "threadId", "7777", "gone", true)).expect(204);
+        w.updateTask(OWNER, board, task, "Again", todo).expect(200);
+        assertTrue(drainPlans(w.serverId).get(0).get("thread").get("threadId").isNull());
+        internal("POST", "/api/internal/notifications/threads", Map.of("serverId", String.valueOf(w.serverId),
+                "taskId", task, "channelId", feedChannel, "threadId", "8888", "privateThread", false)).expect(204);
+
+        // Private threads include the task's creator and assignees.
+        call("PUT", settings, OWNER, Map.of("channelId", feedChannel, "privateThreads", true)).expect(200);
+        long secret = w.createTask(OWNER, board, todo, "Secret");
+        call("POST", w.boardPath(board, "/tasks/" + secret + "/assignments"), OWNER,
+                Map.of("taskId", secret, "userId", MEMBER)).expect(201);
+        JsonNode privateThread = drainPlans(w.serverId).get(0).get("thread");
+        assertTrue(privateThread.get("privateThread").asBoolean());
+        assertEquals(List.of(String.valueOf(OWNER), String.valueOf(MEMBER)), texts(privateThread.get("members")));
+
+        // Switched off: no thread for new tasks, but a deleted task's thread is still closed.
+        call("DELETE", settings, OWNER, null).expect(200);
+        w.createTask(OWNER, board, todo, "Unthreaded");
+        assertTrue(drainPlans(w.serverId).get(0).get("thread").isNull());
+        call("DELETE", w.boardPath(board, "/tasks/" + task), OWNER, null).expect(204);
+        JsonNode closing = drainPlans(w.serverId).get(0).get("thread");
+        assertEquals("8888", closing.get("threadId").asText());
+        assertTrue(closing.get("close").asBoolean());
+        assertEquals("CHANNEL", closing.get("updates").asText(), "nothing more is posted in it");
     }
 
     @Test
