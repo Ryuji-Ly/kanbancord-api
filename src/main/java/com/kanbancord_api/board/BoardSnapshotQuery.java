@@ -149,6 +149,28 @@ public class BoardSnapshotQuery {
         }
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
-                taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds);
+                taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds,
+                taskThreads(serverId, boardId, canViewTasks));
+    }
+
+    /** Whether a feed covers the board, whether threads are on and working, and the tasks' threads. */
+    private BoardSnapshotResponse.TaskThreads taskThreads(Long serverId, Long boardId, boolean canViewTasks) {
+        String covering = "SELECT channel_id FROM notification_feeds WHERE server_id = ? "
+                + "AND (cardinality(board_ids) = 0 OR ? = ANY (board_ids))";
+        boolean available = !jdbcTemplate.queryForList(covering, Long.class, serverId, boardId).isEmpty();
+        List<Long> channel = available
+                ? jdbcTemplate.queryForList("SELECT channel_id FROM board_thread_settings WHERE board_id = ? AND channel_id IN ("
+                        + covering + ")", Long.class, boardId, serverId, boardId)
+                : List.of();
+        Map<String, String> threadIds = new LinkedHashMap<>();
+        if (!channel.isEmpty() && canViewTasks) {
+            jdbcTemplate.query("""
+                    SELECT th.task_id, th.thread_id FROM task_threads th JOIN tasks t ON t.task_id = th.task_id
+                    WHERE t.board_id = ? AND th.channel_id = ?
+                    """, row -> {
+                threadIds.put(String.valueOf(row.getLong(1)), String.valueOf(row.getLong(2)));
+            }, boardId, channel.get(0));
+        }
+        return new BoardSnapshotResponse.TaskThreads(available, !channel.isEmpty(), threadIds);
     }
 }

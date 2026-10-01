@@ -1530,6 +1530,50 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void discussInThread_tellsTheBotWhetherATaskHasAThread_andWhoMaySwitchThreadsOn() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Talky");
+        long todo = w.column(board, "Todo");
+        long task = w.createTask(OWNER, board, todo, "Talk about me");
+        String channel = "934" + w.serverId;
+        String info = w.boardPath(board, "/tasks/" + task + "/thread");
+
+        // No feed: the board's tasks cannot have threads, and the button is not shown.
+        assertFalse(w.snapshot(MEMBER, board).get("threads").get("available").asBoolean());
+        assertFalse(call("GET", info, MEMBER, null).expect(200).json().get("available").asBoolean());
+
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", channel, "name", "updates", "position", 1, "botCanPost", true,
+                        "botCanThread", true, "botCanPrivateThread", true))));
+        call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", channel, "boardIds", List.of(board)))
+                .expect(201);
+        JsonNode threads = w.snapshot(MEMBER, board).get("threads");
+        assertTrue(threads.get("available").asBoolean());
+        assertFalse(threads.get("enabled").asBoolean());
+
+        // Threads off: a member is told so; whoever may edit the board may switch them on, and where.
+        JsonNode member = call("GET", info, MEMBER, null).expect(200).json();
+        assertFalse(member.get("enabled").asBoolean() || member.get("canEnable").asBoolean());
+        assertEquals(0, member.get("channels").size());
+        JsonNode owner = call("GET", info, OWNER, null).expect(200).json();
+        assertTrue(owner.get("canEnable").asBoolean());
+        assertEquals(channel, owner.get("channels").get(0).get("channelId").asText());
+
+        // On: the bot is told the thread to make; once made, everyone sees it.
+        call("PUT", w.boardPath(board, "/threads"), OWNER, Map.of("channelId", channel, "privateThreads", true)).expect(200);
+        call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), OWNER,
+                Map.of("taskId", task, "userId", MEMBER)).expect(201);
+        JsonNode toMake = call("GET", info, MEMBER, null).expect(200).json();
+        assertTrue(toMake.get("enabled").asBoolean() && toMake.get("threadId").isNull());
+        assertEquals("Talk about me", toMake.get("name").asText());
+        assertEquals(List.of(String.valueOf(OWNER), String.valueOf(MEMBER)), texts(toMake.get("members")));
+        internal("POST", "/api/internal/notifications/threads", Map.of("serverId", String.valueOf(w.serverId),
+                "taskId", task, "channelId", channel, "threadId", "9999", "privateThread", true)).expect(204);
+        assertEquals("9999", call("GET", info, MEMBER, null).expect(200).json().get("threadId").asText());
+        assertEquals("9999", w.snapshot(MEMBER, board).get("threads").get("threadIds").get(String.valueOf(task)).asText());
+    }
+
+    @Test
     void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
         Response health = callRaw("GET", "/api/health", null, null).expect(200);
         assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),
