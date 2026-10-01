@@ -85,6 +85,7 @@ public class PermissionRuleCommands {
         if (state == null || (!state.equals("ALLOW") && !state.equals("DENY"))) {
             throw new BadRequestException("State must be ALLOW or DENY");
         }
+        refuseDenyingAdministrators(permission.getKanbanPermission().getKey(), state);
 
         Permission proposed = copyOf(permission);
         proposed.setState(state);
@@ -127,7 +128,18 @@ public class PermissionRuleCommands {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
         validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
+        refuseDenyingAdministrators(kanbanPermission.getKey(), request.getState());
         return kanbanPermission;
+    }
+
+    /**
+     * Administrator can be given by a rule, never taken: administrators and the server owner may always
+     * do everything, so the server can never lock out the people who run it.
+     */
+    private static void refuseDenyingAdministrators(String key, String state) {
+        if (PermissionResolver.ADMIN_KEY.equals(key) && !"ALLOW".equals(state)) {
+            throw new BadRequestException("Administrator cannot be denied; it can only be given");
+        }
     }
 
     private static void validateScopeApplicability(String scopeType, String kanbanPermissionKey) {

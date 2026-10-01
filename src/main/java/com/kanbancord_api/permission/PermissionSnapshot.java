@@ -9,7 +9,7 @@ import java.util.Set;
  * Everything needed to resolve any permission key for one user in one server (and optionally one
  * board), loaded up front so resolution itself needs no further queries.
  *
- * @param userId          the user being evaluated
+ * @param userId          the user being evaluated; null for no one in particular (a set of roles)
  * @param member          whether the user is a member of the server; non-members get no role or
  *                        Discord-derived grants
  * @param roleIds         Discord roles the member holds

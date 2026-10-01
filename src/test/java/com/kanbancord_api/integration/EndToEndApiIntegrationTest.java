@@ -1338,6 +1338,100 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void customPermissionsOff_theDefaultsApply_andTheRulesAreKeptForLater() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Kept");
+        long todo = w.column(board, "Todo");
+        w.createRule(OWNER, "SERVER", w.serverId, "ROLE", w.membersRole, "CREATE_TASK", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.membersRole, "VIEW_BOARD", "DENY").expect(201);
+        assertEquals(403, w.createTaskStatus(MEMBER, board, todo));
+
+        // Off: what Discord permissions give, as for a new server. The rules stay, unused.
+        call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", false)).expect(200);
+        assertEquals(201, w.createTaskStatus(MEMBER, board, todo), "Send Messages creates tasks");
+        assertEquals(200, call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).status(), "no board rules");
+        assertEquals(2, count("SELECT COUNT(*) FROM permissions WHERE subject_type = 'ROLE' AND subject_id = "
+                + w.membersRole));
+
+        // Syncing the server again leaves its rules as they are.
+        assertEquals(204, sync("POST", "/api/internal/sync/servers/" + w.serverId + "/bootstrap", Map.of(
+                "name", "E2E " + w.serverId, "ownerId", OWNER, "ownerUsername", "owner",
+                "roles", List.of(), "members", List.of())));
+
+        // On again: the rules apply again.
+        call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", true)).expect(200);
+        assertEquals(403, w.createTaskStatus(MEMBER, board, todo));
+        assertEquals(403, call("GET", w.boardPath(board, "/snapshot"), MEMBER, null).status());
+    }
+
+    @Test
+    void accessCheck_saysWhatSomeoneMayDoAndWhy_forMembersOtherRolesAndRoleSets() throws Exception {
+        World w = bootstrapServer(true);
+        long board = w.createBoard(OWNER, "Checked");
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.membersRole, "DELETE_TASK", "ALLOW").expect(201);
+        w.createRule(OWNER, "BOARD", board, "USER", MOD, "EDIT_BOARD_PERMISSIONS", "ALLOW").expect(201);
+        String check = w.path("/permissions/check");
+
+        // Yourself, server-wide: Send Messages lets you create tasks; nothing lets you delete them.
+        JsonNode self = call("GET", check, MEMBER, null).expect(200).json();
+        assertEquals("member", self.get("subject").get("name").asText());
+        JsonNode create = result(self, "CREATE_TASK");
+        assertTrue(create.get("allowed").asBoolean());
+        assertEquals("RULE", create.get("reason").asText());
+        assertEquals("SEND_MESSAGES", create.get("decidedBy").get("subjectName").asText());
+        assertEquals("NONE", result(self, "DELETE_TASK").get("reason").asText());
+
+        // On the board, its rule for Members decides.
+        JsonNode onBoard = call("GET", check + "?boardId=" + board, MEMBER, null).expect(200).json();
+        JsonNode delete = result(onBoard, "DELETE_TASK");
+        assertTrue(delete.get("allowed").asBoolean());
+        assertEquals("BOARD", delete.get("decidedBy").get("scope").asText());
+        assertEquals("Members", delete.get("decidedBy").get("subjectName").asText());
+
+        // Checking someone else takes managing permissions, or on a board, editing its permissions.
+        assertEquals(403, call("GET", check + "?userId=" + MOD, MEMBER, null).status());
+        assertEquals(403, call("GET", check + "?userId=" + MEMBER, MOD, null).status());
+        call("GET", check + "?userId=" + MEMBER + "&boardId=" + board, MOD, null).expect(200);
+
+        // A member with other roles: Mods gives Manage Messages, so editing tasks.
+        JsonNode whatIf = call("GET", check + "?userId=" + MEMBER + "&withRoles=true&roleIds=" + w.membersRole
+                + "," + w.modsRole, OWNER, null).expect(200).json();
+        assertTrue(whatIf.get("subject").get("rolesChanged").asBoolean());
+        assertTrue(result(whatIf, "EDIT_TASK").get("allowed").asBoolean());
+
+        // Anyone with no roles but @everyone: they can look, not change.
+        JsonNode nobody = call("GET", check + "?withRoles=true", OWNER, null).expect(200).json();
+        assertTrue(nobody.get("subject").get("userId").isNull());
+        assertTrue(nobody.get("subject").get("roles").get(0).get("everyone").asBoolean());
+        assertTrue(result(nobody, "VIEW_BOARD").get("allowed").asBoolean());
+        assertFalse(result(nobody, "CREATE_TASK").get("allowed").asBoolean());
+        assertEquals(400, call("GET", check + "?withRoles=true&roleIds=123", OWNER, null).status(), "not a role here");
+
+        // The owner may do everything.
+        JsonNode owner = call("GET", check, OWNER, null).expect(200).json();
+        assertTrue(owner.get("subject").get("administrator").asBoolean());
+        assertEquals("ADMIN", result(owner, "DELETE_BOARD").get("reason").asText());
+        assertEquals(400, w.createRule(OWNER, "SERVER", w.serverId, "USER", OWNER, "ADMIN", "DENY").status(),
+                "administrators cannot be locked out");
+
+        // With custom permissions off, the board's rule does not apply, and the defaults are built in.
+        call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", false)).expect(200);
+        JsonNode off = call("GET", check + "?boardId=" + board, MEMBER, null).expect(200).json();
+        assertFalse(off.get("customPermissions").asBoolean());
+        assertFalse(result(off, "DELETE_TASK").get("allowed").asBoolean());
+        assertTrue(result(off, "CREATE_TASK").get("decidedBy").get("builtIn").asBoolean());
+    }
+
+    private static JsonNode result(JsonNode check, String key) {
+        for (JsonNode result : check.get("results")) {
+            if (key.equals(result.get("key").asText())) {
+                return result;
+            }
+        }
+        throw new AssertionError("No result for " + key);
+    }
+
+    @Test
     void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
         Response health = callRaw("GET", "/api/health", null, null).expect(200);
         assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),

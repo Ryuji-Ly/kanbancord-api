@@ -66,4 +66,8 @@ public enum DiscordPermissionFlag {
     public long getBit() {
         return bit;
     }
+
+    public static Optional<DiscordPermissionFlag> fromBit(Long bit) {
+        return Arrays.stream(values()).filter(flag -> bit != null && flag.bit == bit).findFirst();
+    }
 }
