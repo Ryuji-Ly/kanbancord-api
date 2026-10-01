@@ -30,17 +30,21 @@ public class InternalNotificationController {
     private final NotificationRouter router;
     private final NotificationSettingsService settings;
     private final Authorizer authorizer;
+    private final TaskThreadService threads;
 
     public InternalNotificationController(NotificationQueue queue, NotificationRouter router,
-                                          NotificationSettingsService settings, Authorizer authorizer) {
+                                          NotificationSettingsService settings, Authorizer authorizer,
+                                          TaskThreadService threads) {
         this.queue = queue;
         this.router = router;
         this.settings = settings;
         this.authorizer = authorizer;
+        this.threads = threads;
     }
 
+    /** {@code botCanThread} and {@code botCanPrivateThread} are left out by older bots: then false. */
     public record ChannelEntry(@NotBlank String channelId, @NotBlank String name, String category, Integer position,
-                               @NotNull Boolean botCanPost) {
+                               @NotNull Boolean botCanPost, Boolean botCanThread, Boolean botCanPrivateThread) {
     }
 
     /** The server's text channels, complete: channels left out are removed. */
@@ -52,7 +56,8 @@ public class InternalNotificationController {
         authorizer.requireInternalSyncAccess(botToken);
         settings.replaceChannels(serverId, channels.stream()
                 .map(entry -> new NotificationSettingsService.Channel(Long.valueOf(entry.channelId()), entry.name(),
-                        entry.category(), entry.position() == null ? 0 : entry.position(), entry.botCanPost()))
+                        entry.category(), entry.position() == null ? 0 : entry.position(), entry.botCanPost(),
+                        Boolean.TRUE.equals(entry.botCanThread()), Boolean.TRUE.equals(entry.botCanPrivateThread())))
                 .toList());
         return ResponseEntity.noContent().build();
     }
@@ -84,6 +89,24 @@ public class InternalNotificationController {
             }
         }
         return ResponseEntity.ok(plans);
+    }
+
+    /** The thread the bot made for a task, or {@code gone} when it found the thread deleted. */
+    public record ThreadReport(@NotBlank String serverId, @NotNull Long taskId, @NotBlank String channelId,
+                               @NotBlank String threadId, boolean privateThread, boolean gone) {
+    }
+
+    @PostMapping("/api/internal/notifications/threads")
+    public ResponseEntity<Void> reportThread(@RequestHeader(BOT_TOKEN_HEADER) String botToken,
+                                             @Valid @RequestBody ThreadReport report) {
+        authorizer.requireInternalSyncAccess(botToken);
+        if (report.gone()) {
+            threads.forgetThread(report.taskId(), Long.valueOf(report.threadId()));
+        } else {
+            threads.recordThread(Long.valueOf(report.serverId()), report.taskId(), Long.valueOf(report.channelId()),
+                    Long.valueOf(report.threadId()), report.privateThread());
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/api/internal/notifications/{batchId}/delivered")

@@ -45,15 +45,22 @@ public class NotificationSettingsService {
 
     // ── Channels ─────────────────────────────────────────────────────────────
 
-    public record Channel(Long channelId, String name, String category, int position, boolean botCanPost) {
+    /** {@code botCanThread}: the bot may start public threads there; {@code botCanPrivateThread}: private ones. */
+    public record Channel(Long channelId, String name, String category, int position, boolean botCanPost,
+                          boolean botCanThread, boolean botCanPrivateThread) {
+
+        public Channel(Long channelId, String name, String category, int position, boolean botCanPost) {
+            this(channelId, name, category, position, botCanPost, false, false);
+        }
     }
 
     public List<Channel> channels(Long serverId) {
         return jdbcTemplate.query("""
-                SELECT channel_id, name, category, position, bot_can_post FROM discord_channels
-                WHERE server_id = ? ORDER BY position, name
+                SELECT channel_id, name, category, position, bot_can_post, bot_can_thread, bot_can_private_thread
+                FROM discord_channels WHERE server_id = ? ORDER BY position, name
                 """, (rs, row) -> new Channel(rs.getLong("channel_id"), rs.getString("name"), rs.getString("category"),
-                rs.getInt("position"), rs.getBoolean("bot_can_post")), serverId);
+                rs.getInt("position"), rs.getBoolean("bot_can_post"), rs.getBoolean("bot_can_thread"),
+                rs.getBoolean("bot_can_private_thread")), serverId);
     }
 
     /** Makes the server's channels exactly those the bot reported. */
@@ -61,13 +68,16 @@ public class NotificationSettingsService {
     public void replaceChannels(Long serverId, List<Channel> channels) {
         jdbcTemplate.update("DELETE FROM discord_channels WHERE server_id = ?", serverId);
         jdbcTemplate.batchUpdate("""
-                INSERT INTO discord_channels (channel_id, server_id, name, category, position, bot_can_post)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO discord_channels (channel_id, server_id, name, category, position, bot_can_post,
+                                              bot_can_thread, bot_can_private_thread)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (channel_id) DO UPDATE SET server_id = EXCLUDED.server_id, name = EXCLUDED.name,
-                    category = EXCLUDED.category, position = EXCLUDED.position, bot_can_post = EXCLUDED.bot_can_post
+                    category = EXCLUDED.category, position = EXCLUDED.position, bot_can_post = EXCLUDED.bot_can_post,
+                    bot_can_thread = EXCLUDED.bot_can_thread, bot_can_private_thread = EXCLUDED.bot_can_private_thread
                 """, channels.stream()
                 .map(channel -> new Object[]{channel.channelId(), serverId, truncate(channel.name(), 100),
-                        truncate(channel.category(), 100), channel.position(), channel.botCanPost()})
+                        truncate(channel.category(), 100), channel.position(), channel.botCanPost(),
+                        channel.botCanThread(), channel.botCanPrivateThread()})
                 .toList());
     }
 

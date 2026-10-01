@@ -34,13 +34,16 @@ public class NotificationRouter {
     private final NotificationSettingsService settings;
     private final PermissionEvaluationService permissions;
     private final JdbcTemplate jdbcTemplate;
+    private final TaskThreadService threads;
 
     public NotificationRouter(AuditLogRepository auditLogRepository, NotificationSettingsService settings,
-                              PermissionEvaluationService permissions, JdbcTemplate jdbcTemplate) {
+                              PermissionEvaluationService permissions, JdbcTemplate jdbcTemplate,
+                              TaskThreadService threads) {
         this.auditLogRepository = auditLogRepository;
         this.settings = settings;
         this.permissions = permissions;
         this.jdbcTemplate = jdbcTemplate;
+        this.threads = threads;
     }
 
     public record BoardRef(Long boardId, String name) {
@@ -67,11 +70,23 @@ public class NotificationRouter {
     public record DirectMessage(String userId, List<Long> entryIds, String mode) {
     }
 
+    /**
+     * The task's thread in a feed channel, for a board with threads on. {@code threadId} is null when
+     * the bot is to make it (it then reports it back). {@code updates} says where the feed's posts for
+     * that channel go once there is a thread: BOTH, THREAD or CHANNEL. {@code close}: the task was
+     * deleted or archived, so its thread is archived. {@code members}: who a private thread includes
+     * (the task's creator and assignees).
+     */
+    public record ThreadPlan(String channelId, String threadId, boolean privateThread, String updates, String name,
+                             boolean close, List<String> members) {
+    }
+
     public record Plan(long batchId, String serverId, BoardRef board, TaskRef task, List<AuditLogResponse> entries,
-                       Names names, List<ChannelDelivery> channels, List<DirectMessage> directMessages) {
+                       Names names, List<ChannelDelivery> channels, List<DirectMessage> directMessages,
+                       ThreadPlan thread) {
 
         public boolean isEmpty() {
-            return channels.isEmpty() && directMessages.isEmpty();
+            return channels.isEmpty() && directMessages.isEmpty() && thread == null;
         }
     }
 
@@ -120,7 +135,49 @@ public class NotificationRouter {
                 task == null ? null : new TaskRef(taskId, task.title(), task.deleted()),
                 entries.stream().map(Entry::log).toList(),
                 boardId == null ? new Names(Map.of(), Map.of(), Map.of()) : names(boardId),
-                channels, directMessages);
+                channels, directMessages, threadPlan(serverId, boardId, taskId, task));
+    }
+
+    // ── Task threads ─────────────────────────────────────────────────────────
+
+    /** The task's thread, for a board with threads on; or to close an existing one when the task goes. */
+    private ThreadPlan threadPlan(Long serverId, Long boardId, Long taskId, TaskContext task) {
+        if (boardId == null || taskId == null || task == null) {
+            return null;
+        }
+        java.util.Optional<TaskThreadService.TaskThread> existing = threads.thread(taskId);
+        boolean close = task.deleted() || archived(taskId);
+        java.util.Optional<TaskThreadService.Settings> on = threads.active(serverId, boardId);
+        if (on.isEmpty()) {
+            // Switched off: no new threads and nothing posted in old ones, but a task's thread still closes with it.
+            return existing.filter(thread -> close)
+                    .map(thread -> new ThreadPlan(String.valueOf(thread.channelId()), String.valueOf(thread.threadId()),
+                            thread.privateThread(), TaskThreadService.Updates.CHANNEL.name(), task.title(), true, List.of()))
+                    .orElse(null);
+        }
+        TaskThreadService.Settings settings = on.get();
+        // A thread in another channel (the board's threads moved) is left; the task gets one in the new channel.
+        TaskThreadService.TaskThread thread = existing
+                .filter(found -> found.channelId().equals(settings.channelId())).orElse(null);
+        if (thread == null && close) {
+            return null;
+        }
+        boolean privateThread = thread != null ? thread.privateThread() : settings.privateThreads();
+        List<String> members = new ArrayList<>();
+        if (privateThread) {
+            if (task.creatorId() != null) {
+                members.add(String.valueOf(task.creatorId()));
+            }
+            task.assignees().stream().map(String::valueOf).filter(id -> !members.contains(id)).forEach(members::add);
+        }
+        return new ThreadPlan(String.valueOf(settings.channelId()), thread == null ? null : String.valueOf(thread.threadId()),
+                privateThread, settings.updates().name(), task.title(), close, members);
+    }
+
+    private boolean archived(Long taskId) {
+        List<Boolean> archived = jdbcTemplate.queryForList("SELECT is_archived FROM tasks WHERE task_id = ?",
+                Boolean.class, taskId);
+        return !archived.isEmpty() && Boolean.TRUE.equals(archived.get(0));
     }
 
     /**
@@ -155,7 +212,7 @@ public class NotificationRouter {
 
     private Plan empty(NotificationQueue.Batch batch) {
         return new Plan(batch.batchId(), String.valueOf(batch.serverId()), null, null, List.of(),
-                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of());
+                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null);
     }
 
     // ── Feeds ────────────────────────────────────────────────────────────────

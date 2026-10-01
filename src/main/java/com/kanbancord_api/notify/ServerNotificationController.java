@@ -44,7 +44,8 @@ public class ServerNotificationController {
     }
 
     /** Ids go out as strings: Discord ids are too large for a JavaScript number. */
-    public record ChannelResponse(String channelId, String name, String category, int position, boolean botCanPost) {
+    public record ChannelResponse(String channelId, String name, String category, int position, boolean botCanPost,
+                                  boolean botCanThread, boolean botCanPrivateThread) {
     }
 
     /** {@code boardOverrides}: by board id, that board's own settings where they differ from the feed's. */
@@ -149,7 +150,8 @@ public class ServerNotificationController {
                 settings.feeds(serverId).stream().map(FeedResponse::from).toList(),
                 settings.channels(serverId).stream()
                         .map(channel -> new ChannelResponse(String.valueOf(channel.channelId()), channel.name(),
-                                channel.category(), channel.position(), channel.botCanPost()))
+                                channel.category(), channel.position(), channel.botCanPost(), channel.botCanThread(),
+                                channel.botCanPrivateThread()))
                         .toList(),
                 NotificationSettingsService.catalogue());
     }
