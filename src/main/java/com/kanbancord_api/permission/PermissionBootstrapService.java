@@ -37,118 +37,24 @@ public class PermissionBootstrapService {
         }
     }
 
+    /**
+     * Gives a new server the default rules ({@link DefaultPermissionRules}). Runs on every sync, so a
+     * server that already has rules keeps them as they are: they are the server's to change once custom
+     * permissions are on, and while those are off the defaults apply anyway. Only the rules no one may
+     * change are put back.
+     */
     public void initializeDefaultServerConfiguration(Long serverId) {
         ensureCatalogSeeded();
-
-        // ADMINISTRATOR → immutable ADMIN (implies everything)
-        upsertPermission(SCOPE_SERVER, serverId, SUBJECT_DISCORD_PERMISSION,
-                DiscordPermissionFlag.ADMINISTRATOR.getBit(),
-                "ADMIN", STATE_ALLOW, 10_000, true);
-
-        // ── TIER 1 ── VIEW_CHANNEL (100) — basic read access ─────────────────────
-        mapPermissions(serverId, DiscordPermissionFlag.VIEW_CHANNEL, 100,
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK");
-
-        // ── TIER 2 ── SEND_MESSAGES (120) — regular contributors ─────────────────
-        // Also includes all TIER 1 permissions cascaded at priority 120
-        mapPermissions(serverId, DiscordPermissionFlag.SEND_MESSAGES, 120,
-                // cascade from TIER 1
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
-                // TIER 2 own
-                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
-                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
-                "ASSIGN_TASK_SELF");
-
-        // ── TIER 3 ── MANAGE_MESSAGES (130) — moderators ─────────────────────────
-        // Cascades TIER 1 + TIER 2
-        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_MESSAGES, 130,
-                // cascade
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
-                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
-                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
-                "ASSIGN_TASK_SELF",
-                // TIER 3 own
-                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "DELETE_TASK_COMMENT",
-                "ASSIGN_TASK_OTHERS");
-
-        // ── TIER 4 ── MANAGE_CHANNELS (180) — channel / board managers ───────────
-        // Cascades TIER 1 + 2 + 3
-        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_CHANNELS, 180,
-                // cascade
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
-                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
-                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
-                "ASSIGN_TASK_SELF",
-                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "DELETE_TASK_COMMENT",
-                "ASSIGN_TASK_OTHERS",
-                // TIER 4 own
-                "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
-                "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
-                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL", "MANAGE_PRIORITIES",
-                "VIEW_AUDIT_LOG");
-
-        // ── TIER 5 ── VIEW_AUDIT_LOG (180) — audit reviewers ─────────────────────
-        mapPermissions(serverId, DiscordPermissionFlag.VIEW_AUDIT_LOG, 180,
-                // cascade TIER 1
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
-                // own
-                "VIEW_AUDIT_LOG");
-
-        // ── TIER 6 ── MANAGE_GUILD (200+) — server admins ────────────────────────
-        // Cascades all tiers
-        mapPermissions(serverId, DiscordPermissionFlag.MANAGE_GUILD, 200,
-                // cascade all lower tiers
-                "VIEW_SERVER", "VIEW_BOARD", "VIEW_TASK",
-                "CREATE_TASK", "MOVE_TASK", "CREATE_TASK_COMMENT",
-                "APPLY_LABEL_TO_TASK", "REMOVE_LABEL_FROM_TASK",
-                "ASSIGN_TASK_SELF",
-                "EDIT_TASK", "DELETE_TASK", "ARCHIVE_TASK",
-                "DELETE_TASK_COMMENT",
-                "ASSIGN_TASK_OTHERS",
-                "CREATE_COLUMN", "EDIT_COLUMN", "DELETE_COLUMN", "MOVE_COLUMN",
-                "EDIT_BOARD_DETAILS", "ARCHIVE_BOARD", "EDIT_BOARD_PERMISSIONS",
-                "CREATE_LABEL", "EDIT_LABEL", "DELETE_LABEL", "MANAGE_PRIORITIES",
-                "VIEW_AUDIT_LOG",
-                // TIER 6 own
-                "MANAGE_SERVER_PERMISSIONS", "CREATE_BOARD", "DELETE_BOARD");
-    }
-
-    private void mapPermissions(
-            Long serverId,
-            DiscordPermissionFlag discordFlag,
-            int priority,
-            String... kanbanPermissionKeys) {
-        for (String key : kanbanPermissionKeys) {
-            upsertPermission(
-                    SCOPE_SERVER,
-                    serverId,
-                    SUBJECT_DISCORD_PERMISSION,
-                    discordFlag.getBit(),
-                    key,
-                    STATE_ALLOW,
-                    priority,
-                    false);
+        boolean fresh = !permissionRepository.existsByScopeTypeAndScopeId(SCOPE_SERVER, serverId);
+        for (DefaultPermissionRules.Grant grant : DefaultPermissionRules.grants()) {
+            if (fresh || grant.immutable()) {
+                for (String key : grant.keys()) {
+                    upsertPermission(SCOPE_SERVER, serverId, SUBJECT_DISCORD_PERMISSION, grant.flag().getBit(), key,
+                            STATE_ALLOW, grant.priority(), grant.immutable());
+                }
+            }
         }
     }
-
-//     private void mapDiscordFlagAtServer(
-//             Long serverId,
-//             DiscordPermissionFlag discordFlag,
-//             String kanbanPermissionKey,
-//             int priority,
-//             boolean immutable) {
-//         upsertPermission(
-//                 SCOPE_SERVER,
-//                 serverId,
-//                 SUBJECT_DISCORD_PERMISSION,
-//                 discordFlag.getBit(),
-//                 kanbanPermissionKey,
-//                 STATE_ALLOW,
-//                 priority,
-//                 immutable);
-//     }
 
     private void upsertPermission(
             String scopeType,

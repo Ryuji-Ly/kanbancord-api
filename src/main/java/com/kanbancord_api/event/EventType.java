@@ -88,7 +88,8 @@ public enum EventType {
     public boolean affectsAccess() {
         return switch (entityType) {
             case PERMISSION, SERVER, ROLE, MEMBER -> true;
-            default -> false;
+            // Custom and open permissions change which rules apply.
+            default -> this == SERVER_FEATURES_UPDATED;
         };
     }
 

@@ -1,5 +1,7 @@
 package com.kanbancord_api.permission;
 
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
 import com.kanbancord_api.server.MemberRoleRepository;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.ServerMember;
@@ -19,6 +21,10 @@ import java.util.stream.Collectors;
 /**
  * Loads a {@link PermissionSnapshot} with a fixed handful of queries (membership, roles, owner,
  * server rules, board rules) and resolves keys in memory via {@link PermissionResolver}.
+ *
+ * <p>The stored rules only apply while the server has custom permissions on. While they are off, the
+ * defaults apply ({@link DefaultPermissionRules}) and boards have no rules of their own; the stored
+ * rules are kept for when custom permissions are switched back on.
  */
 @Service
 @Transactional(readOnly = true)
@@ -32,18 +38,49 @@ public class PermissionEvaluationService {
     private final MemberRoleRepository memberRoleRepository;
     private final ServerRepository serverRepository;
     private final DiscordPermissionParser discordPermissionParser;
+    private final ServerFeatureService serverFeatureService;
 
     public PermissionEvaluationService(
             PermissionRepository permissionRepository,
             ServerMemberRepository serverMemberRepository,
             MemberRoleRepository memberRoleRepository,
             ServerRepository serverRepository,
-            DiscordPermissionParser discordPermissionParser) {
+            DiscordPermissionParser discordPermissionParser,
+            ServerFeatureService serverFeatureService) {
         this.permissionRepository = permissionRepository;
         this.serverMemberRepository = serverMemberRepository;
         this.memberRoleRepository = memberRoleRepository;
         this.serverRepository = serverRepository;
         this.discordPermissionParser = discordPermissionParser;
+        this.serverFeatureService = serverFeatureService;
+    }
+
+    /** Whether the server's stored rules apply, rather than the defaults. */
+    public boolean customRulesApply(Long serverId) {
+        return serverFeatureService.isEnabled(serverId, Feature.PERMISSIONS);
+    }
+
+    /** The server-scope rules that apply: the stored ones, or the defaults while custom permissions are off. */
+    public List<Permission> serverRules(Long serverId) {
+        return customRulesApply(serverId)
+                ? permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_SERVER, serverId)
+                : DefaultPermissionRules.forServer(serverId);
+    }
+
+    /** A board's own rules that apply; none while custom permissions are off. */
+    public List<Permission> boardRules(Long serverId, Long boardId) {
+        return boardId != null && customRulesApply(serverId)
+                ? permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_BOARD, boardId)
+                : List.of();
+    }
+
+    /** The rules that apply on each of many boards of a server, by board id (boards without any left out). */
+    public Map<Long, List<Permission>> boardRules(Long serverId, Collection<Long> boardIds) {
+        if (boardIds.isEmpty() || !customRulesApply(serverId)) {
+            return Map.of();
+        }
+        return permissionRepository.findByScopeTypeAndScopeIdIn(SCOPE_BOARD, boardIds).stream()
+                .collect(Collectors.groupingBy(Permission::getScopeId));
     }
 
     public boolean isAllowed(Long serverId, Long boardId, Long userId, String kanbanPermissionKey) {
@@ -79,10 +116,7 @@ public class PermissionEvaluationService {
         }
 
         PermissionSnapshot serverSnapshot = loadSnapshot(serverId, null, userId);
-        Map<Long, List<Permission>> rulesByBoard = permissionRepository
-                .findByScopeTypeAndScopeIdIn(SCOPE_BOARD, boardIds)
-                .stream()
-                .collect(Collectors.groupingBy(Permission::getScopeId));
+        Map<Long, List<Permission>> rulesByBoard = boardRules(serverId, boardIds);
 
         return boardIds.stream()
                 .filter(boardId -> PermissionResolver.resolve(
@@ -105,10 +139,7 @@ public class PermissionEvaluationService {
             server.put(key, PermissionResolver.resolve(serverSnapshot, key).allowed());
         }
 
-        Map<Long, List<Permission>> rulesByBoard = boardIds.isEmpty()
-                ? Map.of()
-                : permissionRepository.findByScopeTypeAndScopeIdIn(SCOPE_BOARD, boardIds).stream()
-                        .collect(Collectors.groupingBy(Permission::getScopeId));
+        Map<Long, List<Permission>> rulesByBoard = boardRules(serverId, boardIds);
         Map<Long, Map<String, Boolean>> boards = new LinkedHashMap<>();
         for (Long boardId : boardIds) {
             PermissionSnapshot boardSnapshot = serverSnapshot.withBoardRules(rulesByBoard.getOrDefault(boardId, List.of()));
@@ -162,19 +193,13 @@ public class PermissionEvaluationService {
                     .collect(Collectors.toUnmodifiableSet());
         }
 
-        List<Permission> serverRules = permissionRepository
-                .findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_SERVER, serverId);
-        List<Permission> boardRules = boardId == null
-                ? List.of()
-                : permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_BOARD, boardId);
-
         return new PermissionSnapshot(
                 userId,
                 member.isPresent(),
                 roleIds,
                 discordFlagBits,
-                boardRules,
-                serverRules,
+                boardRules(serverId, boardId),
+                serverRules(serverId),
                 serverRepository.findOpenPermissions(serverId).orElse(false));
     }
 

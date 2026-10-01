@@ -30,14 +30,14 @@ public class BoardAudienceQuery {
     public static final List<String> SEES_BOARD_POST = List.of("VIEW_BOARD", "VIEW_TASK");
 
     private final JdbcTemplate jdbcTemplate;
-    private final PermissionRepository permissionRepository;
+    private final PermissionEvaluationService permissionEvaluationService;
     private final ServerRepository serverRepository;
     private final DiscordPermissionParser discordPermissionParser;
 
-    public BoardAudienceQuery(JdbcTemplate jdbcTemplate, PermissionRepository permissionRepository,
+    public BoardAudienceQuery(JdbcTemplate jdbcTemplate, PermissionEvaluationService permissionEvaluationService,
                               ServerRepository serverRepository, DiscordPermissionParser discordPermissionParser) {
         this.jdbcTemplate = jdbcTemplate;
-        this.permissionRepository = permissionRepository;
+        this.permissionEvaluationService = permissionEvaluationService;
         this.serverRepository = serverRepository;
         this.discordPermissionParser = discordPermissionParser;
     }
@@ -48,10 +48,8 @@ public class BoardAudienceQuery {
         if (wanted.isEmpty()) {
             return List.of();
         }
-        List<Permission> serverRules = permissionRepository
-                .findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", serverId);
-        List<Permission> boardRules = permissionRepository
-                .findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("BOARD", boardId);
+        List<Permission> serverRules = permissionEvaluationService.serverRules(serverId);
+        List<Permission> boardRules = permissionEvaluationService.boardRules(serverId, boardId);
         Long ownerId = serverRepository.findOwnerIdByServerId(serverId).orElse(null);
         boolean open = serverRepository.findOpenPermissions(serverId).orElse(false);
 

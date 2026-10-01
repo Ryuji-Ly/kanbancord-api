@@ -26,6 +26,8 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission WHERE p.scopeType = :scopeType AND p.scopeId IN :scopeIds")
         List<Permission> findByScopeTypeAndScopeIdIn(String scopeType, Collection<Long> scopeIds);
 
+        boolean existsByScopeTypeAndScopeId(String scopeType, Long scopeId);
+
         /** The server's own rules and the rules of all its boards. */
         @Query("SELECT p FROM Permission p LEFT JOIN FETCH p.kanbanPermission "
                         + "WHERE (p.scopeType = 'SERVER' AND p.scopeId = :serverId) "

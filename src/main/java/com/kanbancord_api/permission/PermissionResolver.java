@@ -1,5 +1,6 @@
 package com.kanbancord_api.permission;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -55,8 +56,7 @@ public final class PermissionResolver {
     }
 
     public static PermissionEvaluationService.Decision resolve(PermissionSnapshot snapshot, String permissionKey) {
-        if (snapshot.openPermissions() && OPEN_KEYS.contains(permissionKey) && snapshot.member()
-                && snapshot.discordFlagBits().containsAll(CAN_TALK)) {
+        if (openlyAllowed(snapshot, permissionKey)) {
             return new PermissionEvaluationService.Decision(true, OPEN_TIER, "SERVER", null, null);
         }
         if (!ADMIN_KEY.equals(permissionKey)) {
@@ -82,6 +82,38 @@ public final class PermissionResolver {
         return best;
     }
 
+    /**
+     * One layer that has rules for the user and key: every matching rule, and the one that decided the
+     * layer (a DENY if there is one).
+     */
+    public record Layer(String scopeType, String tier, List<Permission> rules, Permission decider) {
+    }
+
+    /**
+     * Every layer with rules for the user and key, in the order they apply; the last one decides. Says
+     * why {@link #resolve} came out as it did, rule by rule. Leaves out administrators and open
+     * permissions, which come first.
+     */
+    public static List<Layer> trace(PermissionSnapshot snapshot, String key) {
+        List<Layer> layers = new ArrayList<>();
+        for (String scopeType : List.of("SERVER", "BOARD")) {
+            List<Permission> scopeRules = "SERVER".equals(scopeType) ? snapshot.serverRules() : snapshot.boardRules();
+            for (String tier : TIER_ORDER) {
+                List<Permission> matching = matching(scopeRules, key, tier, subjectIds(snapshot, tier));
+                if (!matching.isEmpty()) {
+                    layers.add(new Layer(scopeType, tier, matching, decider(matching)));
+                }
+            }
+        }
+        return layers;
+    }
+
+    /** Whether the snapshot's open permissions allow the key, whatever the rules say. */
+    public static boolean openlyAllowed(PermissionSnapshot snapshot, String key) {
+        return snapshot.openPermissions() && OPEN_KEYS.contains(key) && snapshot.member()
+                && snapshot.discordFlagBits().containsAll(CAN_TALK);
+    }
+
     private static PermissionEvaluationService.Decision resolveKey(PermissionSnapshot snapshot, String key) {
         PermissionEvaluationService.Decision decision = PermissionEvaluationService.Decision.NONE;
         for (List<Permission> scopeRules : List.of(snapshot.serverRules(), snapshot.boardRules())) {
@@ -98,27 +130,35 @@ public final class PermissionResolver {
     /** The deciding rule of one layer: a DENY if the layer has any, otherwise an ALLOW. */
     private static Optional<Permission> resolveLayer(
             List<Permission> rules, String key, String subjectType, Collection<Long> subjectIds) {
-        if (subjectIds.isEmpty()) {
-            return Optional.empty();
-        }
+        List<Permission> matching = matching(rules, key, subjectType, subjectIds);
+        return matching.isEmpty() ? Optional.empty() : Optional.of(decider(matching));
+    }
 
-        List<Permission> matching = rules.stream()
+    private static List<Permission> matching(
+            List<Permission> rules, String key, String subjectType, Collection<Long> subjectIds) {
+        if (subjectIds.isEmpty()) {
+            return List.of();
+        }
+        return rules.stream()
                 .filter(rule -> subjectType.equals(rule.getSubjectType()))
                 .filter(rule -> subjectIds.contains(rule.getSubjectId()))
                 .filter(rule -> rule.getKanbanPermission() != null
                         && key.equals(rule.getKanbanPermission().getKey()))
                 .sorted(REPORTING_ORDER)
                 .toList();
+    }
 
+    private static Permission decider(List<Permission> matching) {
         return matching.stream()
                 .filter(rule -> isDeny(rule.getState()))
                 .findFirst()
-                .or(() -> matching.stream().findFirst());
+                .orElse(matching.get(0));
     }
 
     private static Collection<Long> subjectIds(PermissionSnapshot snapshot, String tier) {
         return switch (tier) {
-            case SUBJECT_USER -> Set.of(snapshot.userId());
+            // No one in particular when checking what a set of roles allows.
+            case SUBJECT_USER -> snapshot.userId() == null ? Set.of() : Set.of(snapshot.userId());
             case SUBJECT_ROLE -> snapshot.member() ? snapshot.roleIds() : Set.of();
             default -> snapshot.member() ? snapshot.discordFlagBits() : Set.of();
         };

@@ -12,8 +12,8 @@ public enum Feature {
     COMMENTS("Comments"),
     DUE_DATES("Due dates"),
     /**
-     * Editing permission rules. While off, the rules the server already has keep applying (for a
-     * new server, the defaults mapped from Discord permissions); only changing them is refused.
+     * Custom permission rules. While off, access follows the defaults mapped from Discord permissions;
+     * the rules the server has are kept, unused and unchangeable, for when it is switched back on.
      */
     PERMISSIONS("Custom permissions");
 

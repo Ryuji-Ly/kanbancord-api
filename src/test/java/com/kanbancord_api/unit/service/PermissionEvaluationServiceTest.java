@@ -1,5 +1,8 @@
 package com.kanbancord_api.unit.service;
 
+import com.kanbancord_api.feature.Feature;
+import com.kanbancord_api.feature.ServerFeatureService;
+import com.kanbancord_api.permission.DefaultPermissionRules;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
 import com.kanbancord_api.permission.DiscordPermissionParser;
 import com.kanbancord_api.permission.KanbanPermission;
@@ -72,6 +75,31 @@ class PermissionEvaluationServiceTest {
                     serverRule(2L, "CREATE_TASK", "DENY", "ROLE", OTHER_ROLE)));
 
             assertFalse(resolve(snapshot, "CREATE_TASK").allowed());
+        }
+
+        @Test
+        void trace_listsEveryMatchingLayer_lastOneDecides() {
+            PermissionSnapshot snapshot = snapshot(Set.of(ROLE), Set.of(VIEW_CHANNEL), List.of(
+                    boardRule(3L, "EDIT_TASK", "DENY", "DISCORD_PERMISSION", VIEW_CHANNEL)), List.of(
+                    serverRule(1L, "EDIT_TASK", "ALLOW", "ROLE", ROLE),
+                    serverRule(2L, "EDIT_TASK", "ALLOW", "USER", USER)));
+
+            List<PermissionResolver.Layer> layers = PermissionResolver.trace(snapshot, "EDIT_TASK");
+
+            assertEquals(3, layers.size());
+            assertEquals("BOARD", layers.get(2).scopeType());
+            assertEquals(3L, layers.get(2).decider().getId());
+            // A board rule for a Discord permission beats a server rule for the person.
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+        }
+
+        @Test
+        void noOneInParticular_matchesNoPersonRules() {
+            PermissionSnapshot snapshot = new PermissionSnapshot(null, true, Set.of(ROLE), Set.of(), List.of(), List.of(
+                    serverRule(1L, "EDIT_TASK", "ALLOW", "USER", USER)));
+
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+            assertTrue(PermissionResolver.trace(snapshot, "EDIT_TASK").isEmpty());
         }
 
         // ── Layer order: Discord bits → roles → user, later overrides earlier ────
@@ -265,6 +293,8 @@ class PermissionEvaluationServiceTest {
         private MemberRoleRepository memberRoleRepository;
         @Mock
         private ServerRepository serverRepository;
+        @Mock
+        private ServerFeatureService serverFeatureService;
 
         private PermissionEvaluationService service;
 
@@ -275,7 +305,9 @@ class PermissionEvaluationServiceTest {
                     serverMemberRepository,
                     memberRoleRepository,
                     serverRepository,
-                    new DiscordPermissionParser());
+                    new DiscordPermissionParser(),
+                    serverFeatureService);
+            lenient().when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(true);
             lenient().when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(
                     eq("SERVER"), eq(SERVER))).thenReturn(List.of());
         }
@@ -347,6 +379,34 @@ class PermissionEvaluationServiceTest {
             Set<Long> visible = service.filterAllowedBoards(SERVER, List.of(1L, 2L, 3L), USER, "VIEW_BOARD");
 
             assertEquals(Set.of(1L, 3L), visible);
+        }
+
+        @Test
+        void customPermissionsOff_appliesTheDefaults_andNoStoredRules() {
+            when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(false);
+            memberWithRoles(role(ROLE, VIEW_CHANNEL | DiscordPermissionFlag.SEND_MESSAGES.getBit()));
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
+
+            PermissionSnapshot snapshot = service.loadSnapshot(SERVER, BOARD, USER);
+
+            assertEquals(DefaultPermissionRules.forServer(SERVER).size(), snapshot.serverRules().size());
+            assertTrue(snapshot.boardRules().isEmpty());
+            assertTrue(resolve(snapshot, "CREATE_TASK").allowed());
+            assertFalse(resolve(snapshot, "EDIT_TASK").allowed());
+            verify(permissionRepository, never()).findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(eq("SERVER"), eq(SERVER));
+            verify(permissionRepository, never()).findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(eq("BOARD"), eq(BOARD));
+        }
+
+        @Test
+        void customPermissionsOff_boardsHaveNoRulesOfTheirOwn() {
+            when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(false);
+            memberWithRoles(role(ROLE, VIEW_CHANNEL));
+            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
+
+            Set<Long> visible = service.filterAllowedBoards(SERVER, List.of(1L, 2L), USER, "VIEW_BOARD");
+
+            assertEquals(Set.of(1L, 2L), visible);
+            verify(permissionRepository, never()).findByScopeTypeAndScopeIdIn(eq("BOARD"), anyCollection());
         }
 
         private void memberWithRoles(Role... roles) {

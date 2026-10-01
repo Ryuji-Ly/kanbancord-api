@@ -64,6 +64,23 @@ class PermissionBootstrapServiceTest {
         assertTrue(hasImmutableAdminRule);
     }
 
+    @Test
+    void initializeDefaultServerConfiguration_leavesAnExistingServersRulesAlone() {
+        Map<String, KanbanPermission> catalog = buildCatalog();
+        when(kanbanPermissionRepository.findByKey(any())).thenAnswer(invocation ->
+                Optional.ofNullable(catalog.get(invocation.getArgument(0, String.class))));
+        when(permissionRepository.existsByScopeTypeAndScopeId("SERVER", 42L)).thenReturn(true);
+        when(permissionRepository.findByScopeTypeAndScopeIdAndSubjectTypeAndSubjectIdAndKanbanPermission_PermissionId(
+                any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        service.initializeDefaultServerConfiguration(42L);
+
+        ArgumentCaptor<Permission> saved = ArgumentCaptor.forClass(Permission.class);
+        verify(permissionRepository, atLeastOnce()).save(saved.capture());
+        assertTrue(saved.getAllValues().stream().allMatch(permission -> Boolean.TRUE.equals(permission.getIsImmutable())),
+                "only the rules no one may change are put back");
+    }
+
     private static Map<String, KanbanPermission> buildCatalog() {
         Map<String, KanbanPermission> catalog = new HashMap<>();
         int index = 1;
