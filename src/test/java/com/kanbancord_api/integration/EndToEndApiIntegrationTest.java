@@ -1411,6 +1411,8 @@ class EndToEndApiIntegrationTest {
         JsonNode owner = call("GET", check, OWNER, null).expect(200).json();
         assertTrue(owner.get("subject").get("administrator").asBoolean());
         assertEquals("ADMIN", result(owner, "DELETE_BOARD").get("reason").asText());
+        assertEquals(400, w.createRule(OWNER, "SERVER", w.serverId, "USER", OWNER, "ADMIN", "DENY").status(),
+                "administrators cannot be locked out");
 
         // With custom permissions off, the board's rule does not apply, and the defaults are built in.
         call("PUT", w.path("/features"), OWNER, Map.of("PERMISSIONS", false)).expect(200);
