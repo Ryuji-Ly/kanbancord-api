@@ -1432,6 +1432,25 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void channelBoards_namesTheBoardsPostedInAChannel_thatTheCallerMayAddTasksTo() throws Exception {
+        World w = bootstrapServer();
+        long sprint = w.createBoard(OWNER, "Sprint");
+        long staff = w.createBoard(OWNER, "Staff");
+        long elsewhere = w.createBoard(OWNER, "Elsewhere");
+        for (long board : List.of(sprint, staff)) {
+            call("POST", w.boardPath(board, "/posts"), OWNER, Map.of("channelId", "5001", "messageId", "60" + board))
+                    .expect(201);
+        }
+        call("POST", w.boardPath(elsewhere, "/posts"), OWNER, Map.of("channelId", "5002", "messageId", "7001")).expect(201);
+        w.createRule(OWNER, "BOARD", staff, "ROLE", w.membersRole, "CREATE_TASK", "DENY").expect(201);
+
+        JsonNode mine = call("GET", w.path("/channels/5001/boards"), MEMBER, null).expect(200).json();
+        assertEquals(List.of(sprint), objectMapper.convertValue(mine.get("boardIds"), new com.fasterxml.jackson.core.type.TypeReference<List<Long>>() { }));
+        JsonNode owners = call("GET", w.path("/channels/5001/boards"), OWNER, null).expect(200).json();
+        assertEquals(2, owners.get("boardIds").size());
+    }
+
+    @Test
     void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
         Response health = callRaw("GET", "/api/health", null, null).expect(200);
         assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),
