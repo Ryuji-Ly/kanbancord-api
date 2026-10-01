@@ -1574,6 +1574,41 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void guideProgress_saysWhichGuideStepsTheServerHasDone_forAnyMember() throws Exception {
+        World w = bootstrapServerWithoutFeatures();
+        // Notification settings are a person's own, across servers; other tests change them.
+        jdbcTemplate.update("DELETE FROM user_notification_settings WHERE user_id IN (?, ?)", MEMBER, OTHER);
+        String guide = w.path("/guide");
+        JsonNode fresh = call("GET", guide, MEMBER, null).expect(200).json();
+        assertEquals(0, fresh.get("boards").asInt());
+        for (String step : List.of("features", "columns", "tasks", "taskDetails", "updates", "notifications")) {
+            assertFalse(fresh.get(step).asBoolean(), step);
+        }
+
+        long board = call("POST", w.path("/boards"), OWNER, Map.of("name", "Guided", "serverId", w.serverId))
+                .expect(201).json().get("boardId").asLong();
+        JsonNode started = call("GET", guide, MEMBER, null).expect(200).json();
+        assertEquals(1, started.get("boards").asInt());
+        assertFalse(started.get("columns").asBoolean(), "the columns it started with");
+
+        call("POST", w.boardPath(board, "/columns"), OWNER, Map.of("name", "Review", "boardId", board)).expect(201);
+        long task = w.createTask(MEMBER, board, w.column(board, "To Do"), "First");
+        call("PUT", w.path("/features"), OWNER, Map.of("DUE_DATES", true)).expect(200);
+        call("POST", w.boardPath(board, "/posts"), OWNER, Map.of("channelId", "5003", "messageId", w.serverId + "1")).expect(201);
+        call("PUT", w.boardPath(board, "/tasks/" + task + "/follow"), MEMBER, null).expect(200);
+        JsonNode done = call("GET", guide, MEMBER, null).expect(200).json();
+        for (String step : List.of("features", "columns", "tasks", "updates", "notifications")) {
+            assertTrue(done.get(step).asBoolean(), step);
+        }
+        assertFalse(done.get("taskDetails").asBoolean(), "nothing on the task yet");
+        assertFalse(call("GET", guide, OTHER, null).expect(200).json().get("notifications").asBoolean(), "per person");
+
+        w.updateTask(OWNER, board, task, "First", w.column(board, "To Do")).expect(200);
+        jdbcTemplate.update("UPDATE tasks SET due_date = now() WHERE task_id = ?", task);
+        assertTrue(call("GET", guide, MEMBER, null).expect(200).json().get("taskDetails").asBoolean());
+    }
+
+    @Test
     void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
         Response health = callRaw("GET", "/api/health", null, null).expect(200);
         assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),
