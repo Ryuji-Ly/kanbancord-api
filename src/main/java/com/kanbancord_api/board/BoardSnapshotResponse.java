@@ -21,6 +21,8 @@ import java.util.Map;
  *                       off are empty
  * @param serverFeatures every optional feature and whether the server has it on; a board can only
  *                       switch off what is on here
+ * @param threads        whether the board's tasks can have threads, whether they are on, and the
+ *                       tasks that have one
  */
 public record BoardSnapshotResponse(
         BoardResponse board,
@@ -35,5 +37,14 @@ public record BoardSnapshotResponse(
         Map<String, Boolean> features,
         Map<String, Boolean> serverFeatures,
         /** Tasks on this board the person asking follows; always empty for a board post. */
-        List<Long> followedTaskIds) {
+        List<Long> followedTaskIds,
+        TaskThreads threads) {
+
+    /**
+     * {@code available}: a feed covers the board, so its tasks can have threads; {@code enabled}: threads
+     * are on and working; {@code threadIds}: by task id, the thread of each task that has one (in the
+     * channel threads go in now).
+     */
+    public record TaskThreads(boolean available, boolean enabled, Map<String, String> threadIds) {
+    }
 }
