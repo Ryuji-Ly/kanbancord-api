@@ -45,6 +45,15 @@ public class BoardPostService {
                           boolean boardExists) {
     }
 
+    /** The active boards posted in a channel, by id. */
+    public List<Long> boardsPostedIn(long serverId, long channelId) {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT p.board_id FROM board_posts p JOIN boards b ON b.board_id = p.board_id
+                WHERE p.server_id = ? AND p.channel_id = ? AND b.server_id = p.server_id AND NOT b.is_archived
+                ORDER BY p.board_id
+                """, Long.class, serverId, channelId);
+    }
+
     /** Records a message the bot just posted. It is drawn again at once from the whole board. */
     @Transactional
     public long register(long serverId, long boardId, long channelId, long messageId, long createdBy) {

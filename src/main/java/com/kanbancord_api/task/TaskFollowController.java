@@ -4,8 +4,6 @@ import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -20,12 +18,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/servers/{serverId}/boards/{boardId}/tasks/{taskId}/follow")
 public class TaskFollowController {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final TaskFollowService follows;
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
 
-    public TaskFollowController(JdbcTemplate jdbcTemplate, Authorizer authorizer, ResourceValidator resourceValidator) {
-        this.jdbcTemplate = jdbcTemplate;
+    public TaskFollowController(TaskFollowService follows, Authorizer authorizer, ResourceValidator resourceValidator) {
+        this.follows = follows;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
     }
@@ -34,22 +32,19 @@ public class TaskFollowController {
     }
 
     @PutMapping
-    @Transactional
     public ResponseEntity<FollowResponse> follow(@PathVariable Long serverId, @PathVariable Long boardId,
                                                  @PathVariable Long taskId, @CurrentUser Long userId) {
         requireVisible(serverId, boardId, taskId, userId);
-        jdbcTemplate.update("INSERT INTO task_followers (task_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                taskId, userId);
+        follows.follow(taskId, userId);
         return ResponseEntity.ok(new FollowResponse(true));
     }
 
     /** Unfollowing a task one does not follow is not an error. */
     @DeleteMapping
-    @Transactional
     public ResponseEntity<FollowResponse> unfollow(@PathVariable Long serverId, @PathVariable Long boardId,
                                                    @PathVariable Long taskId, @CurrentUser Long userId) {
         requireVisible(serverId, boardId, taskId, userId);
-        jdbcTemplate.update("DELETE FROM task_followers WHERE task_id = ? AND user_id = ?", taskId, userId);
+        follows.unfollow(taskId, userId);
         return ResponseEntity.ok(new FollowResponse(false));
     }
 

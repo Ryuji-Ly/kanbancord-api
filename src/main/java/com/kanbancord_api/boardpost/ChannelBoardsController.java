@@ -4,7 +4,6 @@ import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.permission.PermissionEvaluationService;
 import com.kanbancord_api.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,13 +18,12 @@ import java.util.Set;
 @RestController
 public class ChannelBoardsController {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final BoardPostService posts;
     private final Authorizer authorizer;
     private final PermissionEvaluationService permissions;
 
-    public ChannelBoardsController(JdbcTemplate jdbcTemplate, Authorizer authorizer,
-                                   PermissionEvaluationService permissions) {
-        this.jdbcTemplate = jdbcTemplate;
+    public ChannelBoardsController(BoardPostService posts, Authorizer authorizer, PermissionEvaluationService permissions) {
+        this.posts = posts;
         this.authorizer = authorizer;
         this.permissions = permissions;
     }
@@ -37,11 +35,7 @@ public class ChannelBoardsController {
     public ResponseEntity<ChannelBoards> postedIn(@PathVariable Long serverId, @PathVariable Long channelId,
                                                   @CurrentUser Long userId) {
         authorizer.requireUserInServer(userId, serverId);
-        List<Long> posted = jdbcTemplate.queryForList("""
-                SELECT DISTINCT p.board_id FROM board_posts p JOIN boards b ON b.board_id = p.board_id
-                WHERE p.server_id = ? AND p.channel_id = ? AND b.server_id = p.server_id AND NOT b.is_archived
-                ORDER BY p.board_id
-                """, Long.class, serverId, channelId);
+        List<Long> posted = posts.boardsPostedIn(serverId, channelId);
         Set<Long> allowed = permissions.filterAllowedBoards(serverId, posted, userId, "CREATE_TASK");
         return ResponseEntity.ok(new ChannelBoards(posted.stream().filter(allowed::contains).toList()));
     }
