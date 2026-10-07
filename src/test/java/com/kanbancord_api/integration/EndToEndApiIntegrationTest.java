@@ -1609,6 +1609,18 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void searchEngines_areToldThereIsNothingToIndex() throws Exception {
+        HttpResponse<String> robots = http.send(HttpRequest.newBuilder(uri("/robots.txt")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, robots.statusCode(), "readable without signing in");
+        assertTrue(robots.body().contains("Disallow: /"));
+        HttpResponse<String> refused = http.send(HttpRequest.newBuilder(uri("/")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(401, refused.statusCode());
+        assertEquals("noindex", refused.headers().firstValue("X-Robots-Tag").orElse(null), "even when refused");
+    }
+
+    @Test
     void publicHealth_saysOnlyWhetherTheApiIsUp_withoutSigningIn() throws Exception {
         Response health = callRaw("GET", "/api/health", null, null).expect(200);
         assertEquals(Map.of("status", "UP"), objectMapper.convertValue(health.json(), Map.class),
