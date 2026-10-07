@@ -1,335 +1,299 @@
 # KanbanCord system design
 
-Status: living document. Everything here is either implemented or the agreed direction. Known gaps
-are listed in section 9.
+How KanbanCord works today: its parts, the decisions behind them, and the known gaps (section 14).
+It describes the current state, not plans; ideas for later are in the README's backlog.
 
-## 1. Product goal
+## 1. Product and principles
 
-KanbanCord is a Kanban system that lives inside Discord servers.
+KanbanCord is a kanban board that lives inside Discord servers: boards, columns and tasks, with
+assignees, labels, priorities, due dates and comments, used mostly from Discord and optionally from
+the website.
 
-- **The bot is a complete client for day-to-day work.** Viewing boards and tasks, creating,
-  editing, moving and deleting tasks, and assigning people are all possible without opening the
-  website.
-- **The website is the power-user surface.** It handles board configuration, permissions, themes,
-  accessibility, audit history and bulk work.
-- **Discord is the identity and membership source of truth.** Servers, members and roles are
-  synced by the bot; KanbanCord never edits them.
-- **Notifications reach people where they are:**
-  - DMs on assignment, according to each user's preferences.
-  - A per-server update channel, via webhook, for events such as task created, moved or assigned,
-    and board or column created.
+These principles shaped the design:
+
+- **Discord first.** The bot is a complete client: everything except editing permission rules can
+  be done from Discord. The website is for the big picture (whole boards, drag and drop) and for the
+  finer settings.
+- **Discord is the source of truth for who is who.** Servers, members, roles and channels are synced
+  from Discord; KanbanCord never changes them.
+- **Permissions follow Discord.** Access comes from a member's Discord roles and permissions from the
+  start, with optional rules on top.
+- **Simple until asked otherwise.** New servers start in simple mode (tasks with a title and a
+  description); every other feature is switched on when wanted.
+- **Show every control, check on use.** Bot views show the same buttons to everyone; whether the
+  person may do it is checked when they click.
+- **Nobody is told about their own changes**, and nobody is pinged twice for the same change.
+- **One place decides.** The API is the only part that writes data or decides permissions; the bot
+  and the website are its clients.
 
 ## 2. Components
 
 ```
-            Discord gateway / REST
-                 │          ▲
-   events, cmds  ▼          │ DMs, webhooks
- ┌──────────────────┐   ┌──┴─────────────────────────────┐   ┌───────────────┐
- │ bot (discord.js) │──▶│ kanbancord-api (Spring Boot)   │◀──│ frontend (SPA)│
- │ sync + commands  │   │ sole owner of writes + authz   │   │ React + Vite  │
- └──────────────────┘   └──────────────┬─────────────────┘   └───────────────┘
-   X-Internal-Bot-Token                │ JPA / Flyway           JWT + STOMP
-   (+ X-Acting-User-Id)                ▼
-                                   PostgreSQL
+                     Discord (gateway and REST)
+                        │                ▲
+     events, commands,  │                │  posts, threads, DMs,
+     interactions       ▼                │  board posts
+ ┌───────────────────────────┐      ┌────┴───────────────────────────┐      ┌──────────────────────┐
+ │ bot (discord.js, sharded) │─────▶│ kanbancord-api (Spring Boot)   │◀─────│ website (React SPA)  │
+ │ commands, views, sync,    │      │ all data, permissions,         │      │ boards, settings,    │
+ │ delivery workers          │      │ notification routing           │      │ guides               │
+ └───────────────────────────┘      └────────────────┬───────────────┘      └──────────────────────┘
+   bot token (+ acting user)                         │                         access token + WebSocket
+                                                     ▼
+                                                PostgreSQL
 ```
 
-The API is the only component that writes to the database or decides permissions. The bot and the
-frontend are clients of it.
+- **API** (`kanbancord-api`): Java 21, Spring Boot 3.5, PostgreSQL with Flyway migrations, Spring
+  Security, STOMP over WebSockets.
+- **Bot** (`kanbancord-bot`): Node.js 22, discord.js 14 with automatic sharding.
+- **Website** (`kanbancord-frontend`): React 19, TypeScript, Vite, TanStack Query; public pages are
+  prerendered to HTML; served by nginx.
 
-## 3. Identity and authentication
+## 3. Data model
 
-### 3.1 Actors
+The main tables, by area:
 
-Every request resolves to an **actor**:
+| Area | Tables |
+|---|---|
+| Discord mirror | `servers` (with `bot_present`, `open_permissions`), `users`, `server_members`, `roles`, `member_roles`, `discord_channels` (with whether the bot may post and make threads) |
+| Work | `boards`, `columns`, `tasks`, `task_assignments` (people), `task_role_assignments` (roles), `labels`, `task_labels`, `board_priorities`, `task_comments`, `task_comment_edits`, `task_followers` |
+| Access | `kanban_permissions` (the catalog), `permissions` (rules) |
+| Features | `server_features`, `board_disabled_features` |
+| Notifications | `notification_feeds`, `feed_board_settings`, `server_notification_settings` (audit channel), `user_notification_settings`, `notification_queue`, `task_due_reminders` |
+| Discord output | `board_posts`, `board_thread_settings`, `task_threads` |
+| History | `audit_log` |
+| Accounts | `user_sessions`, `discord_credentials`, `media_uploads` |
 
-| Source | How it authenticates | Actor |
+Discord ids (servers, users, roles, channels) are stored as `BIGINT` and sent as strings in JSON,
+since they do not fit in a JavaScript number. Due dates are UTC times without a zone.
+
+## 4. Identity and authentication
+
+Every request resolves to an actor:
+
+| Caller | Authenticates with | Acts as |
 |---|---|---|
-| Web | `Authorization: Bearer <JWT>` naming a sign-in session (see 3.2) | the Discord user in the JWT |
-| Bot, sync | `X-Internal-Bot-Token` (only its SHA-256 is stored in config) | system; no user permissions apply |
-| Bot, acting for a user *(planned)* | bot token + `X-Acting-User-Id` | that user, with `source = BOT`, under the same authorization as web |
+| Website | `Authorization: Bearer <access token>` naming a sign-in session | the signed-in Discord user |
+| Bot, syncing and delivering | `X-Internal-Bot-Token` (only its hash is kept) | the system, on `/api/internal/*` |
+| Bot, running a command | bot token plus `X-Acting-User-Id` and `X-Acting-Guild-Id` | that user, under the same permission checks as the website, only within that server |
 
-Rules:
+- **Identity always comes from authentication**, never from the request: controllers get the user
+  from `@CurrentUser`, and request fields such as `createdBy` are ignored. Changes made through the
+  bot are recorded in the audit log as coming from Discord.
+- **401 for unauthenticated, 403 for not allowed.**
+- **Internal endpoints** (`/api/internal/*`) are only reachable by the bot: nginx blocks them from
+  outside.
 
-- **Identity always comes from authentication, never from the request.** Controllers receive the
-  user through `@CurrentUser Long userId`, which is resolved from the verified JWT. The legacy
-  `?userId=` query parameter is ignored. Request fields such as `createdBy` and `assignedBy` are
-  ignored too, and the actor is recorded instead.
-- **Unauthenticated requests get 401. Authenticated but unauthorized requests get 403.**
-- **The JWT secret must be at least 32 bytes.** Startup fails with a shorter one. An empty secret
-  disables login.
+### Sessions (website)
 
-### 3.2 Sessions
+1. Signing in with Discord (OAuth2) creates a row in `user_sessions`. The access token is a 15-minute
+   JWT carrying the session id; tokens of revoked or expired sessions are rejected (checked through a
+   30-second cache that revocations clear at once).
+2. The refresh token is only ever an `httpOnly`, `Secure`, `SameSite=Strict` cookie scoped to
+   `/api/auth`; only its hash is stored. Each refresh rotates it; the token just replaced is accepted
+   for 60 seconds (tabs refreshing together), and presenting it after that revokes the session.
+   Sessions end 30 days after their last refresh.
+3. Signing out revokes the session; `GET /api/me/sessions` lists them and they can be revoked one by
+   one or all at once. Revoking closes that session's WebSockets.
+4. The Discord tokens stay on the server, encrypted with AES-256-GCM, and are used for the user's
+   guild list (cached 5 minutes). They are deleted and revoked at Discord when the last session ends.
+5. The website keeps the access token in memory only; refreshes are coordinated across tabs.
+6. The JWT secret must be at least 32 bytes; without one, signing in is disabled.
 
-1. **Sessions.** Signing in with Discord creates a row in `user_sessions` (user, created, last used,
-   expiry, revoked, user agent). The access token is a 15-minute JWT carrying the session id (`sid`);
-   the filter rejects tokens whose session is revoked or expired, checked through a 30-second cache
-   that revocations on this instance evict at once. Tokens without `sid` are rejected.
-2. **Refresh cookie.** The refresh token is sent only as an `httpOnly`, `Secure`, `SameSite=Strict`
-   cookie scoped to `/api/auth`; only its SHA-256 is stored. `POST /api/auth/refresh` rotates it on
-   every use. The token just replaced is accepted for 60 seconds (tabs refreshing at once, or a
-   response lost to a reload), and the current token is handed out again; each replacement is an HMAC
-   of the previous token, so this needs no stored secret. Presenting a replaced token after that
-   revokes the session. Cookie endpoints require an allowed `Origin`. Sessions end 30 days after
-   their last refresh.
-3. **Signing out.** `POST /api/auth/logout` revokes the cookie's session. `GET /api/me/sessions`
-   lists active sessions; `DELETE /api/me/sessions/{id}` and `DELETE /api/me/sessions` (all others)
-   revoke them. Revocation closes the session's WebSockets (close code 4401).
-4. **Discord token server-side.** The Discord access and refresh tokens are stored in
-   `discord_credentials`, encrypted with AES-256-GCM (`KANBANCORD_TOKEN_ENCRYPTION_KEY`, or a key
-   derived from the JWT secret), bound to their user. `GET /api/me/guilds` uses them, refreshing when
-   needed, cached 5 minutes. When Discord rejects them the endpoint returns 409 and the user signs in
-   again. They are deleted and revoked at Discord when the user's last session ends.
-5. **Browser.** The web app keeps the access token in memory only and nothing in `localStorage`.
-   Refreshes are serialised across tabs with a Web Lock, and sign-in and sign-out are broadcast to
-   other tabs.
-6. **Bot acting-user filter** *(planned)* as described in 3.1. It is only accepted from the bot
-   token, and every such action is audited with `source = BOT`.
+## 5. Authorization
 
-## 4. Authorization
+### 5.1 Model
 
-### 4.1 Model
+- **Catalog**: `KanbanPermissionCatalog`, mirrored in `kanban_permissions`. Each key (`VIEW_BOARD`,
+  `CREATE_TASK`, `ASSIGN_TASK_OTHERS`, `MANAGE_SERVER_PERMISSIONS`, ...) has a category, the scopes
+  it may be set at, and a rank (ADMIN > SERVER_MANAGE > BOARD_MANAGE > STANDARD > READONLY).
+- **Rules**: rows in `permissions` with a scope (server, or a board's overrides), a subject (a person,
+  a role, or a Discord permission bit), a key, and ALLOW or DENY.
+- **Defaults** (`DefaultPermissionRules`): what each Discord permission allows out of the box, each
+  step adding to the one before: View Channels → Send Messages → Manage Messages → Manage Channels →
+  Manage Server; View Audit Log separately; Administrator (and the server owner) everything.
 
-- **Catalog.** `KanbanPermissionCatalog` in code, mirrored in `kanban_permissions` by migrations. It
-  is read-only through the API. Each key has a category, allowed scopes and a rank (ADMIN >
-  SERVER_MANAGE > BOARD_MANAGE > STANDARD > READONLY).
-- **Rules.** Rows in `permissions` (server rules, plus board overrides; see 4.4) with:
-  - `scope`: SERVER or BOARD
-  - `subject`: USER, ROLE or DISCORD_PERMISSION bit
-  - `key`
-  - `state`: ALLOW or DENY
-  - `priority`
-  - `is_immutable`: system-owned rules only; the API never creates or keeps one
-- **Defaults.** When a server is first bootstrapped, Discord permission bits are mapped to Kanban
-  keys (see `PermissionBootstrapService`). ADMINISTRATOR maps to an immutable ADMIN rule, and the
-  server owner is treated as ADMINISTRATOR.
-- **Escalation guard.** Nobody can change rules at or above their own rank, or lock themselves
-  out of managing permissions.
+### 5.2 Which rules apply
 
-### 4.2 Enforcement
+- **Custom permissions off** (the default): the code defaults apply, and no board has rules of its
+  own. Stored rules are kept, unused, for when custom permissions are switched back on.
+- **Custom permissions on**: the server's stored rules and each board's overrides apply. A new server
+  gets the defaults as its stored rules to start from; syncing a server never resets edited rules.
+- **Open permissions** (exclusive with custom permissions): everyone who can view channels and send
+  messages may do the everyday work (boards, columns, tasks, labels, priorities, assigning) whatever
+  the rules say. Managing the server, board permissions, deleting or archiving boards and the audit
+  log still follow the rules.
 
-- **Every endpoint checks a permission, not just membership:**
-  - Server-level reads require `VIEW_SERVER`.
-  - Board structure (board, columns, labels) requires `VIEW_BOARD`.
-  - Task content (tasks, comments, assignments, task labels) requires `VIEW_TASK`.
-  - Every write requires its specific key.
-- **Anything inside a board is evaluated at board scope** (`requireBoardPermission`). That check
-  also verifies the board belongs to the server in the path.
-- **Board lists are filtered to boards the user can view.**
-- **Realtime subscriptions** require `VIEW_BOARD` for a board topic and `VIEW_SERVER` for a server
-  topic.
-- **Behaviour-specific rules:**
-  - Updating a task needs `EDIT_TASK` only if its content changes, and `MOVE_TASK` only if its
-    column or position changes. A request that changes nothing does not write.
-  - Assigning yourself needs `ASSIGN_TASK_SELF`. Assigning anyone else needs `ASSIGN_TASK_OTHERS`,
-    and the assignee must be a server member.
-  - Authors edit and delete their own comments with `CREATE_TASK_COMMENT`.
-    `EDIT_TASK_COMMENT` and `DELETE_TASK_COMMENT` are moderation permissions for other people's
-    comments.
-  - Evaluating another member's permissions requires `MANAGE_SERVER_PERMISSIONS`.
+### 5.3 Resolution
 
-### 4.3 Evaluation engine
+Implemented in `PermissionResolver` (pure, no I/O) and pinned by its tests.
 
-- **`PermissionEvaluationService` loads a `PermissionSnapshot` with a fixed handful of queries:**
-  membership, roles (with Discord bits), owner, server rules and board rules.
-- **`PermissionResolver` then evaluates any number of keys in memory**, with no I/O.
-- **Batch operations reuse the snapshot:** `resolveAll`, `calculateEffectiveRank`, and
-  `filterAllowedBoards` (which loads all board rules in one query).
-- **Cost:** one permission check used to cost roughly 60–130 queries, depending on the user's roles
-  and Discord bits. It now costs 5 plus the board-scope check.
-- **Next step:** a per-request cache of the snapshot, then a short-TTL cache keyed by
-  (server, user). Invalidate it on rule changes and on bot role or member syncs.
+1. Administrators and the server owner are allowed everything. Administrator can be given by a rule
+   but never denied, so a server cannot lock out the people who run it.
+2. With open permissions on, the everyday keys are allowed for everyone who can talk.
+3. Otherwise rules are read in six layers: the server's rules for Discord permissions, roles, then
+   the person; then the board's, in the same order. A layer counts only if it has a rule for this
+   person and key, and **the last such layer decides**.
+4. Within a layer, a DENY beats any ALLOW (two roles disagreeing means no).
+5. No matching rule means no.
 
-### 4.4 Permission resolution
+`PermissionEvaluationService` loads everything for one person in a fixed handful of queries (a
+`PermissionSnapshot`) and resolves any number of keys from it; checking many boards loads all their
+rules in one query.
 
-Implemented in `PermissionResolver` and pinned by `PermissionEvaluationServiceTest`.
+### 5.4 Changing rules and checking access
 
-1. **ADMIN.** A user who resolves to ADMIN at server scope is allowed every key.
-2. **Layers.** Rules are applied as layers in this order, and each later layer overrides the earlier
-   ones:
-   - server scope: DISCORD_PERMISSION rules, then ROLE rules, then USER rules
-   - board scope: DISCORD_PERMISSION rules, then ROLE rules, then USER rules
-3. **Layers without a match are skipped.** A layer only takes effect if it has at least one rule
-   matching the user and the key. So board scope always overrides server scope wherever the board
-   has a rule, and otherwise the board inherits the server result.
-4. **Within a layer, DENY beats ALLOW.** For example, with two roles where one allows and one
-   denies, the result is denied. A rule state other than ALLOW counts as DENY.
-5. **No matching layer means denied.**
+- **Who may change rules** (`PermissionEscalationGuardService`): server rules need
+  `MANAGE_SERVER_PERMISSIONS`; a board's rules need `EDIT_BOARD_PERMISSIONS` on it. Below ADMIN,
+  people can only touch keys and subjects ranked below themselves, and nobody can remove their own
+  right to manage server permissions. Changes are checked by applying them to an in-memory snapshot.
+- **Check access** (`/permissions/check`): what a member, a member with other roles, or any set of
+  roles may do, server-wide or on a board, with the rule that decided each key and the rules it
+  outweighed. Uses the same resolver as enforcement. Checking others needs
+  `MANAGE_SERVER_PERMISSIONS`, or `EDIT_BOARD_PERMISSIONS` on that board.
 
-`priority` no longer affects resolution. The column is kept for display order.
+### 5.5 Enforcement
 
-**Board inheritance.** New boards store no rules and inherit everything from the server. Board rules
-are overrides only. The dashboard shows inherited rules alongside overrides, and saving stores only
-entries that differ from what they inherit. Migration V9 removed the rules that older boards had
-copied from the server and that still matched it. Copies whose server rule had changed since are
-kept as overrides, because they can no longer be told apart from deliberate edits.
+- Every endpoint checks a permission, not just membership: reads need `VIEW_SERVER`, `VIEW_BOARD` or
+  `VIEW_TASK`; each write needs its own key, evaluated at board scope for anything inside a board.
+- Lists only show boards the person can view; the bot's autocomplete likewise.
+- Updating a task needs `EDIT_TASK` only if its content changes and `MOVE_TASK` only if it moves.
+- Comments are edited only by their authors; `DELETE_TASK_COMMENT` lets moderators remove others'.
+- `/permissions/mine` gives the caller every key, server-wide and per visible board, so clients show
+  the right controls without asking key by key.
 
-**Who may change rules** (`PermissionEscalationGuardService`):
-- Server-scope rules require MANAGE_SERVER_PERMISSIONS or ADMIN.
-- Board-scope rules require EDIT_BOARD_PERMISSIONS on that board, or server management.
-- Unless the actor is ADMIN, they can only touch keys ranked below their own effective rank. They
-  can also only touch USER or ROLE subjects ranked below theirs. So an EDIT_BOARD_PERMISSIONS holder
-  (BOARD_MANAGE rank) can make a board private, or open it to a role, but cannot hand out
-  board-management keys or create boards.
-- A change that would remove the actor's own ability to manage server permissions is rejected.
-- Changes are checked by applying them to an in-memory snapshot, using the same rules as
-  enforcement.
+## 6. Features and simple mode
 
-### 4.5 Simple mode
+- **Features** (`server_features`): labels, priorities, assignees, comments, due dates and custom
+  permissions, each switched on per server. With none on, the server is in simple mode.
+- **Per board** (`board_disabled_features`): a board can switch off features the server has on.
+- **When a feature is off**, the API rejects its writes, its data is left out of responses but kept,
+  and saving a task where a field is hidden keeps the stored value rather than clearing it.
+- Features, open permissions and everything else except the rules themselves can be changed from
+  Discord (`/kanbancord features`) as well as on the website.
 
-**Decided:**
+## 7. Discord sync
 
-- **Where it is set.** Simple mode is a server-level setting.
-- **Defaults.** New servers start in SIMPLE. Existing servers are migrated to ADVANCED, so their
-  behaviour does not change. Admins can switch either way.
-- **Content permissions.** In SIMPLE mode the authorizer ignores rules for content. Any member with
-  `VIEW_CHANNEL` can view, create, edit, move, delete and archive tasks and columns, comment,
-  assign, and create or edit boards.
-- **All boards are public.** Board overrides do not apply in SIMPLE mode, so boards cannot be made
-  private.
-- **Keys that stay restricted** to Discord Manage Server, Administrator or the owner:
-  `ARCHIVE_BOARD`, `DELETE_BOARD`, `MANAGE_SERVER_PERMISSIONS`, `VIEW_AUDIT_LOG`, `ADMIN`.
-- **`EDIT_BOARD_PERMISSIONS`** can be granted to people in ADVANCED mode. It has no effect in
-  SIMPLE mode, since there are no board overrides there.
-- **Switching modes.** Going back to ADVANCED restores the stored rules untouched.
-- **Configurable features.** Separately from the permission mode, `server_settings` holds
-  `labels_enabled`, `priorities_enabled`, `due_dates_enabled`, and room for more. The SIMPLE preset
-  turns them off, and each can be changed individually. The API rejects writes to disabled features
-  and omits their fields; clients hide the UI.
+The bot keeps the API's copy of each server current, through `/api/internal/sync/*`:
 
-**Schema:** `servers.permission_mode` (`SIMPLE` or `ADVANCED`, default `SIMPLE`, with existing rows
-migrated to `ADVANCED`) and a `server_settings` table.
+- **On joining a server, on start-up (once the API answers), and every 12 hours**: a full bootstrap
+  of the server, its owner, roles and members (members and roles Discord no longer has are removed).
+  The regular re-sync catches changes whose events were missed while the API was down.
+- **As things change**: member joins, updates and leaves; role changes; server changes.
+- **Channels**: the server's text and announcement channels, with whether the bot may post and make
+  threads in each, re-sent shortly after channel or permission changes settle.
 
-## 5. Domain additions (planned migrations)
+Sync changes are announced over realtime (so open pages update) but not audited.
 
-| Feature | Schema |
-|---|---|
-| Priority dropdown (staff request) | `priority_levels(id, server_id, board_id NULL, name, color, rank, is_default)`. Server defaults are High / Medium / Low / Ignorable; a board can override the list. `tasks.priority_id` is an FK. Existing free-text priorities are matched by name or become board-level entries. |
-| Assign to a role (staff request) | `task_assignments.user_id` becomes nullable, plus a new `role_id`. A `CHECK` requires exactly one of them, with unique indexes per task. Covered by `ASSIGN_TASK_OTHERS`. |
-| Labels UI | The backend already exists. It needs the UI plus the `labels_enabled` flag. |
-| User preferences | Typed `/api/me/preferences`: theme, accessibility palette (deuteranopia, protanopia, tritanopia, high contrast), DM notification settings. Replaces the untyped JSON field written through a server-scoped endpoint. Other users can no longer read it. |
-| Image uploads | `POST /api/media/images` proxies to Imgur with the client id server-side. It is rate limited and returns a URL that goes into markdown. Rendering is markdown-only with no raw HTML (XSS fix). |
-| Discord integrations | `server_integrations(server_id, update_channel_webhook (encrypted), event_filter)`. |
-| Delivery outbox | `outbound_messages(id, kind, target, payload, attempts, next_attempt_at, sent_at)`. |
+## 8. Changes, audit log and realtime
 
-## 6. Events and side effects
+- Every change publishes a **domain event** with the actor, what changed (before and after) and
+  whether it came from Discord or the website.
+- After the transaction commits, listeners turn it into an **audit log** entry, a **realtime**
+  message, a **notification** queue entry, and marks on **board posts** that need redrawing.
+- **Realtime** is STOMP over WebSockets. Clients subscribe to `/topic/servers/{id}` and
+  `/topic/servers/{id}/boards/{id}`; changes that concern one person only (their profile,
+  notification settings, sessions) go to `/user/queue/me`. Subscribing needs `VIEW_SERVER` or
+  `VIEW_BOARD`; board events on the server topic are withheld from people who cannot view the board.
+  When someone loses access, their subscription ends and they are told (`SUBSCRIPTION_REVOKED`).
+- **Opening a WebSocket**: a browser cannot send an `Authorization` header with a WebSocket, so the
+  website first asks for a one-time ticket (`POST /api/realtime/tickets`, valid 30 seconds, tied to
+  the sign-in session) and opens the socket with it. The ticket is deleted when used.
 
-**Target:**
+## 9. Notifications and delivery
 
-1. Application services publish **domain events**, such as `TaskMoved` or `TaskAssigned`, carrying
-   the actor and a before/after diff.
-2. After commit, listeners fan them out:
-   - realtime STOMP broadcast (already delivered after commit)
-   - an audit log row, which makes "audit every mutation" automatic instead of per-endpoint
-   - in-app notifications
-   - outbox entries for DMs and update-channel webhooks, which a dispatcher sends through Discord
-     REST, honouring rate limits and retrying
+Changes reach people through update feeds, the audit log channel, and direct messages. The API
+decides who hears what; the bot sends it.
 
-**Realtime:**
+1. **Queue** (`NotificationQueue`): each change that can be announced joins the open group for what
+   it concerns (usually one task). A group is due 30 seconds after its first change, so quick edits
+   go out as one message.
+2. **Routing** (`NotificationRouter`): when the bot claims due groups, each becomes a **plan**:
+   - **Feeds** (`notification_feeds`): each feed posts in one channel, for every board or chosen
+     boards, with its own choice of events and of which events mention the people involved (for an
+     assignment, the person assigned; otherwise the task's assignees, and its roles if the feed
+     mentions roles). Boards can change a feed's events and mentions for themselves
+     (`feed_board_settings`). Feeds sharing a channel post once. **Interactive** feeds show the whole
+     task with buttons under each update.
+   - **The audit log channel**: every change, pinging nobody.
+   - **Direct messages**: to the task's creator, assignees and followers (and, if they choose,
+     people who commented), for the events each person chose, and only if they can still see the
+     board. A person's mode is "always", "only if not already mentioned" (the default) or "never",
+     with a per-server setting on top.
+   - **The task's thread**, for boards with threads (section 10).
+3. **Delivery** (bot, shard 0): posts to channels first, then sends direct messages, skipping
+   "only if not mentioned" people whom a post just mentioned in a channel they can see. It reports
+   each plan delivered or failed; unreported plans are claimed again after 5 minutes, and a group
+   that keeps failing (5 attempts) or is over an hour old is dropped.
+4. **Due date reminders** (`DueReminderScheduler`, every minute): once when a task is due within a
+   day and once when it becomes overdue, for tasks not done (not in the last column), sent like
+   other notifications.
 
-- Events carry the changed entity. Clients apply them to their cache instead of refetching the
-  board.
-- A per-board revision number lets a client detect gaps and refetch only then.
-- Server-topic events must not reveal boards a subscriber cannot view.
+Nobody is told or pinged about their own changes. Every direct message has a button to stop messages
+from its server.
 
-## 7. Target code structure
+## 10. Board posts and task threads
 
-**Backend: package by feature, with thin controllers.**
+- **Board posts** (`/board post`): a whole board as one Discord message that redraws itself. Changes
+  mark a board's posts out of date; the bot (shard 0) claims posts once they have settled for a
+  moment, redraws them, and reports which were done, gone (message deleted) or need retrying. At
+  most 10 posts per board and 100 per server. Before posting, the bot warns if people in the channel
+  could not see the board otherwise.
+- **Task threads** (`/board threads`, or board settings): a board can give each task its own thread
+  in one of its feed channels, public (started from the task's post) or private (the task's creator
+  and assignees). Each plan for a task on such a board says which thread, if any, and where updates
+  go (the thread, the channel, or both, with mentions made once). The bot makes the thread when
+  something first happens to the task, or at once from a task's **Discuss in thread** button, and
+  reports it back (`task_threads`). Threads follow the task's title, take in new assignees when
+  private, and are archived with the task. Threads stop working, without being deleted, if the feed
+  channel stops covering the board.
 
-```
-com.kanbancord
-  common/     errors, web config, security (actor, JWT, bot auth), pagination
-  identity/   auth, sessions, users, preferences
-  guild/      servers, roles, members, internal sync API
-  access/     catalog, rules, snapshot/resolver, simple mode, escalation guard
-  board/      boards, columns, tasks, assignments, labels, priorities, comments
-  activity/   domain events → audit, notifications, realtime, outbox dispatcher
-  media/      image uploads
-```
+## 11. The bot
 
-Each feature is split into four layers:
+- **Sharding**: discord.js `ShardingManager` with automatic shard count. Shard 0 registers the
+  commands and runs the background workers: notification delivery, board post redraws, bot-list
+  server counts (every 30 minutes) and the status page heartbeat (every minute).
+- **Commands**: slash commands (`/board`, `/task`, `/column`, `/label`, `/priority`, `/comment`,
+  `/kanbancord`, `/notifications`, `/guide`, `/help`, `/report`) and the **Create task** message
+  command.
+- **Interactions**: buttons, menus and forms carry versioned custom ids
+  (`kc1:<feature>:<action>:<args>`), routed to handlers by feature; ids from an older version are
+  refused politely. Every handler acts as the person who clicked, through the API.
+- **Views** are Discord Components V2 containers: board, column, task, comments and settings panels
+  link to each other. A view made for one person, clicked by someone else, answers that person
+  privately instead of changing it for everyone.
+- **Caching**: short-lived caches of board lists and snapshots (a few seconds) keep autocomplete and
+  forms within Discord's three-second limit.
+- **Guidance**: `/guide` walks through setup with ticks for what the server has done
+  (`/api/servers/{id}/guide`), and managers of a brand-new server get a one-time simple-mode tip.
 
-- `api`: controllers, DTOs and mappers. Controllers never touch repositories.
-- `application`: transactional use cases. Authorization happens here.
-- `domain`: entities and rules.
-- `infrastructure`: repositories and external clients.
+## 12. The website
 
-The current `AccessValidator` / `ResourceValidator` / `BusinessValidationService` trio becomes an
-`Authorizer` plus per-feature loaders.
+- **Structure**: features in `src/features` (board, board settings, server settings, notifications,
+  access check, audit, preferences, session, ...), typed API clients in `src/services`, public pages
+  and guides in `src/site`.
+- **Data**: TanStack Query caches; realtime events trigger a debounced refetch of the affected board
+  or server data.
+- **Public pages** (landing, guides, FAQ, legal) are prerendered to HTML at build time for speed and
+  search engines, and carry structured data identifying the app.
+- **Demo mode** (`npm run demo`) runs the whole site against made-up data in the browser.
 
-**Frontend:**
+## 13. Deployment and operations
 
-```
-src/
-  app/        router, providers (TanStack Query, auth), route-level code splitting
-  api/        one typed client (auth header, error mapping) + per-feature endpoints
-  features/   auth, dashboard, boards (BoardView, Column, TaskCard, TaskDrawer, CommentThread), permissions, preferences
-  realtime/   one STOMP connection; events patch the query cache
-  ui/         shared components, theme tokens, accessibility palettes
-```
+- Pushes to `main` in each repository build a Docker image and publish it to the GitHub Container
+  Registry. The server pulls new images itself; nothing logs in to it from GitHub.
+- The API and website run behind nginx and Cloudflare; nginx blocks `/api/internal/*` from outside.
+- Rate limits: sign-in per IP, writes per user, and uploads per user on top.
+- Images and videos are uploaded through the API to Imgur; only the links are kept.
+- A public status page monitors the website and API, and the bot reports a heartbeat.
 
-**Bot:**
+## 14. Known gaps
 
-- Keep the structure: sync events, plus command modules.
-- Commands call the API as the acting user (see 3.1).
-- Bot responses use the same permission decisions as the web.
-
-## 8. Performance plan
-
-**Done:**
-
-- Permission checks reduced from about 100 queries to about 5, and batched.
-- Board visibility filtering uses one query for all board rules.
-- Task updates that change nothing skip the write and the broadcast.
-- The frontend bundle dropped from 700 KB to 529 KB by removing `rehype-raw`.
-
-**Next:**
-
-1. `GET /boards/{id}/snapshot`: board, columns, tasks, assignments, labels and the caller's
-   capabilities in one request. This removes the `/me` → 5-request waterfall.
-2. `POST /tasks/{id}/move` and `POST /columns/{id}/move` with fractional positions. One write
-   replaces renumbering a whole column.
-3. Apply realtime event payloads instead of refetching the board.
-4. Include capabilities in board list responses, removing N permission requests per dashboard.
-5. Cache the guild list server-side (see 3.2).
-6. Route-level lazy loading. Split `BoardPage`.
-7. Enable `server.compression`, and use fetch joins or batch fetching for comment and assignment
-   authors.
-
-## 9. Security posture
-
-**Fixed in the security pass:**
-
-- Global permission catalog could be mutated.
-- Members could self-assign roles.
-- Audit logs could be forged.
-- Comments could be soft-deleted with no permission check.
-- Stored XSS in markdown.
-- Identity was taken from `?userId=`.
-- Board-level rules were never enforced.
-- `VIEW_*` was never enforced on reads or realtime.
-- Assignment and label permissions were never enforced.
-- `createdBy` / `assignedBy` could be spoofed.
-- Clients could create immutable rules.
-- Any member could evaluate other members' permissions.
-- Other users' preferences were readable.
-- No minimum JWT secret length.
-- Actuator health details were public.
-- A board-level DENY could not restrict a server-level ALLOW. Fixed by the resolution model in 4.4.
-- Unauthenticated requests returned 403 instead of 401.
-- JWTs could not be revoked, and the app and Discord tokens were kept in `localStorage` (3.2).
-- Realtime subscriptions survived losing access until the client reconnected. Permission,
-  role and membership changes now end them and tell the client (`SUBSCRIPTION_REVOKED`).
-- Labels, and changes synced from Discord (server, roles, members), were not announced over realtime.
-  They now are; Discord sync events are announced but not audited. Changes that concern one user
-  (profile, notifications, sessions) go to that user's own queue, `/user/queue/me`.
-
-**Open:**
-
-| Issue | Planned fix |
-|---|---|
-| Server-topic events leak board metadata to members who cannot view the board | 6 |
-| Realtime tickets live in memory (single instance only) | Move to DB or Redis before scaling out |
-| No rate limiting on auth and uploads | Add a limiter |
-| CORS origins are hardcoded (the WebSocket origins are already configurable) | Make them configurable |
-| Permission rule listing is visible to every member | Consider requiring `MANAGE_SERVER_PERMISSIONS` |
+| Gap | Effect | When it matters |
+|---|---|---|
+| Realtime tickets are kept in the API's memory | A ticket only works on the instance that issued it | Running more than one API instance: store them in the database or Redis |
+| Realtime events trigger refetches rather than updating the cache directly | More requests than needed after each change | Large boards or many viewers |
+| Permission snapshots are not cached between requests | Each request loads one (a handful of queries) | Higher traffic: cache per request, then briefly per server and user |
+| The server's own rules are listed to every member | Members can see who may do what server-wide (board rules stay hidden from those who cannot see the board) | If servers want their rules private |
+| No HTTP compression; website routes are not lazy-loaded | Larger downloads on first load | Slow connections |
+| Task threads are created from Discord events only | A thread is not created for a task until something happens to it, unless someone presses Discuss in thread | By design; no change planned |
