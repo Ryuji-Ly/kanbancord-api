@@ -88,17 +88,17 @@ public class InternalSyncController {
 
         authorizer.requireInternalSyncAccess(botToken);
 
-        User owner = userService.findById(request.getOwnerId()).orElseGet(User::new);
-        owner.setUserId(request.getOwnerId());
-        owner.setUsername(request.getOwnerUsername());
-        owner.setGlobalName(request.getOwnerGlobalName());
-        owner.setAvatarUrl(request.getOwnerAvatarUrl());
+        User owner = userService.findById(request.ownerId()).orElseGet(User::new);
+        owner.setUserId(request.ownerId());
+        owner.setUsername(request.ownerUsername());
+        owner.setGlobalName(request.ownerGlobalName());
+        owner.setAvatarUrl(request.ownerAvatarUrl());
         owner = userService.update(owner);
 
         Server server = serverService.findById(serverId).orElseGet(Server::new);
         server.setServerId(serverId);
-        server.setName(request.getName());
-        server.setIconUrl(request.getIconUrl());
+        server.setName(request.name());
+        server.setIconUrl(request.iconUrl());
         server.setBotPresent(true);
         server.setOwner(owner);
         serverService.update(server);
@@ -137,10 +137,10 @@ public class InternalSyncController {
 
         role.setRoleId(roleId);
         role.setServer(server);
-        role.setName(request.getName());
-        role.setColor(request.getColor());
-        role.setPosition(request.getPosition());
-        role.setDiscordPermissions(request.getDiscordPermissions());
+        role.setName(request.name());
+        role.setColor(request.color());
+        role.setPosition(request.position());
+        role.setDiscordPermissions(request.discordPermissions());
         roleService.update(role);
 
         announce(EventType.ROLE_SYNCED, serverId, roleId);
@@ -173,23 +173,23 @@ public class InternalSyncController {
 
         User user = userService.findById(userId).orElseGet(User::new);
         user.setUserId(userId);
-        user.setUsername(request.getUsername());
-        user.setGlobalName(request.getGlobalName());
-        user.setAvatarUrl(request.getAvatarUrl());
+        user.setUsername(request.username());
+        user.setGlobalName(request.globalName());
+        user.setAvatarUrl(request.avatarUrl());
         user = userService.update(user);
 
         ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .orElseGet(ServerMember::new);
         member.setServer(server);
         member.setUser(user);
-        member.setNickname(request.getNickname());
-        if (request.getJoinedAt() != null) {
-            member.setJoinedAt(request.getJoinedAt());
+        member.setNickname(request.nickname());
+        if (request.joinedAt() != null) {
+            member.setJoinedAt(request.joinedAt());
         }
         member = serverMemberService.update(member);
 
-        if (request.getRoleIds() != null) {
-            memberRoleService.replaceForMember(member, request.getRoleIds());
+        if (request.roleIds() != null) {
+            memberRoleService.replaceForMember(member, request.roleIds());
         }
 
         announce(EventType.MEMBER_SYNCED, serverId, userId);
@@ -221,7 +221,7 @@ public class InternalSyncController {
         ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
 
-        memberRoleService.replaceForMember(member, request.getRoleIds());
+        memberRoleService.replaceForMember(member, request.roleIds());
         announce(EventType.MEMBER_SYNCED, serverId, userId);
         return ResponseEntity.noContent().build();
     }

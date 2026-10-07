@@ -4,98 +4,15 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import java.time.Instant;
 
-public class RealtimeEventResponse {
-
-    private String eventId;
-    private String eventType;
-    private String scopeType;
-    @JsonSerialize(using = ToStringSerializer.class)
-    private Long serverId;
-    private Long boardId;
-    private String entityType;
-    private Long entityId;
-    @JsonSerialize(using = ToStringSerializer.class)
-    private Long actorUserId;
-    private Instant occurredAt;
-    private Object payload;
-
-    public String getEventId() {
-        return eventId;
-    }
-
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
-    }
-
-    public String getEventType() {
-        return eventType;
-    }
-
-    public void setEventType(String eventType) {
-        this.eventType = eventType;
-    }
-
-    public String getScopeType() {
-        return scopeType;
-    }
-
-    public void setScopeType(String scopeType) {
-        this.scopeType = scopeType;
-    }
-
-    public Long getServerId() {
-        return serverId;
-    }
-
-    public void setServerId(Long serverId) {
-        this.serverId = serverId;
-    }
-
-    public Long getBoardId() {
-        return boardId;
-    }
-
-    public void setBoardId(Long boardId) {
-        this.boardId = boardId;
-    }
-
-    public String getEntityType() {
-        return entityType;
-    }
-
-    public void setEntityType(String entityType) {
-        this.entityType = entityType;
-    }
-
-    public Long getEntityId() {
-        return entityId;
-    }
-
-    public void setEntityId(Long entityId) {
-        this.entityId = entityId;
-    }
-
-    public Long getActorUserId() {
-        return actorUserId;
-    }
-
-    public void setActorUserId(Long actorUserId) {
-        this.actorUserId = actorUserId;
-    }
-
-    public Instant getOccurredAt() {
-        return occurredAt;
-    }
-
-    public void setOccurredAt(Instant occurredAt) {
-        this.occurredAt = occurredAt;
-    }
-
-    public Object getPayload() {
-        return payload;
-    }
-
-    public void setPayload(Object payload) {
-        this.payload = payload;
-    }
+public record RealtimeEventResponse(
+        String eventId,
+        String eventType,
+        String scopeType,
+        @JsonSerialize(using = ToStringSerializer.class) Long serverId,
+        Long boardId,
+        String entityType,
+        Long entityId,
+        @JsonSerialize(using = ToStringSerializer.class) Long actorUserId,
+        Instant occurredAt,
+        Object payload) {
 }

@@ -47,22 +47,22 @@ public class TaskAssignmentCommands {
             TaskAssignmentRequest request) {
         features.require(serverId, boardId, Feature.ASSIGNEES);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "VIEW_TASK");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId,
-                assignPermissionFor(actorUserId, request.getUserId()));
-        resourceValidator.validatePermissionSubjectBelongsToServer("USER", request.getUserId(), serverId);
+                assignPermissionFor(actorUserId, request.userId()));
+        resourceValidator.validatePermissionSubjectBelongsToServer("USER", request.userId(), serverId);
 
         TaskAssignment assignment = new TaskAssignment();
         assignment.setTask(task);
-        assignment.setUser(requireUser(request.getUserId()));
+        assignment.setUser(requireUser(request.userId()));
         // The assigner is always the actor; request.assignedBy is ignored.
         assignment.setAssignedBy(requireUser(actorUserId));
 
         TaskAssignmentResponse created = TaskAssignmentResponse.from(taskAssignmentService.create(assignment));
         events.publishEvent(DomainEvent.created(EventType.TASK_ASSIGNMENT_CREATED, serverId, boardId,
-                created.getId(), actorUserId, created));
+                created.id(), actorUserId, created));
         return created;
     }
 

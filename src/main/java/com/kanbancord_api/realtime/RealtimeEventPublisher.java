@@ -67,17 +67,16 @@ public class RealtimeEventPublisher {
     }
 
     private static RealtimeEventResponse toMessage(DomainEvent event) {
-        RealtimeEventResponse message = new RealtimeEventResponse();
-        message.setEventId(UUID.randomUUID().toString());
-        message.setEventType(event.type().name());
-        message.setScopeType(event.boardId() != null ? "BOARD" : "SERVER");
-        message.setServerId(event.serverId());
-        message.setBoardId(event.boardId());
-        message.setEntityType(event.type().entityType().name());
-        message.setEntityId(event.entityId());
-        message.setActorUserId(event.actorUserId());
-        message.setOccurredAt(Instant.now());
-        message.setPayload(event.snapshot());
-        return message;
+        return new RealtimeEventResponse(
+                UUID.randomUUID().toString(),
+                event.type().name(),
+                event.boardId() != null ? "BOARD" : "SERVER",
+                event.serverId(),
+                event.boardId(),
+                event.type().entityType().name(),
+                event.entityId(),
+                event.actorUserId(),
+                Instant.now(),
+                event.snapshot());
     }
 }

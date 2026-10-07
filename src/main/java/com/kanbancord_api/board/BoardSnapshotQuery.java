@@ -90,7 +90,7 @@ public class BoardSnapshotQuery {
         Map<String, PermissionDecisionResponse> permissions = new LinkedHashMap<>();
         permissionEvaluationService.resolveAll(serverId, boardId, actorUserId, BOARD_PERMISSION_KEYS)
                 .forEach((key, decision) -> permissions.put(key, PermissionDecisionResponse.from(decision)));
-        boolean canViewTasks = permissions.get("VIEW_TASK").isAllowed();
+        boolean canViewTasks = permissions.get("VIEW_TASK").allowed();
         List<Long> followed = canViewTasks
                 ? jdbcTemplate.queryForList("""
                         SELECT f.task_id FROM task_followers f JOIN tasks t ON t.task_id = f.task_id

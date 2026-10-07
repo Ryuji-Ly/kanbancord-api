@@ -9,233 +9,86 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-public class InternalBootstrapRequest {
+/** A whole server as the bot sees it: the server, its owner, its roles and its members. Lists left out are empty. */
+public record InternalBootstrapRequest(
+        @NotBlank(message = "Server name is required")
+        @Size(max = 255, message = "Server name must not exceed 255 characters")
+        String name,
 
-    @NotBlank(message = "Server name is required")
-    @Size(max = 255, message = "Server name must not exceed 255 characters")
-    private String name;
+        @Size(max = 1024, message = "Icon URL must not exceed 1024 characters")
+        String iconUrl,
 
-    @Size(max = 1024, message = "Icon URL must not exceed 1024 characters")
-    private String iconUrl;
+        @NotNull(message = "Owner ID is required")
+        Long ownerId,
 
-    @NotNull(message = "Owner ID is required")
-    private Long ownerId;
+        @NotBlank(message = "Owner username is required")
+        @Size(max = 255, message = "Owner username must not exceed 255 characters")
+        String ownerUsername,
 
-    @NotBlank(message = "Owner username is required")
-    @Size(max = 255, message = "Owner username must not exceed 255 characters")
-    private String ownerUsername;
+        @Size(max = 100, message = "Owner global name must not exceed 100 characters")
+        String ownerGlobalName,
 
-    @Size(max = 100, message = "Owner global name must not exceed 100 characters")
-    private String ownerGlobalName;
+        @Size(max = 1024, message = "Owner avatar URL must not exceed 1024 characters")
+        String ownerAvatarUrl,
 
-    @Size(max = 1024, message = "Owner avatar URL must not exceed 1024 characters")
-    private String ownerAvatarUrl;
+        @Valid
+        @NotNull(message = "Roles list is required")
+        List<RoleEntry> roles,
 
-    @Valid
-    @NotNull(message = "Roles list is required")
-    private List<RoleEntry> roles = new ArrayList<>();
+        @Valid
+        @NotNull(message = "Members list is required")
+        List<MemberEntry> members) {
 
-    @Valid
-    @NotNull(message = "Members list is required")
-    private List<MemberEntry> members = new ArrayList<>();
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getIconUrl() {
-        return iconUrl;
-    }
-
-    public void setIconUrl(String iconUrl) {
-        this.iconUrl = iconUrl;
-    }
-
-    public Long getOwnerId() {
-        return ownerId;
-    }
-
-    public void setOwnerId(Long ownerId) {
-        this.ownerId = ownerId;
-    }
-
-    public String getOwnerUsername() {
-        return ownerUsername;
-    }
-
-    public void setOwnerUsername(String ownerUsername) {
-        this.ownerUsername = ownerUsername;
-    }
-
-    public String getOwnerGlobalName() {
-        return ownerGlobalName;
-    }
-
-    public void setOwnerGlobalName(String ownerGlobalName) {
-        this.ownerGlobalName = ownerGlobalName;
-    }
-
-    public String getOwnerAvatarUrl() {
-        return ownerAvatarUrl;
-    }
-
-    public void setOwnerAvatarUrl(String ownerAvatarUrl) {
-        this.ownerAvatarUrl = ownerAvatarUrl;
-    }
-
-    public List<RoleEntry> getRoles() {
-        return roles;
-    }
-
-    public void setRoles(List<RoleEntry> roles) {
-        this.roles = roles;
-    }
-
-    public List<MemberEntry> getMembers() {
-        return members;
-    }
-
-    public void setMembers(List<MemberEntry> members) {
-        this.members = members;
-    }
-
-    public static class RoleEntry {
-
-        @NotNull(message = "Role ID is required")
-        private Long roleId;
-
-        @NotBlank(message = "Role name is required")
-        @Size(max = 255, message = "Role name must not exceed 255 characters")
-        private String name;
-
-        private Integer color;
-
-        private Integer position;
-
-        @NotNull(message = "Discord permissions bitset is required")
-        private Long discordPermissions;
-
-        public Long getRoleId() {
-            return roleId;
+    public InternalBootstrapRequest {
+        if (roles == null) {
+            roles = new ArrayList<>();
         }
-
-        public void setRoleId(Long roleId) {
-            this.roleId = roleId;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public void setName(String name) {
-            this.name = name;
-        }
-
-        public Integer getColor() {
-            return color;
-        }
-
-        public void setColor(Integer color) {
-            this.color = color;
-        }
-
-        public Integer getPosition() {
-            return position;
-        }
-
-        public void setPosition(Integer position) {
-            this.position = position;
-        }
-
-        public Long getDiscordPermissions() {
-            return discordPermissions;
-        }
-
-        public void setDiscordPermissions(Long discordPermissions) {
-            this.discordPermissions = discordPermissions;
+        if (members == null) {
+            members = new ArrayList<>();
         }
     }
 
-    public static class MemberEntry {
+    public record RoleEntry(
+            @NotNull(message = "Role ID is required")
+            Long roleId,
 
-        @NotNull(message = "User ID is required")
-        private Long userId;
+            @NotBlank(message = "Role name is required")
+            @Size(max = 255, message = "Role name must not exceed 255 characters")
+            String name,
 
-        @NotBlank(message = "Username is required")
-        @Size(max = 255, message = "Username must not exceed 255 characters")
-        private String username;
+            Integer color,
 
-        @Size(max = 100, message = "Global name must not exceed 100 characters")
-        private String globalName;
+            Integer position,
 
-        @Size(max = 1024, message = "Avatar URL must not exceed 1024 characters")
-        private String avatarUrl;
+            @NotNull(message = "Discord permissions bitset is required")
+            Long discordPermissions) {
+    }
 
-        @Size(max = 255, message = "Nickname must not exceed 255 characters")
-        private String nickname;
+    public record MemberEntry(
+            @NotNull(message = "User ID is required")
+            Long userId,
 
-        private LocalDateTime joinedAt;
+            @NotBlank(message = "Username is required")
+            @Size(max = 255, message = "Username must not exceed 255 characters")
+            String username,
 
-        private List<Long> roleIds = new ArrayList<>();
+            @Size(max = 100, message = "Global name must not exceed 100 characters")
+            String globalName,
 
-        public Long getUserId() {
-            return userId;
-        }
+            @Size(max = 1024, message = "Avatar URL must not exceed 1024 characters")
+            String avatarUrl,
 
-        public void setUserId(Long userId) {
-            this.userId = userId;
-        }
+            @Size(max = 255, message = "Nickname must not exceed 255 characters")
+            String nickname,
 
-        public String getUsername() {
-            return username;
-        }
+            LocalDateTime joinedAt,
 
-        public void setUsername(String username) {
-            this.username = username;
-        }
+            List<Long> roleIds) {
 
-        public String getGlobalName() {
-            return globalName;
-        }
-
-        public void setGlobalName(String globalName) {
-            this.globalName = globalName;
-        }
-
-        public String getAvatarUrl() {
-            return avatarUrl;
-        }
-
-        public void setAvatarUrl(String avatarUrl) {
-            this.avatarUrl = avatarUrl;
-        }
-
-        public String getNickname() {
-            return nickname;
-        }
-
-        public void setNickname(String nickname) {
-            this.nickname = nickname;
-        }
-
-        public LocalDateTime getJoinedAt() {
-            return joinedAt;
-        }
-
-        public void setJoinedAt(LocalDateTime joinedAt) {
-            this.joinedAt = joinedAt;
-        }
-
-        public List<Long> getRoleIds() {
-            return roleIds;
-        }
-
-        public void setRoleIds(List<Long> roleIds) {
-            this.roleIds = roleIds;
+        public MemberEntry {
+            if (roleIds == null) {
+                roleIds = new ArrayList<>();
+            }
         }
     }
 }

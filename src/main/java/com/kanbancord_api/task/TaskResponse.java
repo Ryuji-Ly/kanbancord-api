@@ -6,154 +6,37 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 
-public class TaskResponse {
-    private Long taskId;
-    private Long boardId;
-    private Long columnId;
-    private String title;
-    private String description;
-    private BigDecimal position;
-    private Long priorityId;
-    private LocalDateTime dueDate;
-    private Boolean isArchived;
-    private Map<String, Object> metadata;
-    @JsonSerialize(using = ToStringSerializer.class)
-    private Long createdBy;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
-    private LocalDateTime completedAt;
-
-    // Getters and Setters
-    public Long getTaskId() {
-        return taskId;
-    }
-
-    public void setTaskId(Long taskId) {
-        this.taskId = taskId;
-    }
-
-    public Long getBoardId() {
-        return boardId;
-    }
-
-    public void setBoardId(Long boardId) {
-        this.boardId = boardId;
-    }
-
-    public Long getColumnId() {
-        return columnId;
-    }
-
-    public void setColumnId(Long columnId) {
-        this.columnId = columnId;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public BigDecimal getPosition() {
-        return position;
-    }
-
-    public void setPosition(BigDecimal position) {
-        this.position = position;
-    }
-
-    public Long getPriorityId() {
-        return priorityId;
-    }
-
-    public void setPriorityId(Long priorityId) {
-        this.priorityId = priorityId;
-    }
-
-    public LocalDateTime getDueDate() {
-        return dueDate;
-    }
-
-    public void setDueDate(LocalDateTime dueDate) {
-        this.dueDate = dueDate;
-    }
-
-    public Boolean getIsArchived() {
-        return isArchived;
-    }
-
-    public void setIsArchived(Boolean isArchived) {
-        this.isArchived = isArchived;
-    }
-
-    public Map<String, Object> getMetadata() {
-        return metadata;
-    }
-
-    public void setMetadata(Map<String, Object> metadata) {
-        this.metadata = metadata;
-    }
-
-    public Long getCreatedBy() {
-        return createdBy;
-    }
-
-    public void setCreatedBy(Long createdBy) {
-        this.createdBy = createdBy;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    public LocalDateTime getCompletedAt() {
-        return completedAt;
-    }
-
-    public void setCompletedAt(LocalDateTime completedAt) {
-        this.completedAt = completedAt;
-    }
+public record TaskResponse(
+        Long taskId,
+        Long boardId,
+        Long columnId,
+        String title,
+        String description,
+        BigDecimal position,
+        Long priorityId,
+        LocalDateTime dueDate,
+        Boolean isArchived,
+        Map<String, Object> metadata,
+        @JsonSerialize(using = ToStringSerializer.class) Long createdBy,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt,
+        LocalDateTime completedAt) {
 
     public static TaskResponse from(Task task) {
-        TaskResponse response = new TaskResponse();
-        response.setTaskId(task.getTaskId());
-        response.setBoardId(task.getBoard().getBoardId());
-        response.setColumnId(task.getColumn().getColumnId());
-        response.setTitle(task.getTitle());
-        response.setDescription(task.getDescription());
-        response.setPosition(task.getPosition());
-        response.setPriorityId(task.getPriorityId());
-        response.setDueDate(task.getDueDate());
-        response.setIsArchived(task.getIsArchived());
-        response.setMetadata(task.getMetadata());
-        if (task.getCreatedBy() != null) {
-            response.setCreatedBy(task.getCreatedBy().getUserId());
-        }
-        response.setCreatedAt(task.getCreatedAt());
-        response.setUpdatedAt(task.getUpdatedAt());
-        response.setCompletedAt(task.getCompletedAt());
-        return response;
+        return new TaskResponse(
+                task.getTaskId(),
+                task.getBoard().getBoardId(),
+                task.getColumn().getColumnId(),
+                task.getTitle(),
+                task.getDescription(),
+                task.getPosition(),
+                task.getPriorityId(),
+                task.getDueDate(),
+                task.getIsArchived(),
+                task.getMetadata(),
+                task.getCreatedBy() == null ? null : task.getCreatedBy().getUserId(),
+                task.getCreatedAt(),
+                task.getUpdatedAt(),
+                task.getCompletedAt());
     }
 }

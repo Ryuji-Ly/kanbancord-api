@@ -56,7 +56,7 @@ public class PermissionRuleCommands {
 
         PermissionResponse created = PermissionResponse.from(permissionService.create(permission));
         events.publishEvent(DomainEvent.created(EventType.PERMISSION_CREATED, serverId, boardIdOf(created),
-                created.getId(), actorUserId, created));
+                created.id(), actorUserId, created));
         return created;
     }
 
@@ -120,15 +120,15 @@ public class PermissionRuleCommands {
     }
 
     private KanbanPermission validateRequest(Long serverId, PermissionRequest request) {
-        resourceValidator.validatePermissionScopeBelongsToServer(request.getScopeType(), request.getScopeId(),
+        resourceValidator.validatePermissionScopeBelongsToServer(request.scopeType(), request.scopeId(),
                 serverId);
-        resourceValidator.validatePermissionSubjectBelongsToServer(request.getSubjectType(), request.getSubjectId(),
+        resourceValidator.validatePermissionSubjectBelongsToServer(request.subjectType(), request.subjectId(),
                 serverId);
-        KanbanPermission kanbanPermission = kanbanPermissionService.findById(request.getKanbanPermissionId())
+        KanbanPermission kanbanPermission = kanbanPermissionService.findById(request.kanbanPermissionId())
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "KanbanPermission", "permissionId", request.getKanbanPermissionId()));
-        validateScopeApplicability(request.getScopeType(), kanbanPermission.getKey());
-        refuseDenyingAdministrators(kanbanPermission.getKey(), request.getState());
+                        "KanbanPermission", "permissionId", request.kanbanPermissionId()));
+        validateScopeApplicability(request.scopeType(), kanbanPermission.getKey());
+        refuseDenyingAdministrators(kanbanPermission.getKey(), request.state());
         return kanbanPermission;
     }
 
@@ -156,13 +156,13 @@ public class PermissionRuleCommands {
 
     private static void applyRequest(Permission permission, PermissionRequest request,
             KanbanPermission kanbanPermission) {
-        permission.setScopeType(request.getScopeType());
-        permission.setScopeId(request.getScopeId());
-        permission.setSubjectType(request.getSubjectType());
-        permission.setSubjectId(request.getSubjectId());
+        permission.setScopeType(request.scopeType());
+        permission.setScopeId(request.scopeId());
+        permission.setSubjectType(request.subjectType());
+        permission.setSubjectId(request.subjectId());
         permission.setKanbanPermission(kanbanPermission);
-        permission.setState(request.getState());
-        permission.setPriority(request.getPriority());
+        permission.setState(request.state());
+        permission.setPriority(request.priority());
         // Immutable rules are system-owned (seeded defaults); clients can never create or keep them.
         permission.setIsImmutable(false);
     }
@@ -184,6 +184,6 @@ public class PermissionRuleCommands {
 
     /** Board rules are board events (announced on the board and filtered by who can see it). */
     private static Long boardIdOf(PermissionResponse rule) {
-        return "BOARD".equalsIgnoreCase(rule.getScopeType()) ? rule.getScopeId() : null;
+        return "BOARD".equalsIgnoreCase(rule.scopeType()) ? rule.scopeId() : null;
     }
 }

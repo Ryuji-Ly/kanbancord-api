@@ -84,43 +84,40 @@ public class ServerController {
     }
 
     private ServerResponse mapToServerResponse(Server server) {
-        ServerResponse response = new ServerResponse();
-        response.setServerId(server.getServerId());
-        response.setName(server.getName());
-        response.setIconUrl(server.getIconUrl());
-        response.setBotPresent(Boolean.TRUE.equals(server.getBotPresent()));
-        response.setOwnerId(server.getOwner().getUserId());
-        response.setCreatedAt(server.getCreatedAt());
-        response.setUpdatedAt(server.getUpdatedAt());
-        return response;
+        return new ServerResponse(
+                server.getServerId(),
+                server.getName(),
+                server.getIconUrl(),
+                Boolean.TRUE.equals(server.getBotPresent()),
+                server.getOwner().getUserId(),
+                server.getCreatedAt(),
+                server.getUpdatedAt());
     }
 
     private RoleResponse mapToRoleResponse(Role role) {
-        RoleResponse response = new RoleResponse();
-        response.setRoleId(role.getRoleId());
-        response.setServerId(role.getServer().getServerId());
-        response.setName(role.getName());
-        response.setColor(role.getColor());
-        response.setPosition(role.getPosition());
-        response.setDiscordPermissions(role.getDiscordPermissions());
-        response.setCreatedAt(role.getCreatedAt());
-        response.setUpdatedAt(role.getUpdatedAt());
-        return response;
+        return new RoleResponse(
+                role.getRoleId(),
+                role.getServer().getServerId(),
+                role.getName(),
+                role.getColor(),
+                role.getPosition(),
+                role.getDiscordPermissions(),
+                role.getCreatedAt(),
+                role.getUpdatedAt());
     }
 
     private ServerMemberResponse mapToServerMemberResponse(ServerMember member) {
-        ServerMemberResponse response = new ServerMemberResponse();
-        response.setId(member.getId());
-        response.setServerId(member.getServer().getServerId());
-        response.setUserId(member.getUser().getUserId());
-        response.setNickname(member.getNickname());
         String displayName = member.getUser().getGlobalName() != null
                 ? member.getUser().getGlobalName()
                 : member.getUser().getUsername();
-        response.setDisplayName(displayName);
-        response.setUsername(member.getUser().getUsername());
-        response.setAvatarUrl(member.getUser().getAvatarUrl());
-        response.setJoinedAt(member.getJoinedAt());
-        return response;
+        return new ServerMemberResponse(
+                member.getId(),
+                member.getServer().getServerId(),
+                member.getUser().getUserId(),
+                member.getNickname(),
+                displayName,
+                member.getUser().getUsername(),
+                member.getUser().getAvatarUrl(),
+                member.getJoinedAt());
     }
 }

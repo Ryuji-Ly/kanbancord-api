@@ -52,30 +52,30 @@ public class TaskCommentCommands {
             TaskCommentRequest request) {
         features.require(serverId, boardId, Feature.COMMENTS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_TASK_COMMENT");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
         TaskComment comment = new TaskComment();
         comment.setTask(task);
         comment.setUser(requireUser(actorUserId));
-        comment.setContent(request.getContent());
-        if (request.getReplyToId() != null) {
-            TaskComment replyTo = resourceValidator.requireCommentInServer(request.getReplyToId(), serverId);
+        comment.setContent(request.content());
+        if (request.replyToId() != null) {
+            TaskComment replyTo = resourceValidator.requireCommentInServer(request.replyToId(), serverId);
             resourceValidator.validatePathMatchesRequestId("taskId", taskId, replyTo.getTask().getTaskId());
             comment.setReplyTo(replyTo);
         }
 
         TaskCommentResponse created = TaskCommentResponse.from(taskCommentService.create(comment));
         events.publishEvent(DomainEvent.created(EventType.TASK_COMMENT_CREATED, serverId, boardId,
-                created.getCommentId(), actorUserId, created));
+                created.commentId(), actorUserId, created));
         return created;
     }
 
     public TaskCommentResponse edit(Long serverId, Long boardId, Long taskId, Long commentId, Long actorUserId,
             TaskCommentRequest request) {
         features.require(serverId, boardId, Feature.COMMENTS);
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         TaskComment comment = requireComment(serverId, boardId, taskId, commentId);
         if (!isAuthor(comment, actorUserId)) {
             throw new AccessDeniedException("Only the person who wrote a comment can edit it");
@@ -83,7 +83,7 @@ public class TaskCommentCommands {
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_TASK_COMMENT");
 
         TaskCommentResponse before = TaskCommentResponse.from(comment);
-        comment.setContent(request.getContent());
+        comment.setContent(request.content());
         TaskComment updated = taskCommentService.update(comment);
 
         TaskCommentEdit edit = new TaskCommentEdit();

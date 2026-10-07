@@ -70,14 +70,14 @@ public class ServerUserController {
         User user = userService.findById(targetUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "userId", targetUserId));
 
-        if (request.getGlobalName() != null) {
-            user.setGlobalName(request.getGlobalName());
+        if (request.globalName() != null) {
+            user.setGlobalName(request.globalName());
         }
-        if (request.getAvatarUrl() != null) {
-            user.setAvatarUrl(request.getAvatarUrl());
+        if (request.avatarUrl() != null) {
+            user.setAvatarUrl(request.avatarUrl());
         }
-        if (request.getPreferences() != null) {
-            user.setPreferences(request.getPreferences());
+        if (request.preferences() != null) {
+            user.setPreferences(request.preferences());
         }
 
         User updated = userService.update(user);
@@ -89,16 +89,13 @@ public class ServerUserController {
 
     /** Preferences are private to their owner and only included when a user reads themselves. */
     private UserResponse mapToResponse(User user, boolean includePreferences) {
-        UserResponse response = new UserResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setGlobalName(user.getGlobalName());
-        response.setAvatarUrl(user.getAvatarUrl());
-        if (includePreferences) {
-            response.setPreferences(user.getPreferences());
-        }
-        response.setCreatedAt(user.getCreatedAt());
-        response.setUpdatedAt(user.getUpdatedAt());
-        return response;
+        return new UserResponse(
+                user.getUserId(),
+                user.getUsername(),
+                user.getGlobalName(),
+                user.getAvatarUrl(),
+                includePreferences ? user.getPreferences() : null,
+                user.getCreatedAt(),
+                user.getUpdatedAt());
     }
 }

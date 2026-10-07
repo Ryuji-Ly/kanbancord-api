@@ -129,10 +129,10 @@ class ServerAccessControllersApiTest {
 
     @Test
     void updateUserInServer_returnsOk_happyPath() throws Exception {
-        UserUpdateRequest request = new UserUpdateRequest();
-        request.setGlobalName("Updated Name");
-        request.setAvatarUrl("https://cdn.example/avatar.png");
-        request.setPreferences(Map.of("theme", "dark"));
+        UserUpdateRequest request = new UserUpdateRequest(
+                "Updated Name",
+                "https://cdn.example/avatar.png",
+                Map.of("theme", "dark"));
 
         User existing = user(30L, "target");
         when(userService.findById(30L)).thenReturn(Optional.of(existing));
@@ -148,8 +148,7 @@ class ServerAccessControllersApiTest {
 
     @Test
     void updateUserInServer_returnsForbidden_whenNotSelf_unhappyPath() throws Exception {
-        UserUpdateRequest request = new UserUpdateRequest();
-        request.setGlobalName("Updated Name");
+        UserUpdateRequest request = new UserUpdateRequest("Updated Name", null, null);
 
         doThrow(new AccessDeniedException("Only self updates allowed"))
                 .when(authorizer)

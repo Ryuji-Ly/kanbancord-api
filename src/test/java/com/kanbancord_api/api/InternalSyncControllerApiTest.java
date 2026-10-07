@@ -70,13 +70,13 @@ class InternalSyncControllerApiTest {
 
     @Test
     void upsertServer_returnsNoContent_onHappyPath() throws Exception {
-        InternalServerSyncRequest request = new InternalServerSyncRequest();
-        request.setName("Test Server");
-        request.setIconUrl("https://cdn.example/icon.png");
-        request.setOwnerId(100L);
-        request.setOwnerUsername("owner");
-        request.setOwnerGlobalName("Owner Name");
-        request.setOwnerAvatarUrl("https://cdn.example/avatar.png");
+        InternalServerSyncRequest request = new InternalServerSyncRequest(
+                "Test Server",
+                "https://cdn.example/icon.png",
+                100L,
+                "owner",
+                "Owner Name",
+                "https://cdn.example/avatar.png");
 
         User owner = new User();
         owner.setUserId(100L);
@@ -97,10 +97,7 @@ class InternalSyncControllerApiTest {
 
     @Test
     void upsertServer_returnsForbidden_whenTokenInvalid_unhappyPath() throws Exception {
-        InternalServerSyncRequest request = new InternalServerSyncRequest();
-        request.setName("Test Server");
-        request.setOwnerId(100L);
-        request.setOwnerUsername("owner");
+        InternalServerSyncRequest request = new InternalServerSyncRequest("Test Server", null, 100L, "owner", null, null);
 
         doThrow(new AccessDeniedException("Invalid internal sync bot token"))
                 .when(authorizer)
@@ -115,9 +112,7 @@ class InternalSyncControllerApiTest {
 
     @Test
     void upsertRole_returnsNotFound_whenServerMissing_unhappyPath() throws Exception {
-        InternalRoleSyncRequest request = new InternalRoleSyncRequest();
-        request.setName("Admin");
-        request.setDiscordPermissions(8L);
+        InternalRoleSyncRequest request = new InternalRoleSyncRequest("Admin", null, null, 8L);
 
         when(serverService.findById(1L)).thenReturn(Optional.empty());
 
@@ -130,9 +125,7 @@ class InternalSyncControllerApiTest {
 
     @Test
     void upsertRole_returnsBadRequest_whenRoleBelongsToDifferentServer_edgeCase() throws Exception {
-        InternalRoleSyncRequest request = new InternalRoleSyncRequest();
-        request.setName("Admin");
-        request.setDiscordPermissions(8L);
+        InternalRoleSyncRequest request = new InternalRoleSyncRequest("Admin", null, null, 8L);
 
         Server server1 = new Server();
         server1.setServerId(1L);
@@ -156,12 +149,13 @@ class InternalSyncControllerApiTest {
 
     @Test
     void upsertServerMember_returnsNoContent_onHappyPath() throws Exception {
-        InternalMemberSyncRequest request = new InternalMemberSyncRequest();
-        request.setUsername("user1");
-        request.setGlobalName("User One");
-        request.setAvatarUrl("https://cdn.example/a.png");
-        request.setNickname("Nick");
-        request.setJoinedAt(LocalDateTime.now());
+        InternalMemberSyncRequest request = new InternalMemberSyncRequest(
+                "user1",
+                "User One",
+                "https://cdn.example/a.png",
+                "Nick",
+                LocalDateTime.now(),
+                new java.util.ArrayList<>());
 
         Server server = new Server();
         server.setServerId(1L);
@@ -185,21 +179,11 @@ class InternalSyncControllerApiTest {
 
     @Test
     void bootstrapServerSync_returnsNoContent_onHappyPath() throws Exception {
-        InternalBootstrapRequest request = new InternalBootstrapRequest();
-        request.setName("Bootstrapped Server");
-        request.setOwnerId(200L);
-        request.setOwnerUsername("bootstrap-owner");
-
-        InternalBootstrapRequest.RoleEntry role = new InternalBootstrapRequest.RoleEntry();
-        role.setRoleId(10L);
-        role.setName("Moderator");
-        role.setDiscordPermissions(8L);
-        request.setRoles(java.util.List.of(role));
-
-        InternalBootstrapRequest.MemberEntry member = new InternalBootstrapRequest.MemberEntry();
-        member.setUserId(300L);
-        member.setUsername("member1");
-        request.setMembers(java.util.List.of(member));
+        InternalBootstrapRequest.RoleEntry role = new InternalBootstrapRequest.RoleEntry(10L, "Moderator", null, null, 8L);
+        InternalBootstrapRequest.MemberEntry member =
+                new InternalBootstrapRequest.MemberEntry(300L, "member1", null, null, null, null, null);
+        InternalBootstrapRequest request = new InternalBootstrapRequest("Bootstrapped Server", null, 200L,
+                "bootstrap-owner", null, null, java.util.List.of(role), java.util.List.of(member));
 
         mockMvc.perform(post("/api/internal/sync/servers/123/bootstrap")
                 .header("X-Internal-Bot-Token", "valid-bot-token")

@@ -79,7 +79,7 @@ public class BoardPriorityController {
             @PathVariable Long priorityId,
             @Valid @RequestBody PriorityMoveRequest request,
             @CurrentUser Long userId) {
-        return ResponseEntity.ok(priorityCommands.move(serverId, boardId, priorityId, userId, request.getIndex()));
+        return ResponseEntity.ok(priorityCommands.move(serverId, boardId, priorityId, userId, request.index()));
     }
 
     @DeleteMapping("/{priorityId}")

@@ -29,10 +29,7 @@ public class RealtimeSessionController {
                 userId,
                 AuthenticatedSession.currentSessionId().orElseThrow(UnauthenticatedException::new));
 
-        RealtimeTicketResponse response = new RealtimeTicketResponse();
-        response.setTicket(issuedTicket.ticket());
-        response.setExpiresAt(issuedTicket.expiresAt());
-        response.setWebsocketPath("/ws");
+        RealtimeTicketResponse response = new RealtimeTicketResponse(issuedTicket.ticket(), issuedTicket.expiresAt(), "/ws");
 
         return ResponseEntity.ok(response);
     }
