@@ -16,6 +16,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 import java.util.List;
 
@@ -43,11 +44,14 @@ public class SecurityConfig {
                                     "/api/internal/board-posts/**",
                                     "/actuator/health",
                                     "/api/health",
+                                    "/robots.txt",
                                     "/ws/**")
                             .permitAll()
                             .anyRequest().authenticated())
                     .exceptionHandling(exceptions -> exceptions
                             .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                    // Nothing the API answers is a page for search engines.
+                    .headers(headers -> headers.addHeaderWriter(new StaticHeadersWriter("X-Robots-Tag", "noindex")))
                     .httpBasic(httpBasic -> httpBasic.disable())
                     .formLogin(formLogin -> formLogin.disable())
                     .addFilterBefore(
