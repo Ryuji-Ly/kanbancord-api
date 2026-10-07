@@ -46,7 +46,7 @@ public class TaskRoleAssignmentCommands {
     public TaskRoleAssignmentResponse assign(Long serverId, Long boardId, Long taskId, Long actorUserId,
             TaskRoleAssignmentRequest request) {
         requireAllowed(serverId, boardId, taskId, actorUserId);
-        Long roleId = request.getRoleId();
+        Long roleId = request.roleId();
         roleService.findById(roleId)
                 .filter(role -> role.getServer() != null && serverId.equals(role.getServer().getServerId()))
                 .orElseThrow(() -> new BadRequestException("Role " + roleId + " is not a role of this server"));

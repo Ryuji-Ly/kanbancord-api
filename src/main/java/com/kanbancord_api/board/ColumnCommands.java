@@ -38,19 +38,19 @@ public class ColumnCommands {
 
     public BoardColumnResponse create(Long serverId, Long boardId, Long actorUserId, BoardColumnRequest request) {
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_COLUMN");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.boardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateBoardNotArchived(board);
 
         BoardColumn column = new BoardColumn();
         column.setBoard(board);
-        column.setName(request.getName());
-        column.setPosition(request.getPosition() != null ? request.getPosition() : endOf(boardId));
-        column.setColor(request.getColor());
-        column.setWipLimit(request.getWipLimit());
+        column.setName(request.name());
+        column.setPosition(request.position() != null ? request.position() : endOf(boardId));
+        column.setColor(request.color());
+        column.setWipLimit(request.wipLimit());
 
         BoardColumnResponse created = BoardColumnResponse.from(boardColumnService.create(column));
-        events.publishEvent(DomainEvent.created(EventType.COLUMN_CREATED, serverId, boardId, created.getColumnId(),
+        events.publishEvent(DomainEvent.created(EventType.COLUMN_CREATED, serverId, boardId, created.columnId(),
                 actorUserId, created));
         return created;
     }
@@ -58,28 +58,28 @@ public class ColumnCommands {
     public BoardColumnResponse update(Long serverId, Long boardId, Long columnId, Long actorUserId,
             BoardColumnRequest request) {
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_COLUMN");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.boardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateBoardNotArchived(board);
         resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
         BoardColumn column = resourceValidator.requireColumnInServer(columnId, serverId);
         // Only an actual change of position is a move; clients resending the current one need not MOVE_COLUMN.
-        boolean moved = request.getPosition() != null
-                && (column.getPosition() == null || request.getPosition().compareTo(column.getPosition()) != 0);
+        boolean moved = request.position() != null
+                && (column.getPosition() == null || request.position().compareTo(column.getPosition()) != 0);
         if (moved) {
             authorizer.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_COLUMN");
         }
 
         BoardColumnResponse before = BoardColumnResponse.from(column);
-        column.setName(request.getName());
-        if (request.getPosition() != null) {
-            column.setPosition(request.getPosition());
+        column.setName(request.name());
+        if (request.position() != null) {
+            column.setPosition(request.position());
         }
-        if (request.getColor() != null) {
-            column.setColor(request.getColor());
+        if (request.color() != null) {
+            column.setColor(request.color());
         }
-        if (request.getWipLimit() != null) {
-            column.setWipLimit(request.getWipLimit());
+        if (request.wipLimit() != null) {
+            column.setWipLimit(request.wipLimit());
         }
 
         BoardColumnResponse after = BoardColumnResponse.from(boardColumnService.update(column));
@@ -100,14 +100,14 @@ public class ColumnCommands {
         BoardColumnResponse before = BoardColumnResponse.from(column);
         List<BoardColumn> columns = new ArrayList<>(boardColumnService.findByBoardIdOrdered(boardId));
         columns.removeIf(other -> other.getColumnId().equals(columnId));
-        Positions.insert(columns, request.getIndex(), column);
+        Positions.insert(columns, request.index(), column);
         if (!Positions.renumber(columns, BoardColumn::getPosition, BoardColumn::setPosition)) {
             return before;
         }
 
         boardColumnService.updateAll(columns);
         BoardColumnResponse after = BoardColumnResponse.from(column);
-        if (before.getPosition() == null || before.getPosition().compareTo(after.getPosition()) != 0) {
+        if (before.position() == null || before.position().compareTo(after.position()) != 0) {
             events.publishEvent(DomainEvent.changed(EventType.COLUMN_MOVED, serverId, boardId, columnId,
                     actorUserId, before, after));
         }

@@ -61,7 +61,7 @@ public class AuthController {
             HttpServletRequest httpRequest) {
         sessionCookies.requireAllowedOrigin(httpRequest);
         DiscordOAuthService.DiscordTokens tokens =
-                discordOAuthService.exchangeCode(request.getCode(), request.getRedirectUri());
+                discordOAuthService.exchangeCode(request.code(), request.redirectUri());
         User user = discordIdentityService.authenticateAndSyncUser(tokens.accessToken());
         discordCredentialService.store(user.getUserId(), tokens);
 
@@ -104,24 +104,22 @@ public class AuthController {
     }
 
     private AuthResponse toAuthResponse(User user, UserSession session) {
-        AuthResponse response = new AuthResponse();
-        response.setTokenType("Bearer");
-        response.setAccessToken(jwtTokenService.issueToken(user.getUserId(), session.getSessionId()));
-        response.setExpiresIn(jwtTokenService.getExpirationSeconds());
-        response.setSessionId(session.getSessionId().toString());
-        response.setUser(toUserResponse(user));
-        return response;
+        return new AuthResponse(
+                "Bearer",
+                jwtTokenService.issueToken(user.getUserId(), session.getSessionId()),
+                jwtTokenService.getExpirationSeconds(),
+                toUserResponse(user),
+                session.getSessionId().toString());
     }
 
     private UserResponse toUserResponse(User user) {
-        UserResponse response = new UserResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setGlobalName(user.getGlobalName());
-        response.setAvatarUrl(user.getAvatarUrl());
-        response.setPreferences(user.getPreferences());
-        response.setCreatedAt(user.getCreatedAt());
-        response.setUpdatedAt(user.getUpdatedAt());
-        return response;
+        return new UserResponse(
+                user.getUserId(),
+                user.getUsername(),
+                user.getGlobalName(),
+                user.getAvatarUrl(),
+                user.getPreferences(),
+                user.getCreatedAt(),
+                user.getUpdatedAt());
     }
 }

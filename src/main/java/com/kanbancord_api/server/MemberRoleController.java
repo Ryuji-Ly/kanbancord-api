@@ -69,13 +69,12 @@ public class MemberRoleController {
     }
 
     private MemberRoleResponse toResponse(MemberRole memberRole) {
-        MemberRoleResponse response = new MemberRoleResponse();
-        response.setId(memberRole.getId());
-        response.setServerMemberId(memberRole.getServerMember().getId());
-        response.setRoleId(memberRole.getRole().getRoleId());
-        response.setServerId(memberRole.getServerMember().getServer().getServerId());
-        response.setUserId(memberRole.getServerMember().getUser().getUserId());
-        response.setAssignedAt(memberRole.getAssignedAt());
-        return response;
+        return new MemberRoleResponse(
+                memberRole.getId(),
+                memberRole.getServerMember().getId(),
+                memberRole.getRole().getRoleId(),
+                memberRole.getServerMember().getServer().getServerId(),
+                memberRole.getServerMember().getUser().getUserId(),
+                memberRole.getAssignedAt());
     }
 }

@@ -38,17 +38,17 @@ public class LabelCommands {
     public LabelResponse create(Long serverId, Long boardId, Long actorUserId, LabelRequest request) {
         features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_LABEL");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.boardId());
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        resourceValidator.validateLabelNameUnique(request.getName(), boardId, null);
+        resourceValidator.validateLabelNameUnique(request.name(), boardId, null);
 
         Label label = new Label();
         label.setBoard(board);
-        label.setName(request.getName());
-        label.setColor(request.getColor());
+        label.setName(request.name());
+        label.setColor(request.color());
 
         LabelResponse created = LabelResponse.from(labelService.create(label));
-        events.publishEvent(DomainEvent.created(EventType.LABEL_CREATED, serverId, boardId, created.getLabelId(),
+        events.publishEvent(DomainEvent.created(EventType.LABEL_CREATED, serverId, boardId, created.labelId(),
                 actorUserId, created));
         return created;
     }
@@ -56,15 +56,15 @@ public class LabelCommands {
     public LabelResponse update(Long serverId, Long boardId, Long labelId, Long actorUserId, LabelRequest request) {
         features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "EDIT_LABEL");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.boardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateLabelBelongsToBoard(labelId, boardId);
         Label label = resourceValidator.requireLabelInServer(labelId, serverId);
-        resourceValidator.validateLabelNameUnique(request.getName(), boardId, labelId);
+        resourceValidator.validateLabelNameUnique(request.name(), boardId, labelId);
 
         LabelResponse before = LabelResponse.from(label);
-        label.setName(request.getName());
-        label.setColor(request.getColor());
+        label.setName(request.name());
+        label.setColor(request.color());
 
         LabelResponse updated = LabelResponse.from(labelService.update(label));
         events.publishEvent(DomainEvent.changed(EventType.LABEL_UPDATED, serverId, boardId, labelId, actorUserId,

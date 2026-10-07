@@ -157,10 +157,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void boardEndpoints_coverHappyAndUnhappy() throws Exception {
-        BoardRequest create = new BoardRequest();
-        create.setName("Board");
-        create.setServerId(1L);
-        create.setCreatedBy(10L);
+        BoardRequest create = new BoardRequest("Board", null, 1L, 10L, null);
 
         Board board = board(100L);
         when(serverService.findById(1L)).thenReturn(Optional.of(server(1L)));
@@ -198,7 +195,7 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isNoContent());
 
         when(serverService.findById(999L)).thenReturn(Optional.empty());
-        create.setServerId(999L);
+        create = new BoardRequest(create.name(), create.description(), 999L, create.createdBy(), create.columnNames());
         mockMvc.perform(post("/api/servers/999/boards").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(create)))
@@ -207,12 +204,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void boardColumnEndpoints_coverHappyAndUnhappy() throws Exception {
-        BoardColumnRequest request = new BoardColumnRequest();
-        request.setBoardId(100L);
-        request.setName("Todo");
-        request.setPosition(new BigDecimal("1.00"));
-        request.setColor("#111111");
-        request.setWipLimit(5);
+        BoardColumnRequest request = new BoardColumnRequest("Todo", 100L, new BigDecimal("1.00"), "#111111", 5);
 
         Board board = board(100L);
         BoardColumn column = column(200L, board);
@@ -242,7 +234,7 @@ class WorkItemControllersApiTest {
         mockMvc.perform(delete("/api/servers/1/boards/100/columns/200").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
-        request.setName("");
+        request = new BoardColumnRequest("", request.boardId(), request.position(), request.color(), request.wipLimit());
         mockMvc.perform(post("/api/servers/1/boards/100/columns").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -251,10 +243,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void labelEndpoints_coverHappyAndUnhappy() throws Exception {
-        LabelRequest request = new LabelRequest();
-        request.setBoardId(100L);
-        request.setName("Bug");
-        request.setColor("#123ABC");
+        LabelRequest request = new LabelRequest("Bug", 100L, "#123ABC");
 
         Board board = board(100L);
         Label label = label(300L, board);
@@ -284,7 +273,7 @@ class WorkItemControllersApiTest {
         mockMvc.perform(delete("/api/servers/1/boards/100/labels/300").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
-        request.setColor("bad");
+        request = new LabelRequest(request.name(), request.boardId(), "bad");
         mockMvc.perform(post("/api/servers/1/boards/100/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -293,12 +282,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void taskEndpoints_coverHappyAndUnhappy() throws Exception {
-        TaskRequest request = new TaskRequest();
-        request.setBoardId(100L);
-        request.setColumnId(200L);
-        request.setTitle("T1");
-        request.setCreatedBy(10L);
-        request.setMetadata(Map.of("a", "b"));
+        TaskRequest request = new TaskRequest("T1", null, 100L, 200L, null, null, null, Map.of("a", "b"), 10L);
 
         Board board = board(100L);
         Task task = task(400L, board, column(200L, board));
@@ -331,7 +315,7 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isNoContent());
 
         when(boardColumnService.findById(999L)).thenReturn(Optional.empty());
-        request.setColumnId(999L);
+        request = new TaskRequest(request.title(), request.description(), request.boardId(), 999L, request.position(), request.priorityId(), request.dueDate(), request.metadata(), request.createdBy());
         mockMvc.perform(post("/api/servers/1/boards/100/tasks").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -340,10 +324,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void taskAssignmentEndpoints_coverHappyAndUnhappy() throws Exception {
-        TaskAssignmentRequest request = new TaskAssignmentRequest();
-        request.setTaskId(400L);
-        request.setUserId(11L);
-        request.setAssignedBy(10L);
+        TaskAssignmentRequest request = new TaskAssignmentRequest(400L, 11L, 10L);
 
         Task task = task(400L, board(100L), column(200L, board(100L)));
         TaskAssignment assignment = assignment(500L, task, user(11L), user(10L));
@@ -370,7 +351,7 @@ class WorkItemControllersApiTest {
                 .andExpect(status().isNoContent());
 
         when(userService.findById(99L)).thenReturn(Optional.empty());
-        request.setUserId(99L);
+        request = new TaskAssignmentRequest(request.taskId(), 99L, request.assignedBy());
         mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -379,10 +360,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void taskCommentEndpoints_coverHappyAndUnhappy() throws Exception {
-        TaskCommentRequest request = new TaskCommentRequest();
-        request.setTaskId(400L);
-        request.setUserId(11L);
-        request.setContent("hello");
+        TaskCommentRequest request = new TaskCommentRequest(400L, 11L, "hello", null);
 
         Task task = task(400L, board(100L), column(200L, board(100L)));
         TaskComment comment = comment(600L, task, user(11L));
@@ -414,7 +392,7 @@ class WorkItemControllersApiTest {
         mockMvc.perform(delete("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
-        request.setContent("");
+        request = new TaskCommentRequest(request.taskId(), request.userId(), "", request.replyToId());
         mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/comments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -423,9 +401,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void taskLabelEndpoints_coverHappyAndUnhappy() throws Exception {
-        TaskLabelRequest request = new TaskLabelRequest();
-        request.setTaskId(400L);
-        request.setLabelId(300L);
+        TaskLabelRequest request = new TaskLabelRequest(400L, 300L);
 
         Task task = task(400L, board(100L), column(200L, board(100L)));
         Label label = label(300L, board(100L));
@@ -453,7 +429,7 @@ class WorkItemControllersApiTest {
 
         when(resourceValidator.requireLabelInServer(999L, 1L))
                 .thenThrow(new ResourceNotFoundException("Label", "labelId", 999L));
-        request.setLabelId(999L);
+        request = new TaskLabelRequest(request.taskId(), 999L);
         mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/labels").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -473,11 +449,7 @@ class WorkItemControllersApiTest {
     void createTask_ignoresClientSuppliedCreator() throws Exception {
         Board board = board(100L);
         BoardColumn column = column(200L, board);
-        TaskRequest request = new TaskRequest();
-        request.setTitle("New task");
-        request.setBoardId(100L);
-        request.setColumnId(200L);
-        request.setCreatedBy(99L);
+        TaskRequest request = new TaskRequest("New task", null, 100L, 200L, null, null, null, null, 99L);
 
         when(resourceValidator.requireBoardInServer(100L, 1L)).thenReturn(board);
         when(boardColumnService.findById(200L)).thenReturn(Optional.of(column));
@@ -545,10 +517,7 @@ class WorkItemControllersApiTest {
         Board board = board(100L);
         Task task = task(400L, board, column(200L, board));
         stubAssignment(task);
-        TaskAssignmentRequest request = new TaskAssignmentRequest();
-        request.setTaskId(400L);
-        request.setUserId(10L);
-        request.setAssignedBy(77L);
+        TaskAssignmentRequest request = new TaskAssignmentRequest(400L, 10L, 77L);
 
         mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -565,9 +534,7 @@ class WorkItemControllersApiTest {
         Board board = board(100L);
         Task task = task(400L, board, column(200L, board));
         stubAssignment(task);
-        TaskAssignmentRequest request = new TaskAssignmentRequest();
-        request.setTaskId(400L);
-        request.setUserId(11L);
+        TaskAssignmentRequest request = new TaskAssignmentRequest(400L, 11L, null);
 
         mockMvc.perform(post("/api/servers/1/boards/100/tasks/400/assignments").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -588,9 +555,7 @@ class WorkItemControllersApiTest {
         when(resourceValidator.requireCommentInServer(601L, 1L)).thenReturn(others);
         when(taskCommentService.update(any(TaskComment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userService.findById(10L)).thenReturn(Optional.of(user(10L)));
-        TaskCommentRequest request = new TaskCommentRequest();
-        request.setTaskId(400L);
-        request.setContent("edited");
+        TaskCommentRequest request = new TaskCommentRequest(400L, null, "edited", null);
 
         mockMvc.perform(put("/api/servers/1/boards/100/tasks/400/comments/600").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -618,10 +583,7 @@ class WorkItemControllersApiTest {
     }
 
     private static TaskRequest taskUpdate(String title, Long columnId) {
-        TaskRequest request = new TaskRequest();
-        request.setTitle(title);
-        request.setBoardId(100L);
-        request.setColumnId(columnId);
+        TaskRequest request = new TaskRequest(title, null, 100L, columnId, null, null, null, null, null);
         return request;
     }
 

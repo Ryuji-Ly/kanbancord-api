@@ -69,31 +69,31 @@ public class TaskCommands {
         this.objectMapper = objectMapper;
     }
 
-    public TaskResponse create(Long serverId, Long boardId, Long actorUserId, TaskRequest request) {
+    public TaskResponse create(Long serverId, Long boardId, Long actorUserId, TaskRequest submitted) {
+        TaskRequest request = keepSwitchedOffFields(serverId, boardId, null, submitted);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "CREATE_TASK");
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.boardId());
 
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        BoardColumn column = boardColumnService.findById(request.getColumnId())
-                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
-        resourceValidator.validateColumnBelongsToBoard(request.getColumnId(), boardId);
+        BoardColumn column = boardColumnService.findById(request.columnId())
+                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.columnId()));
+        resourceValidator.validateColumnBelongsToBoard(request.columnId(), boardId);
 
         Task task = new Task();
         task.setBoard(board);
         task.setColumn(column);
-        task.setTitle(request.getTitle());
-        task.setDescription(request.getDescription());
-        task.setPosition(request.getPosition() != null ? request.getPosition() : endOf(column.getColumnId()));
-        keepSwitchedOffFields(serverId, boardId, null, request);
-        task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
-        task.setDueDate(request.getDueDate());
-        task.setMetadata(request.getMetadata());
+        task.setTitle(request.title());
+        task.setDescription(request.description());
+        task.setPosition(request.position() != null ? request.position() : endOf(column.getColumnId()));
+        task.setPriorityId(priorityIn(boardId, request.priorityId()));
+        task.setDueDate(request.dueDate());
+        task.setMetadata(request.metadata());
         task.setIsArchived(false);
         // The creator is always the actor; request.createdBy is ignored.
         task.setCreatedBy(requireUser(actorUserId));
 
         TaskResponse created = TaskResponse.from(taskService.create(task));
-        events.publishEvent(DomainEvent.created(EventType.TASK_CREATED, serverId, boardId, created.getTaskId(),
+        events.publishEvent(DomainEvent.created(EventType.TASK_CREATED, serverId, boardId, created.taskId(),
                 actorUserId, created));
         return created;
     }
@@ -103,13 +103,13 @@ public class TaskCommands {
      * EDIT_TASK, and editing a task in place must not need MOVE_TASK. A request that changes
      * nothing needs VIEW_TASK and writes nothing.
      */
-    public TaskResponse update(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskRequest request) {
-        resourceValidator.validatePathMatchesRequestId("boardId", boardId, request.getBoardId());
+    public TaskResponse update(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskRequest submitted) {
+        resourceValidator.validatePathMatchesRequestId("boardId", boardId, submitted.boardId());
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
 
-        keepSwitchedOffFields(serverId, boardId, task, request);
+        TaskRequest request = keepSwitchedOffFields(serverId, boardId, task, submitted);
         boolean contentChanged = contentChanged(task, request);
         boolean moved = moved(task, request);
         if (!contentChanged && !moved) {
@@ -125,22 +125,22 @@ public class TaskCommands {
         resourceValidator.validateTaskNotArchived(task);
 
         TaskResponse before = TaskResponse.from(task);
-        task.setTitle(request.getTitle());
-        task.setDescription(request.getDescription());
-        if (request.getPosition() != null) {
-            task.setPosition(request.getPosition());
+        task.setTitle(request.title());
+        task.setDescription(request.description());
+        if (request.position() != null) {
+            task.setPosition(request.position());
         }
-        task.setPriorityId(priorityIn(boardId, request.getPriorityId()));
+        task.setPriorityId(priorityIn(boardId, request.priorityId()));
         // Like the priority, the due date is part of every edit: none means the task has none. Clients
         // send the whole task; a due date hidden by a switched-off feature was kept above.
-        task.setDueDate(request.getDueDate());
-        if (request.getMetadata() != null) {
-            task.setMetadata(request.getMetadata());
+        task.setDueDate(request.dueDate());
+        if (request.metadata() != null) {
+            task.setMetadata(request.metadata());
         }
-        if (request.getColumnId() != null) {
-            BoardColumn column = boardColumnService.findById(request.getColumnId())
-                    .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
-            resourceValidator.validateTaskMove(task, request.getColumnId());
+        if (request.columnId() != null) {
+            BoardColumn column = boardColumnService.findById(request.columnId())
+                    .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.columnId()));
+            resourceValidator.validateTaskMove(task, request.columnId());
             task.setColumn(column);
         }
 
@@ -159,16 +159,16 @@ public class TaskCommands {
         resourceValidator.requireBoardInServer(boardId, serverId);
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
-        resourceValidator.validateTaskMove(task, request.getColumnId());
-        BoardColumn target = boardColumnService.findById(request.getColumnId())
-                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.getColumnId()));
+        resourceValidator.validateTaskMove(task, request.columnId());
+        BoardColumn target = boardColumnService.findById(request.columnId())
+                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.columnId()));
 
         TaskResponse before = TaskResponse.from(task);
         Long sourceColumnId = task.getColumn().getColumnId();
         List<Task> changed = new ArrayList<>();
 
         List<Task> targetTasks = columnTasksWithout(target.getColumnId(), taskId);
-        Positions.insert(targetTasks, request.getIndex(), task);
+        Positions.insert(targetTasks, request.index(), task);
         task.setColumn(target);
         Positions.renumber(targetTasks, Task::getPosition, Task::setPosition);
         changed.addAll(targetTasks);
@@ -181,9 +181,9 @@ public class TaskCommands {
 
         taskService.updateAll(changed);
         TaskResponse after = TaskResponse.from(task);
-        boolean moved = !Objects.equals(before.getColumnId(), after.getColumnId())
-                || before.getPosition() == null
-                || before.getPosition().compareTo(after.getPosition()) != 0;
+        boolean moved = !Objects.equals(before.columnId(), after.columnId())
+                || before.position() == null
+                || before.position().compareTo(after.position()) != 0;
         if (moved) {
             events.publishEvent(DomainEvent.changed(EventType.TASK_MOVED, serverId, boardId, taskId, actorUserId,
                     before, after));
@@ -225,20 +225,21 @@ public class TaskCommands {
                 before));
     }
 
-    /** The priority level, checked to belong to the board; null for none. */
     /**
      * Fields of a feature the server or board has switched off keep what the task has (nothing, for
      * a new task), so saving a task where they are hidden never clears them.
      */
-    private void keepSwitchedOffFields(Long serverId, Long boardId, Task task, TaskRequest request) {
-        if (!features.isEnabled(serverId, boardId, Feature.PRIORITIES)) {
-            request.setPriorityId(task == null ? null : task.getPriorityId());
-        }
-        if (!features.isEnabled(serverId, boardId, Feature.DUE_DATES)) {
-            request.setDueDate(task == null ? null : task.getDueDate());
-        }
+    private TaskRequest keepSwitchedOffFields(Long serverId, Long boardId, Task task, TaskRequest request) {
+        Long priorityId = features.isEnabled(serverId, boardId, Feature.PRIORITIES)
+                ? request.priorityId()
+                : task == null ? null : task.getPriorityId();
+        java.time.LocalDateTime dueDate = features.isEnabled(serverId, boardId, Feature.DUE_DATES)
+                ? request.dueDate()
+                : task == null ? null : task.getDueDate();
+        return request.withPriorityAndDue(priorityId, dueDate);
     }
 
+    /** The priority level, checked to belong to the board; null for none. */
     private Long priorityIn(Long boardId, Long priorityId) {
         return priorityId == null ? null : boardPriorityService.requireInBoard(priorityId, boardId).getPriorityId();
     }
@@ -249,18 +250,18 @@ public class TaskCommands {
     }
 
     private static boolean contentChanged(Task task, TaskRequest request) {
-        return !Objects.equals(task.getTitle(), request.getTitle())
-                || !Objects.equals(task.getDescription(), request.getDescription())
-                || !Objects.equals(task.getPriorityId(), request.getPriorityId())
-                || !Objects.equals(task.getDueDate(), request.getDueDate())
-                || (request.getMetadata() != null && !request.getMetadata().equals(task.getMetadata()));
+        return !Objects.equals(task.getTitle(), request.title())
+                || !Objects.equals(task.getDescription(), request.description())
+                || !Objects.equals(task.getPriorityId(), request.priorityId())
+                || !Objects.equals(task.getDueDate(), request.dueDate())
+                || (request.metadata() != null && !request.metadata().equals(task.getMetadata()));
     }
 
     private static boolean moved(Task task, TaskRequest request) {
-        boolean columnChanged = request.getColumnId() != null
-                && !request.getColumnId().equals(task.getColumn().getColumnId());
-        boolean positionChanged = request.getPosition() != null
-                && (task.getPosition() == null || request.getPosition().compareTo(task.getPosition()) != 0);
+        boolean columnChanged = request.columnId() != null
+                && !request.columnId().equals(task.getColumn().getColumnId());
+        boolean positionChanged = request.position() != null
+                && (task.getPosition() == null || request.position().compareTo(task.getPosition()) != 0);
         return columnChanged || positionChanged;
     }
 }

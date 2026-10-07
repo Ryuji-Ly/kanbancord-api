@@ -50,16 +50,16 @@ public class ServerBootstrapService {
 
         // Users first: the server's owner and every member must exist before anything refers to them.
         Map<Long, InternalBootstrapRequest.MemberEntry> members = new LinkedHashMap<>();
-        for (InternalBootstrapRequest.MemberEntry entry : request.getMembers()) {
-            members.put(entry.getUserId(), entry);
+        for (InternalBootstrapRequest.MemberEntry entry : request.members()) {
+            members.put(entry.userId(), entry);
         }
         List<Object[]> users = new ArrayList<>();
-        if (!members.containsKey(request.getOwnerId())) {
-            users.add(new Object[]{request.getOwnerId(), request.getOwnerUsername(), request.getOwnerGlobalName(),
-                    request.getOwnerAvatarUrl()});
+        if (!members.containsKey(request.ownerId())) {
+            users.add(new Object[]{request.ownerId(), request.ownerUsername(), request.ownerGlobalName(),
+                    request.ownerAvatarUrl()});
         }
-        members.values().forEach(entry -> users.add(new Object[]{entry.getUserId(), entry.getUsername(),
-                entry.getGlobalName(), entry.getAvatarUrl()}));
+        members.values().forEach(entry -> users.add(new Object[]{entry.userId(), entry.username(),
+                entry.globalName(), entry.avatarUrl()}));
         batch("""
                 INSERT INTO users (user_id, username, global_name, avatar_url) VALUES (?, ?, ?, ?)
                 ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, global_name = EXCLUDED.global_name,
@@ -70,11 +70,11 @@ public class ServerBootstrapService {
                 INSERT INTO servers (server_id, name, icon_url, owner_id, bot_present) VALUES (?, ?, ?, ?, TRUE)
                 ON CONFLICT (server_id) DO UPDATE SET name = EXCLUDED.name, icon_url = EXCLUDED.icon_url,
                     owner_id = EXCLUDED.owner_id, bot_present = TRUE, updated_at = CURRENT_TIMESTAMP
-                """, serverId, request.getName(), request.getIconUrl(), request.getOwnerId());
+                """, serverId, request.name(), request.iconUrl(), request.ownerId());
 
-        List<Object[]> roles = request.getRoles().stream()
-                .map(role -> new Object[]{role.getRoleId(), serverId, role.getName(), role.getColor(), role.getPosition(),
-                        role.getDiscordPermissions()})
+        List<Object[]> roles = request.roles().stream()
+                .map(role -> new Object[]{role.roleId(), serverId, role.name(), role.color(), role.position(),
+                        role.discordPermissions()})
                 .toList();
         batch("""
                 INSERT INTO roles (role_id, server_id, name, color, position, discord_permissions) VALUES (?, ?, ?, ?, ?, ?)
@@ -85,8 +85,8 @@ public class ServerBootstrapService {
 
         List<Object[]> memberRows = members.values().stream()
                 .map(entry -> {
-                    Timestamp joined = entry.getJoinedAt() == null ? null : Timestamp.valueOf(entry.getJoinedAt());
-                    return new Object[]{serverId, entry.getUserId(), entry.getNickname(), joined, joined};
+                    Timestamp joined = entry.joinedAt() == null ? null : Timestamp.valueOf(entry.joinedAt());
+                    return new Object[]{serverId, entry.userId(), entry.nickname(), joined, joined};
                 })
                 .toList();
         batch("""
@@ -104,9 +104,9 @@ public class ServerBootstrapService {
                     serverId, members.keySet());
         }
         int rolesRemoved = 0;
-        if (!request.getRoles().isEmpty()) {
-            Set<Long> roleIds = request.getRoles().stream()
-                    .map(InternalBootstrapRequest.RoleEntry::getRoleId)
+        if (!request.roles().isEmpty()) {
+            Set<Long> roleIds = request.roles().stream()
+                    .map(InternalBootstrapRequest.RoleEntry::roleId)
                     .collect(Collectors.toSet());
             rolesRemoved = deleteNotIn("DELETE FROM roles WHERE server_id = ? AND NOT (role_id = ANY (?))", serverId, roleIds);
         }
@@ -132,11 +132,11 @@ public class ServerBootstrapService {
                 """, serverId);
         List<Object[]> memberRoles = new ArrayList<>();
         for (InternalBootstrapRequest.MemberEntry entry : members.values()) {
-            if (entry.getRoleIds() == null) {
+            if (entry.roleIds() == null) {
                 continue;
             }
-            for (Long roleId : Set.copyOf(entry.getRoleIds())) {
-                memberRoles.add(new Object[]{roleId, serverId, serverId, entry.getUserId()});
+            for (Long roleId : Set.copyOf(entry.roleIds())) {
+                memberRoles.add(new Object[]{roleId, serverId, serverId, entry.userId()});
             }
         }
         batch("""

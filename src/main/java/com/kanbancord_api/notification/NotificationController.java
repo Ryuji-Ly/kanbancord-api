@@ -106,16 +106,15 @@ public class NotificationController {
     }
 
     private NotificationResponse mapToResponse(Notification notification) {
-        NotificationResponse response = new NotificationResponse();
-        response.setNotificationId(notification.getNotificationId());
-        response.setUserId(notification.getUser().getUserId());
-        response.setType(notification.getType());
-        response.setEntityType(notification.getEntityType());
-        response.setEntityId(notification.getEntityId());
-        response.setMessage(notification.getMessage());
-        response.setIsRead(notification.getIsRead());
-        response.setMetadata(notification.getMetadata());
-        response.setCreatedAt(notification.getCreatedAt());
-        return response;
+        return new NotificationResponse(
+                notification.getNotificationId(),
+                notification.getUser().getUserId(),
+                notification.getType(),
+                notification.getEntityType(),
+                notification.getEntityId(),
+                notification.getMessage(),
+                notification.getIsRead(),
+                notification.getMetadata(),
+                notification.getCreatedAt());
     }
 }

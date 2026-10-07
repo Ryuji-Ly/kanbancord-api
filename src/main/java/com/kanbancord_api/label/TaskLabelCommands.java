@@ -38,10 +38,10 @@ public class TaskLabelCommands {
     public TaskLabelResponse add(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskLabelRequest request) {
         features.require(serverId, boardId, Feature.LABELS);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "APPLY_LABEL_TO_TASK");
-        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.getTaskId());
+        resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
-        Label label = resourceValidator.requireLabelInServer(request.getLabelId(), serverId);
+        Label label = resourceValidator.requireLabelInServer(request.labelId(), serverId);
         resourceValidator.validateLabelBelongsToBoard(label.getLabelId(), boardId);
 
         TaskLabel taskLabel = new TaskLabel();
@@ -49,7 +49,7 @@ public class TaskLabelCommands {
         taskLabel.setLabel(label);
 
         TaskLabelResponse created = TaskLabelResponse.from(taskLabelService.create(taskLabel));
-        events.publishEvent(DomainEvent.created(EventType.TASK_LABEL_ADDED, serverId, boardId, created.getId(),
+        events.publishEvent(DomainEvent.created(EventType.TASK_LABEL_ADDED, serverId, boardId, created.id(),
                 actorUserId, created));
         return created;
     }

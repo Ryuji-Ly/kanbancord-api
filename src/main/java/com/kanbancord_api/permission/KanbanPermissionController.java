@@ -52,12 +52,11 @@ public class KanbanPermissionController {
     }
 
     private KanbanPermissionResponse toResponse(KanbanPermission permission) {
-        KanbanPermissionResponse response = new KanbanPermissionResponse();
-        response.setPermissionId(permission.getPermissionId());
-        response.setKey(permission.getKey());
-        response.setName(permission.getName());
-        response.setDescription(permission.getDescription());
-        response.setCategory(permission.getCategory());
-        return response;
+        return new KanbanPermissionResponse(
+                permission.getPermissionId(),
+                permission.getKey(),
+                permission.getName(),
+                permission.getDescription(),
+                permission.getCategory());
     }
 }

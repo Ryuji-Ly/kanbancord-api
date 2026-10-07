@@ -4,51 +4,17 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.kanbancord_api.user.User;
 
-public class TaskCommentEditorResponse {
-    @JsonSerialize(using = ToStringSerializer.class)
-    private Long userId;
-    private String username;
-    private String globalName;
-    private String avatarUrl;
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-
-    public String getUsername() {
-        return username;
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public String getGlobalName() {
-        return globalName;
-    }
-
-    public void setGlobalName(String globalName) {
-        this.globalName = globalName;
-    }
-
-    public String getAvatarUrl() {
-        return avatarUrl;
-    }
-
-    public void setAvatarUrl(String avatarUrl) {
-        this.avatarUrl = avatarUrl;
-    }
+public record TaskCommentEditorResponse(
+        @JsonSerialize(using = ToStringSerializer.class) Long userId,
+        String username,
+        String globalName,
+        String avatarUrl) {
 
     public static TaskCommentEditorResponse from(User user) {
-        TaskCommentEditorResponse response = new TaskCommentEditorResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setGlobalName(user.getGlobalName());
-        response.setAvatarUrl(user.getAvatarUrl());
-        return response;
+        return new TaskCommentEditorResponse(
+                user.getUserId(),
+                user.getUsername(),
+                user.getGlobalName(),
+                user.getAvatarUrl());
     }
 }

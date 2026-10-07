@@ -32,27 +32,25 @@ public class RealtimeSessionMessageController {
                         principal.getName(),
                         realtimeDestinationAuthorizationService.getAllowedSendDestinations()));
 
-        RealtimeSessionResponse response = new RealtimeSessionResponse();
-        response.setType("SESSION_PONG");
-        response.setSessionId(snapshot.sessionId());
-        response.setUserId(snapshot.userId());
-        response.setConnectedAt(snapshot.connectedAt());
-        response.setLastSeenAt(snapshot.lastSeenAt());
-        response.setServerTime(Instant.now());
-        response.setAllowedSendDestinations(snapshot.allowedSendDestinations());
-        response.setSubscriptions(snapshot.subscriptions().stream().map(this::mapSubscription).toList());
-        return response;
+        return new RealtimeSessionResponse(
+                "SESSION_PONG",
+                snapshot.sessionId(),
+                snapshot.userId(),
+                snapshot.connectedAt(),
+                snapshot.lastSeenAt(),
+                Instant.now(),
+                snapshot.allowedSendDestinations(),
+                snapshot.subscriptions().stream().map(this::mapSubscription).toList());
     }
 
     private RealtimeSubscriptionResponse mapSubscription(RealtimeSessionManager.SubscriptionSnapshot snapshot) {
-        RealtimeSubscriptionResponse response = new RealtimeSubscriptionResponse();
-        response.setSubscriptionId(snapshot.subscriptionId());
-        response.setDestination(snapshot.destination());
-        response.setScopeType(snapshot.scopeType());
-        response.setServerId(snapshot.serverId());
-        response.setBoardId(snapshot.boardId());
-        response.setSubscribedAt(snapshot.subscribedAt());
-        return response;
+        return new RealtimeSubscriptionResponse(
+                snapshot.subscriptionId(),
+                snapshot.destination(),
+                snapshot.scopeType(),
+                snapshot.serverId(),
+                snapshot.boardId(),
+                snapshot.subscribedAt());
     }
 
     private Long resolveUserId(Principal principal) {

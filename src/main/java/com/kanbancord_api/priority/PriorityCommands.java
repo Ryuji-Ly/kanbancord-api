@@ -50,14 +50,14 @@ public class PriorityCommands {
     public BoardPriorityResponse create(Long serverId, Long boardId, Long actorUserId, BoardPriorityRequest request) {
         features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
-        String name = request.getName().trim();
+        String name = request.name().trim();
         requireUniqueName(boardId, name, null);
 
         List<BoardPriority> existing = boardPriorityRepository.findByBoardIdOrderByPositionAsc(boardId);
         BoardPriority priority = new BoardPriority();
         priority.setBoardId(boardId);
         priority.setName(name);
-        priority.setColor(request.getColor() != null ? request.getColor() : NEUTRAL_COLOR);
+        priority.setColor(request.color() != null ? request.color() : NEUTRAL_COLOR);
         priority.setPosition(existing.size() + 1);
 
         BoardPriorityResponse created = BoardPriorityResponse.from(boardPriorityRepository.save(priority));
@@ -71,13 +71,13 @@ public class PriorityCommands {
         features.require(serverId, boardId, Feature.PRIORITIES);
         requireManage(serverId, boardId, actorUserId);
         BoardPriority priority = boardPriorityService.requireInBoard(priorityId, boardId);
-        String name = request.getName().trim();
+        String name = request.name().trim();
         requireUniqueName(boardId, name, priorityId);
 
         BoardPriorityResponse before = BoardPriorityResponse.from(priority);
         priority.setName(name);
-        if (request.getColor() != null) {
-            priority.setColor(request.getColor());
+        if (request.color() != null) {
+            priority.setColor(request.color());
         }
         BoardPriorityResponse after = BoardPriorityResponse.from(boardPriorityRepository.save(priority));
         events.publishEvent(DomainEvent.changed(EventType.PRIORITY_UPDATED, serverId, boardId, priorityId, actorUserId,

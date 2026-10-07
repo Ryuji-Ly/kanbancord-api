@@ -48,28 +48,24 @@ public class MeController {
     }
 
     private UserResponse toUserResponse(User user) {
-        UserResponse response = new UserResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setGlobalName(user.getGlobalName());
-        response.setAvatarUrl(user.getAvatarUrl());
-        response.setPreferences(user.getPreferences());
-        response.setCreatedAt(user.getCreatedAt());
-        response.setUpdatedAt(user.getUpdatedAt());
-        return response;
+        return new UserResponse(
+                user.getUserId(),
+                user.getUsername(),
+                user.getGlobalName(),
+                user.getAvatarUrl(),
+                user.getPreferences(),
+                user.getCreatedAt(),
+                user.getUpdatedAt());
     }
 
     private ServerResponse toServerResponse(Server server) {
-        ServerResponse response = new ServerResponse();
-        response.setServerId(server.getServerId());
-        response.setName(server.getName());
-        response.setIconUrl(server.getIconUrl());
-        response.setBotPresent(Boolean.TRUE.equals(server.getBotPresent()));
-        if (server.getOwner() != null) {
-            response.setOwnerId(server.getOwner().getUserId());
-        }
-        response.setCreatedAt(server.getCreatedAt());
-        response.setUpdatedAt(server.getUpdatedAt());
-        return response;
+        return new ServerResponse(
+                server.getServerId(),
+                server.getName(),
+                server.getIconUrl(),
+                Boolean.TRUE.equals(server.getBotPresent()),
+                server.getOwner() == null ? null : server.getOwner().getUserId(),
+                server.getCreatedAt(),
+                server.getUpdatedAt());
     }
 }

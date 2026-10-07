@@ -33,23 +33,16 @@ public class BoardThreadController {
     private static final String PERMISSION = "EDIT_BOARD_DETAILS";
 
     private final TaskThreadService threads;
-    private final NotificationSettingsService notificationSettings;
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ApplicationEventPublisher events;
 
-    public BoardThreadController(TaskThreadService threads, NotificationSettingsService notificationSettings,
-                                 Authorizer authorizer, ResourceValidator resourceValidator,
+    public BoardThreadController(TaskThreadService threads, Authorizer authorizer, ResourceValidator resourceValidator,
                                  ApplicationEventPublisher events) {
         this.threads = threads;
-        this.notificationSettings = notificationSettings;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.events = events;
-    }
-
-    /** A channel threads could go in: it has a feed covering the board. */
-    public record FeedChannel(String channelId, String name, boolean botCanThread, boolean botCanPrivateThread) {
     }
 
     /**
@@ -57,7 +50,7 @@ public class BoardThreadController {
      * the chosen channel).
      */
     public record Threads(boolean enabled, boolean active, String channelId, boolean privateThreads, String updates,
-                          List<FeedChannel> channels) {
+                          List<TaskThreadService.FeedChannel> channels) {
     }
 
     public record ThreadsRequest(String channelId, Boolean privateThreads, String updates) {
@@ -100,11 +93,7 @@ public class BoardThreadController {
 
     private Threads current(Long serverId, Long boardId) {
         Set<Long> feedChannels = Set.copyOf(threads.feedChannels(serverId, boardId));
-        List<FeedChannel> channels = notificationSettings.channels(serverId).stream()
-                .filter(channel -> feedChannels.contains(channel.channelId()))
-                .map(channel -> new FeedChannel(String.valueOf(channel.channelId()), channel.name(),
-                        channel.botCanThread(), channel.botCanPrivateThread()))
-                .toList();
+        List<TaskThreadService.FeedChannel> channels = threads.feedChannelDetails(serverId, boardId);
         return threads.settings(boardId)
                 .map(settings -> new Threads(true, feedChannels.contains(settings.channelId()),
                         String.valueOf(settings.channelId()), settings.privateThreads(), settings.updates().name(), channels))

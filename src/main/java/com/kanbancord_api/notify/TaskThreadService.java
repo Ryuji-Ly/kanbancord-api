@@ -1,13 +1,17 @@
 package com.kanbancord_api.notify;
 
 import com.kanbancord_api.exception.BadRequestException;
+import com.kanbancord_api.exception.ResourceNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A thread per task: switched on per board, in one of the channels with a feed covering the board. The
@@ -23,6 +27,21 @@ public class TaskThreadService {
     }
 
     public record TaskThread(Long taskId, Long channelId, Long threadId, boolean privateThread) {
+    }
+
+    /** A channel threads could go in: it has a feed covering the board. */
+    public record FeedChannel(String channelId, String name, boolean botCanThread, boolean botCanPrivateThread) {
+    }
+
+    /**
+     * One task's thread, for the "Discuss in thread" button. {@code available}: a feed covers the board;
+     * {@code enabled}: threads are on and working; {@code canEnable}: the person asking may switch them
+     * on (then {@code channels} lists where they could go); {@code members}: who a private thread
+     * includes (the task's creator and assignees).
+     */
+    public record TaskThreadInfo(boolean available, boolean enabled, boolean canEnable, String threadId,
+                                 String channelId, boolean privateThread, String name, List<String> members,
+                                 List<FeedChannel> channels) {
     }
 
     private final JdbcTemplate jdbcTemplate;
@@ -44,6 +63,50 @@ public class TaskThreadService {
     /** The board's settings while they work: on, and a feed covering the board still posts in that channel. */
     public Optional<Settings> active(Long serverId, Long boardId) {
         return settings(boardId).filter(settings -> feedChannels(serverId, boardId).contains(settings.channelId()));
+    }
+
+    /** The board's feed channels, with whether the bot may make threads in each. */
+    public List<FeedChannel> feedChannelDetails(Long serverId, Long boardId) {
+        Set<Long> feedChannels = Set.copyOf(feedChannels(serverId, boardId));
+        return notificationSettings.channels(serverId).stream()
+                .filter(channel -> feedChannels.contains(channel.channelId()))
+                .map(channel -> new FeedChannel(String.valueOf(channel.channelId()), channel.name(),
+                        channel.botCanThread(), channel.botCanPrivateThread()))
+                .toList();
+    }
+
+    /**
+     * A task's thread, or the thread the bot should make for it; with threads off, whether the person
+     * asking may switch them on ({@code canEnable}, worked out by the caller) and where.
+     */
+    public TaskThreadInfo info(Long serverId, Long boardId, Long taskId, boolean canEnable) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT title, created_by FROM tasks WHERE task_id = ? AND board_id = ?", taskId, boardId);
+        if (rows.isEmpty()) {
+            throw new ResourceNotFoundException("Task", "taskId", taskId);
+        }
+        String title = (String) rows.get(0).get("title");
+        boolean available = !feedChannels(serverId, boardId).isEmpty();
+        List<FeedChannel> channels = canEnable ? feedChannelDetails(serverId, boardId) : List.of();
+        Optional<Settings> on = active(serverId, boardId);
+        if (on.isEmpty()) {
+            return new TaskThreadInfo(available, false, canEnable, null, null, false, title, List.of(), channels);
+        }
+
+        Settings settings = on.get();
+        Optional<TaskThread> thread = thread(taskId).filter(found -> found.channelId().equals(settings.channelId()));
+        boolean privateThread = thread.map(TaskThread::privateThread).orElse(settings.privateThreads());
+        List<String> members = new ArrayList<>();
+        if (privateThread) {
+            Object creator = rows.get(0).get("created_by");
+            if (creator != null) {
+                members.add(String.valueOf(creator));
+            }
+            jdbcTemplate.queryForList("SELECT user_id FROM task_assignments WHERE task_id = ?", Long.class, taskId)
+                    .stream().map(String::valueOf).filter(id -> !members.contains(id)).forEach(members::add);
+        }
+        return new TaskThreadInfo(true, true, canEnable, thread.map(found -> String.valueOf(found.threadId())).orElse(null),
+                String.valueOf(settings.channelId()), privateThread, title, members, channels);
     }
 
     /** The channels with a feed covering the board: where its threads can go. */

@@ -143,15 +143,7 @@ class GovernanceControllersApiTest {
 
     @Test
     void permissionEndpoints_coverHappyAndUnhappy() throws Exception {
-        PermissionRequest request = new PermissionRequest();
-        request.setScopeType("BOARD");
-        request.setScopeId(100L);
-        request.setSubjectType("ROLE");
-        request.setSubjectId(20L);
-        request.setKanbanPermissionId(11);
-        request.setState("ALLOW");
-        request.setPriority(100);
-        request.setIsImmutable(false);
+        PermissionRequest request = new PermissionRequest("BOARD", 100L, "ROLE", 20L, 11, "ALLOW", 100, false);
 
         Permission permission = permission(33L);
         KanbanPermission kanbanPermission = kanbanPermission(11);
@@ -182,7 +174,7 @@ class GovernanceControllersApiTest {
                 .andExpect(status().isNoContent());
 
         when(kanbanPermissionService.findById(999)).thenReturn(Optional.empty());
-        request.setKanbanPermissionId(999);
+        request = new PermissionRequest(request.scopeType(), request.scopeId(), request.subjectType(), request.subjectId(), 999, request.state(), request.priority(), request.isImmutable());
         mockMvc.perform(post("/api/servers/1/permissions").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -217,15 +209,7 @@ class GovernanceControllersApiTest {
 
     @Test
     void createdPermissionRules_areNeverImmutable() throws Exception {
-        PermissionRequest request = new PermissionRequest();
-        request.setScopeType("SERVER");
-        request.setScopeId(1L);
-        request.setSubjectType("ROLE");
-        request.setSubjectId(20L);
-        request.setKanbanPermissionId(11);
-        request.setState("DENY");
-        request.setPriority(100);
-        request.setIsImmutable(true);
+        PermissionRequest request = new PermissionRequest("SERVER", 1L, "ROLE", 20L, 11, "DENY", 100, true);
 
         when(kanbanPermissionService.findById(11)).thenReturn(Optional.of(kanbanPermission(11)));
         when(permissionService.create(any(Permission.class))).thenAnswer(invocation -> invocation.getArgument(0));
