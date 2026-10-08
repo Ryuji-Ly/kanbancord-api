@@ -44,7 +44,7 @@ public class LanguageRequestController {
     }
 
     /** The tag in its usual form (pt-BR), for a language that exists; anything else is refused. */
-    static String languageTag(String value) {
+    public static String languageTag(String value) {
         String tag = value == null ? "" : value.trim();
         if (tag.length() > 35 || !TAG.matcher(tag).matches()) {
             throw new BadRequestException("Choose a language from the list.");
@@ -59,7 +59,7 @@ public class LanguageRequestController {
     }
 
     /** What the person added, as plain text on at most a few lines; null when nothing was. */
-    static String note(String value) {
+    public static String note(String value) {
         if (value == null) {
             return null;
         }
