@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Changes waiting for the bot to deliver. Each audit log entry that can be announced joins the open
@@ -39,21 +40,41 @@ public class NotificationQueue {
         this.groupWindow = Duration.ofSeconds(groupWindowSeconds);
     }
 
+    /** What a queued group is. The database allows each kind only its own fields (V25). */
+    public enum Kind {
+        /** Changes people made on a server: its audit entries, in order. */
+        CHANGES,
+        /** A task is due soon or overdue: no audit entries, nobody did anything. */
+        REMINDER,
+        /** Someone asks for the website in another language; for the developers only, about no server. */
+        LANGUAGE_REQUEST
+    }
+
+    /** Who asked for which language, and what they added (may be null). */
+    public record LanguageRequest(long userId, String language, String note) {
+    }
+
     /**
-     * A claimed group: its id, its server and its audit entries in order; or, for a reminder, which
-     * task it is about and why ({@code reminderKind} DUE_SOON or OVERDUE), with no audit entries.
+     * A claimed group: its id and kind. Changes have a server and audit entries; a reminder has a
+     * server, the task it is about and why ({@code reminderKind} DUE_SOON or OVERDUE); a language
+     * request has only the request.
      */
-    public record Batch(long batchId, long serverId, List<Long> auditIds, String reminderKind, Long reminderTaskId,
-                        LocalDateTime reminderDue) {
+    public record Batch(long batchId, Kind kind, Long serverId, List<Long> auditIds, String reminderKind,
+                        Long reminderTaskId, LocalDateTime reminderDue, LanguageRequest request) {
 
         public Batch(long batchId, long serverId, List<Long> auditIds) {
-            this(batchId, serverId, auditIds, null, null, null);
+            this(batchId, Kind.CHANGES, serverId, auditIds, null, null, null, null);
         }
 
         public boolean isReminder() {
-            return reminderKind != null;
+            return kind == Kind.REMINDER;
         }
     }
+
+    /** Language requests one person may make in a day. */
+    static final int LANGUAGE_REQUESTS_PER_DAY = 3;
+    /** The first key of the advisory lock that counts one person's language requests. */
+    private static final int LANGUAGE_REQUEST_LOCK = 72_001;
 
     /**
      * Queues a reminder about a task's due date, once per task, kind and due date: returns false when
@@ -69,9 +90,9 @@ public class NotificationQueue {
             return false;
         }
         jdbcTemplate.update("""
-                INSERT INTO notification_queue (server_id, group_key, audit_ids, deliver_after, claimed_at,
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after, claimed_at,
                     reminder_kind, reminder_task_id, reminder_due)
-                VALUES (?, ?, '{}', CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+                VALUES ('REMINDER', ?, ?, '{}', CURRENT_TIMESTAMP, NULL, ?, ?, ?)
                 ON CONFLICT DO NOTHING
                 """, serverId, "reminder:" + taskId + ":" + kind + ":" + dueDate, kind, taskId, Timestamp.valueOf(dueDate));
         return true;
@@ -92,11 +113,36 @@ public class NotificationQueue {
         String groupKey = AuditClassifier.groupKeyOf(serverId, boardId, taskId, log.getEntityType(), log.getEntityId(),
                 log.getLogId());
         jdbcTemplate.update("""
-                INSERT INTO notification_queue (server_id, group_key, audit_ids, deliver_after)
-                VALUES (?, ?, ARRAY[?]::BIGINT[], CURRENT_TIMESTAMP + CAST(? AS INTERVAL))
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after)
+                VALUES ('CHANGES', ?, ?, ARRAY[?]::BIGINT[], CURRENT_TIMESTAMP + CAST(? AS INTERVAL))
                 ON CONFLICT (group_key) WHERE claimed_at IS NULL
                 DO UPDATE SET audit_ids = notification_queue.audit_ids || EXCLUDED.audit_ids
                 """, serverId, groupKey, log.getLogId(), groupWindow.toSeconds() + " seconds");
+    }
+
+    /**
+     * Queues a request for the website in another language, for the bot to pass on to the developers.
+     * Returns false, queueing nothing, when the person already made {@link #LANGUAGE_REQUESTS_PER_DAY}
+     * requests in the last day.
+     */
+    @Transactional
+    public boolean enqueueLanguageRequest(long userId, String language, String note) {
+        // One person's requests are counted one at a time, so quick repeats cannot slip past the limit.
+        jdbcTemplate.query("SELECT pg_advisory_xact_lock(?, ?)", rs -> null, LANGUAGE_REQUEST_LOCK, (int) (userId % Integer.MAX_VALUE));
+        Integer recent = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM notification_queue
+                WHERE kind = 'LANGUAGE_REQUEST' AND request_user_id = ?
+                  AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 day'
+                """, Integer.class, userId);
+        if (recent != null && recent >= LANGUAGE_REQUESTS_PER_DAY) {
+            return false;
+        }
+        jdbcTemplate.update("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after,
+                    request_user_id, request_language, request_note)
+                VALUES ('LANGUAGE_REQUEST', NULL, ?, '{}', CURRENT_TIMESTAMP, ?, ?, ?)
+                """, "language-request:" + UUID.randomUUID(), userId, language, note);
+        return true;
     }
 
     /**
@@ -121,11 +167,15 @@ public class NotificationQueue {
                     ORDER BY deliver_after
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
-                RETURNING batch_id, server_id, audit_ids, reminder_kind, reminder_task_id, reminder_due
-                """, (rs, row) -> new Batch(rs.getLong("batch_id"), rs.getLong("server_id"),
+                RETURNING batch_id, kind, server_id, audit_ids, reminder_kind, reminder_task_id, reminder_due,
+                    request_user_id, request_language, request_note
+                """, (rs, row) -> new Batch(rs.getLong("batch_id"), Kind.valueOf(rs.getString("kind")),
+                        (Long) rs.getObject("server_id"),
                         List.of((Long[]) rs.getArray("audit_ids").getArray()), rs.getString("reminder_kind"),
                         (Long) rs.getObject("reminder_task_id"),
-                        rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime()),
+                        rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime(),
+                        rs.getObject("request_user_id") == null ? null : new LanguageRequest(rs.getLong("request_user_id"),
+                                rs.getString("request_language"), rs.getString("request_note"))),
                 MAX_ATTEMPTS, CLAIM_TIMEOUT.toSeconds() + " seconds", limit);
     }
 
