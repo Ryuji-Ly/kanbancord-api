@@ -81,12 +81,24 @@ public class NotificationRouter {
                              boolean close, List<String> members) {
     }
 
-    public record Plan(long batchId, String serverId, BoardRef board, TaskRef task, List<AuditLogResponse> entries,
-                       Names names, List<ChannelDelivery> channels, List<DirectMessage> directMessages,
-                       ThreadPlan thread) {
+    /**
+     * A request for the website in another language, for the developers: who asked (their id and
+     * name), the language's code (BCP 47, such as pt-BR) and what they added, if anything.
+     */
+    public record LanguageRequestPlan(String userId, String userName, String language, String note) {
+    }
+
+    /**
+     * What to deliver for one queued group. {@code kind} is that of the group (CHANGES, REMINDER or
+     * LANGUAGE_REQUEST); the bot delivers each kind its own way, and refuses kinds it does not know.
+     * A language request has only {@code request}: no server, channels, direct messages or thread.
+     */
+    public record Plan(long batchId, String kind, String serverId, BoardRef board, TaskRef task,
+                       List<AuditLogResponse> entries, Names names, List<ChannelDelivery> channels,
+                       List<DirectMessage> directMessages, ThreadPlan thread, LanguageRequestPlan request) {
 
         public boolean isEmpty() {
-            return channels.isEmpty() && directMessages.isEmpty() && thread == null;
+            return channels.isEmpty() && directMessages.isEmpty() && thread == null && request == null;
         }
     }
 
@@ -101,6 +113,24 @@ public class NotificationRouter {
 
     @Transactional(readOnly = true)
     public Plan route(NotificationQueue.Batch batch) {
+        return switch (batch.kind()) {
+            case LANGUAGE_REQUEST -> languageRequest(batch);
+            case CHANGES, REMINDER -> serverChanges(batch);
+        };
+    }
+
+    /** Only for the developers: the bot sends it to them alone, never to a server's channels or people. */
+    private Plan languageRequest(NotificationQueue.Batch batch) {
+        NotificationQueue.LanguageRequest request = batch.request();
+        List<String> names = jdbcTemplate.queryForList(
+                "SELECT COALESCE(global_name, username) FROM users WHERE user_id = ?", String.class, request.userId());
+        return new Plan(batch.batchId(), batch.kind().name(), null, null, null, List.of(),
+                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null,
+                new LanguageRequestPlan(String.valueOf(request.userId()), names.isEmpty() ? null : names.get(0),
+                        request.language(), request.note()));
+    }
+
+    private Plan serverChanges(NotificationQueue.Batch batch) {
         Long serverId = batch.serverId();
         if (!botPresent(serverId)) {
             return empty(batch);
@@ -131,11 +161,11 @@ public class NotificationRouter {
                 ? List.of()
                 : directMessages(serverId, boardId, entries, task);
 
-        return new Plan(batch.batchId(), String.valueOf(serverId), board,
+        return new Plan(batch.batchId(), batch.kind().name(), String.valueOf(serverId), board,
                 task == null ? null : new TaskRef(taskId, task.title(), task.deleted()),
                 entries.stream().map(Entry::log).toList(),
                 boardId == null ? new Names(Map.of(), Map.of(), Map.of()) : names(boardId),
-                channels, directMessages, threadPlan(serverId, boardId, taskId, task));
+                channels, directMessages, threadPlan(serverId, boardId, taskId, task), null);
     }
 
     // ── Task threads ─────────────────────────────────────────────────────────
@@ -211,8 +241,8 @@ public class NotificationRouter {
     }
 
     private Plan empty(NotificationQueue.Batch batch) {
-        return new Plan(batch.batchId(), String.valueOf(batch.serverId()), null, null, List.of(),
-                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null);
+        return new Plan(batch.batchId(), batch.kind().name(), String.valueOf(batch.serverId()), null, null, List.of(),
+                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null, null);
     }
 
     // ── Feeds ────────────────────────────────────────────────────────────────

@@ -1114,6 +1114,87 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void languageRequests_reachTheDevelopersOnly_andNeverMixWithChanges() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Requests");
+        String updates = "904" + w.serverId;
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
+        call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", updates)).expect(201);
+        jdbcTemplate.update("DELETE FROM notification_queue WHERE kind = 'LANGUAGE_REQUEST'");
+        drainAllPlans();
+
+        // A task that reads like a request is a change like any other, and a real request is its own kind.
+        w.createTask(MOD, board, w.column(board, "Todo"), "Language request: French");
+        call("POST", "/api/me/language-requests", MEMBER,
+                Map.of("language", " pt-br ", "note", "For our team @everyone <@1>\u0007")).expect(202);
+        List<JsonNode> plans = drainAllPlans();
+
+        JsonNode change = plans.stream().filter(plan -> plan.get("serverId").asText().equals(String.valueOf(w.serverId)))
+                .findFirst().orElseThrow();
+        assertEquals("CHANGES", change.get("kind").asText());
+        assertTrue(change.get("request").isNull());
+        assertNotNull(channel(change, updates), "the look-alike task goes to its feed as usual");
+
+        JsonNode request = plans.stream().filter(plan -> plan.get("kind").asText().equals("LANGUAGE_REQUEST"))
+                .findFirst().orElseThrow();
+        assertEquals(String.valueOf(MEMBER), request.get("request").get("userId").asText(), "who asked: the signed-in user");
+        assertEquals("pt-BR", request.get("request").get("language").asText());
+        assertEquals("For our team @everyone <@1>", request.get("request").get("note").asText(),
+                "kept as written, without control characters; the bot shows it as plain text");
+        assertTrue(request.get("serverId").isNull());
+        assertTrue(request.get("channels").isEmpty(), "never to a channel");
+        assertTrue(request.get("directMessages").isEmpty(), "the bot decides who the developers are");
+        assertTrue(request.get("thread").isNull());
+        assertTrue(request.get("entries").isEmpty());
+
+        // Only real languages, a short note, and only for someone signed in.
+        assertEquals(400, call("POST", "/api/me/language-requests", MEMBER, Map.of("language", "zz")).status());
+        assertEquals(400, call("POST", "/api/me/language-requests", MEMBER, Map.of("language", "<script>")).status());
+        assertEquals(400, call("POST", "/api/me/language-requests", MEMBER,
+                Map.of("language", "fr", "note", "x".repeat(301))).status());
+        assertEquals(401, call("POST", "/api/me/language-requests", null, Map.of("language", "fr")).status());
+
+        // A few a day per person.
+        call("POST", "/api/me/language-requests", MEMBER, Map.of("language", "fr")).expect(202);
+        call("POST", "/api/me/language-requests", MEMBER, Map.of("language", "de")).expect(202);
+        assertEquals(429, call("POST", "/api/me/language-requests", MEMBER, Map.of("language", "nl")).status());
+        call("POST", "/api/me/language-requests", MOD, Map.of("language", "nl")).expect(202);
+        drainAllPlans();
+
+        // The database refuses a group that mixes the kinds, whatever code tries.
+        assertFalse(inserts("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after,
+                    request_user_id, request_language)
+                VALUES ('CHANGES', %d, 'mixed-1', ARRAY[1]::BIGINT[], CURRENT_TIMESTAMP, %d, 'fr')
+                """.formatted(w.serverId, MEMBER)), "a change carrying a request");
+        assertFalse(inserts("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after,
+                    request_user_id, request_language)
+                VALUES ('LANGUAGE_REQUEST', %d, 'mixed-2', '{}', CURRENT_TIMESTAMP, %d, 'fr')
+                """.formatted(w.serverId, MEMBER)), "a request about a server");
+        assertFalse(inserts("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after,
+                    request_user_id, request_language)
+                VALUES ('LANGUAGE_REQUEST', NULL, 'mixed-3', ARRAY[1]::BIGINT[], CURRENT_TIMESTAMP, %d, 'fr')
+                """.formatted(MEMBER)), "a request with audit entries");
+        assertFalse(inserts("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after)
+                VALUES ('SOMETHING', %d, 'mixed-4', ARRAY[1]::BIGINT[], CURRENT_TIMESTAMP)
+                """.formatted(w.serverId)), "an unknown kind");
+    }
+
+    /** Whether the statement was accepted. */
+    private boolean inserts(String sql) {
+        try {
+            jdbcTemplate.update(sql);
+            return true;
+        } catch (org.springframework.dao.DataIntegrityViolationException refused) {
+            return false;
+        }
+    }
+
+    @Test
     void dueReminders_remindTheTasksPeopleOnce_whenDueSoonOrJustOverdue() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Deadlines");
@@ -1690,6 +1771,13 @@ class EndToEndApiIntegrationTest {
     }
 
     private List<JsonNode> drainPlans(long serverId) throws Exception {
+        return drainAllPlans().stream()
+                .filter(plan -> plan.get("serverId").asText().equals(String.valueOf(serverId)))
+                .toList();
+    }
+
+    /** Every plan due, of every server and kind, each reported delivered. */
+    private List<JsonNode> drainAllPlans() throws Exception {
         List<JsonNode> mine = new ArrayList<>();
         while (true) {
             HttpResponse<String> response = http.send(HttpRequest.newBuilder(uri("/api/internal/notifications/claim?limit=50"))
@@ -1701,9 +1789,7 @@ class EndToEndApiIntegrationTest {
                 return mine;
             }
             for (JsonNode plan : plans) {
-                if (plan.get("serverId").asText().equals(String.valueOf(serverId))) {
-                    mine.add(plan);
-                }
+                mine.add(plan);
                 http.send(HttpRequest.newBuilder(uri("/api/internal/notifications/" + plan.get("batchId").asLong() + "/delivered"))
                         .header("X-Internal-Bot-Token", BOT_TOKEN)
                         .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
