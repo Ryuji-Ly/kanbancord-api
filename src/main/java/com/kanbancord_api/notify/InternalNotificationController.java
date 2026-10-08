@@ -31,15 +31,17 @@ public class InternalNotificationController {
     private final NotificationSettingsService settings;
     private final Authorizer authorizer;
     private final TaskThreadService threads;
+    private final LostChannelService lostChannels;
 
     public InternalNotificationController(NotificationQueue queue, NotificationRouter router,
                                           NotificationSettingsService settings, Authorizer authorizer,
-                                          TaskThreadService threads) {
+                                          TaskThreadService threads, LostChannelService lostChannels) {
         this.queue = queue;
         this.router = router;
         this.settings = settings;
         this.authorizer = authorizer;
         this.threads = threads;
+        this.lostChannels = lostChannels;
     }
 
     /** {@code botCanThread} and {@code botCanPrivateThread} are left out by older bots: then false. */
@@ -47,19 +49,27 @@ public class InternalNotificationController {
                                @NotNull Boolean botCanPost, Boolean botCanThread, Boolean botCanPrivateThread) {
     }
 
-    /** The server's text channels, complete: channels left out are removed. */
+    /** What stopped working with this change of channels, for the bot to tell the server's managers. */
+    public record ChannelsReplaced(List<LostChannelService.LostChannel> lost) {
+    }
+
+    /**
+     * The server's text channels, complete: channels left out are removed. Answers with what stopped
+     * working because of the change: feeds, the audit log, task threads and board posts in channels the
+     * bot can no longer post (or make threads) in, or that were deleted.
+     */
     @PutMapping("/api/internal/sync/servers/{serverId}/channels")
-    public ResponseEntity<Void> replaceChannels(
+    public ResponseEntity<ChannelsReplaced> replaceChannels(
             @PathVariable Long serverId,
             @RequestHeader(BOT_TOKEN_HEADER) String botToken,
             @Valid @RequestBody List<@Valid ChannelEntry> channels) {
         authorizer.requireInternalSyncAccess(botToken);
-        settings.replaceChannels(serverId, channels.stream()
+        List<LostChannelService.LostChannel> lost = lostChannels.replaceChannels(serverId, channels.stream()
                 .map(entry -> new NotificationSettingsService.Channel(Long.valueOf(entry.channelId()), entry.name(),
                         entry.category(), entry.position() == null ? 0 : entry.position(), entry.botCanPost(),
                         Boolean.TRUE.equals(entry.botCanThread()), Boolean.TRUE.equals(entry.botCanPrivateThread())))
                 .toList());
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(new ChannelsReplaced(lost));
     }
 
     /**
