@@ -1018,7 +1018,7 @@ class EndToEndApiIntegrationTest {
         String audit = "902" + w.serverId;
 
         // The bot reports the server's channels; only server administrators see and change settings.
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true),
                 Map.of("channelId", everything, "name", "everything", "position", 2, "botCanPost", true),
                 Map.of("channelId", audit, "name", "audit-log", "category", "Staff", "position", 3, "botCanPost", true))));
@@ -1118,7 +1118,7 @@ class EndToEndApiIntegrationTest {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Requests");
         String updates = "904" + w.serverId;
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
         call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", updates)).expect(201);
         jdbcTemplate.update("DELETE FROM notification_queue WHERE kind = 'LANGUAGE_REQUEST'");
@@ -1195,6 +1195,88 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void lostChannels_areReportedOnce_whenTheBotLosesAccessOrAChannelGoes() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Watched");
+        String updates = "941" + w.serverId;
+        String log = "942" + w.serverId;
+        String postHere = "943" + w.serverId;
+        String channels = "/api/internal/sync/servers/" + w.serverId + "/channels";
+        java.util.function.Function<Boolean, List<Map<String, Object>>> all = (ok) -> List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", ok, "botCanThread", ok,
+                        "botCanPrivateThread", ok),
+                Map.of("channelId", log, "name", "log", "position", 2, "botCanPost", true),
+                Map.of("channelId", postHere, "name", "board", "position", 3, "botCanPost", ok));
+
+        assertTrue(lost(channels, all.apply(true)).isEmpty(), "nothing used the channels yet");
+        call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", updates)).expect(201);
+        call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", log)).expect(200);
+        call("PUT", w.boardPath(board, "/threads"), OWNER, Map.of("channelId", updates)).expect(200);
+        long postId = asBot("POST", w.boardPath(board, "/posts"), BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", postHere, "messageId", w.serverId + "943")).expect(201).json().get("postId").asLong();
+
+        // The bot loses access to two channels and the log channel is deleted.
+        List<Map<String, Object>> broken = List.of(
+                Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", false, "botCanThread", false,
+                        "botCanPrivateThread", false),
+                Map.of("channelId", postHere, "name", "board", "position", 3, "botCanPost", false));
+        JsonNode lost = lost(channels, broken);
+        assertEquals(3, lost.size());
+        JsonNode inUpdates = lostIn(lost, updates);
+        assertTrue(inUpdates.get("posting").asBoolean());
+        assertTrue(inUpdates.get("threads").asBoolean());
+        assertFalse(inUpdates.get("deleted").asBoolean());
+        assertEquals(1, inUpdates.get("feeds").size());
+        assertTrue(inUpdates.get("feeds").get(0).isEmpty(), "a feed for every board");
+        assertEquals(List.of("Watched"), texts(inUpdates.get("threadBoards")));
+        JsonNode inLog = lostIn(lost, log);
+        assertTrue(inLog.get("deleted").asBoolean());
+        assertEquals("log", inLog.get("name").asText());
+        assertTrue(inLog.get("audit").asBoolean());
+        assertEquals(List.of("Watched"), texts(lostIn(lost, postHere).get("postBoards")));
+
+        // Told once: the same state again says nothing, and a post already told about is not told about
+        // when it fails to update.
+        assertTrue(lost(channels, broken).isEmpty());
+        assertTrue(blockPost(postId).isEmpty());
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM board_posts WHERE post_id = ?", Integer.class, postId),
+                "a post the bot may not edit is kept, to update once it may again");
+
+        // Access comes back; lost again later, it is told again.
+        assertTrue(lost(channels, all.apply(true)).isEmpty());
+        assertEquals(2, lost(channels, all.apply(false)).size(), "the post's channel and the feed's channel");
+        lost(channels, all.apply(true));
+
+        // A post that fails to update for lack of access (such as one in a thread) is told about once,
+        // and again only after it has been redrawn in between.
+        JsonNode told = blockPost(postId);
+        assertEquals(1, told.size());
+        assertEquals("Watched", told.get(0).get("boardName").asText());
+        assertEquals(postHere, told.get(0).get("channelId").asText());
+        assertTrue(blockPost(postId).isEmpty());
+        reportPosts(List.of(postId), List.of(), List.of());
+        assertEquals(1, blockPost(postId).size());
+    }
+
+    private JsonNode lost(String path, List<Map<String, Object>> channels) throws Exception {
+        return internal("PUT", path, channels).expect(200).json().get("lost");
+    }
+
+    private static JsonNode lostIn(JsonNode lost, String channelId) {
+        for (JsonNode entry : lost) {
+            if (entry.get("channelId").asText().equals(channelId)) {
+                return entry;
+            }
+        }
+        throw new AssertionError("Nothing lost in " + channelId + ": " + lost);
+    }
+
+    private JsonNode blockPost(long postId) throws Exception {
+        return internal("POST", "/api/internal/board-posts/report", Map.of("done", List.of(), "gone", List.of(),
+                "retry", List.of(), "blocked", List.of(String.valueOf(postId)))).expect(200).json().get("tell");
+    }
+
+    @Test
     void dueReminders_remindTheTasksPeopleOnce_whenDueSoonOrJustOverdue() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Deadlines");
@@ -1210,7 +1292,7 @@ class EndToEndApiIntegrationTest {
         long longAgo = dueTask(w, board, todo, "Long overdue", now.minusHours(3));
         long later = dueTask(w, board, todo, "Next week", now.plusDays(7));
         call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", "")).expect(200);
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", "903" + w.serverId, "name", "audit", "botCanPost", true))));
         call("PUT", w.path("/notifications/audit-channel"), OWNER, Map.of("channelId", "903" + w.serverId)).expect(200);
         drainPlans(w.serverId);
@@ -1260,7 +1342,7 @@ class EndToEndApiIntegrationTest {
         long todo = w.column(board, "Todo");
         String plain = "910" + w.serverId;
         String buttons = "911" + w.serverId;
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", plain, "name", "plain", "position", 1, "botCanPost", true),
                 Map.of("channelId", buttons, "name", "buttons", "position", 2, "botCanPost", true))));
         String feeds = w.path("/notifications/feeds");
@@ -1319,7 +1401,7 @@ class EndToEndApiIntegrationTest {
         long todo = w.column(board, "Todo");
         long doing = w.column(board, "Doing");
         String updates = "920" + w.serverId;
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
         String feeds = w.path("/notifications/feeds");
 
@@ -1539,7 +1621,7 @@ class EndToEndApiIntegrationTest {
         String feedChannel = "931" + w.serverId;
         String announcements = "932" + w.serverId;
         String other = "933" + w.serverId;
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", feedChannel, "name", "updates", "position", 1, "botCanPost", true,
                         "botCanThread", true, "botCanPrivateThread", true),
                 Map.of("channelId", announcements, "name", "news", "position", 2, "botCanPost", true,
@@ -1623,7 +1705,7 @@ class EndToEndApiIntegrationTest {
         assertFalse(w.snapshot(MEMBER, board).get("threads").get("available").asBoolean());
         assertFalse(call("GET", info, MEMBER, null).expect(200).json().get("available").asBoolean());
 
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", channel, "name", "updates", "position", 1, "botCanPost", true,
                         "botCanThread", true, "botCanPrivateThread", true))));
         call("POST", w.path("/notifications/feeds"), OWNER, Map.of("channelId", channel, "boardIds", List.of(board)))
@@ -1714,7 +1796,7 @@ class EndToEndApiIntegrationTest {
         long quiet = w.createBoard(OWNER, "Quiet");
         long loud = w.createBoard(OWNER, "Loud");
         String updates = "930" + w.serverId;
-        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
+        assertEquals(200, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/channels", List.of(
                 Map.of("channelId", updates, "name", "updates", "position", 1, "botCanPost", true))));
         long feedId = call("POST", w.path("/notifications/feeds"), OWNER,
                 Map.of("channelId", updates, "boardIds", List.of(quiet, loud))).expect(201).json().get("feedId").asLong();
@@ -2057,7 +2139,7 @@ class EndToEndApiIntegrationTest {
         internal("POST", "/api/internal/board-posts/report", Map.of(
                 "done", done.stream().map(String::valueOf).toList(),
                 "gone", gone.stream().map(String::valueOf).toList(),
-                "retry", retry.stream().map(String::valueOf).toList())).expect(204);
+                "retry", retry.stream().map(String::valueOf).toList())).expect(200);
     }
 
     /** As if the post's change happened long enough ago to be redrawn. */

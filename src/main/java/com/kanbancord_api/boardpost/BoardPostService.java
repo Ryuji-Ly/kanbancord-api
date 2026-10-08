@@ -135,7 +135,8 @@ public class BoardPostService {
     public void report(List<Long> done, List<Long> gone, List<Long> retry) {
         if (!done.isEmpty()) {
             jdbcTemplate.update("""
-                    UPDATE board_posts SET claimed_at = NULL, retry_after = NULL, failing_since = NULL
+                    UPDATE board_posts SET claimed_at = NULL, retry_after = NULL, failing_since = NULL,
+                        blocked_notice_at = NULL
                     WHERE post_id = ANY (?)
                     """, longArray(done));
         }
@@ -156,6 +157,39 @@ public class BoardPostService {
                     """, longArray(retry), GIVE_UP_HOURS);
         }
     }
+
+    /** A post the bot may no longer edit, with what the server needs to be told about it. */
+    public record Blocked(Long postId, Long serverId, Long channelId, String boardName) {
+    }
+
+    /**
+     * Posts the bot may no longer edit where they are: kept, and tried again after a while, for as long
+     * as they exist, since they work again once the bot gets its permissions back. Returns those the
+     * server has not been told about yet, now marked as told.
+     */
+    @Transactional
+    public List<Blocked> block(List<Long> blocked) {
+        if (blocked.isEmpty()) {
+            return List.of();
+        }
+        jdbcTemplate.update("""
+                UPDATE board_posts SET claimed_at = NULL,
+                    dirty_at = COALESCE(dirty_at, now()),
+                    failing_since = NULL,
+                    retry_after = now() + make_interval(secs => ?)
+                WHERE post_id = ANY (?)
+                """, BLOCKED_RETRY_SECONDS, longArray(blocked));
+        return jdbcTemplate.query("""
+                UPDATE board_posts p SET blocked_notice_at = now()
+                FROM boards b
+                WHERE b.board_id = p.board_id AND p.post_id = ANY (?) AND p.blocked_notice_at IS NULL
+                RETURNING p.post_id, p.server_id, p.channel_id, b.name
+                """, (row, index) -> new Blocked(row.getLong(1), row.getLong(2), row.getLong(3), row.getString(4)),
+                longArray(blocked));
+    }
+
+    /** How often a post the bot may not edit is tried again. */
+    static final int BLOCKED_RETRY_SECONDS = 3600;
 
     private Array longArray(List<Long> values) {
         return jdbcTemplate.execute((java.sql.Connection connection) -> connection.createArrayOf("bigint", values.toArray()));
