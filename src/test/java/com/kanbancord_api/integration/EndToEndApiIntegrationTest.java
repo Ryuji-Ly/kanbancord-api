@@ -2119,6 +2119,25 @@ class EndToEndApiIntegrationTest {
                 "only those who may post the board may ask");
     }
 
+    // ── Bot status ─────────────────────────────────────────────────────────
+
+    @Test
+    void stats_countBoardsAndTasks_onlyForTheBot() throws Exception {
+        JsonNode before = internal("GET", "/api/internal/stats", null).expect(200).json();
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Counted");
+        long todo = w.column(board, "Todo");
+        w.createTask(OWNER, board, todo, "One");
+        w.createTask(OWNER, board, todo, "Two");
+
+        JsonNode after = internal("GET", "/api/internal/stats", null).expect(200).json();
+        assertEquals(before.get("boards").asLong() + 1, after.get("boards").asLong());
+        assertEquals(before.get("tasks").asLong() + 2, after.get("tasks").asLong());
+
+        int asUser = callRaw("GET", "/api/internal/stats", "Bearer " + accessToken(OWNER), null).status();
+        assertTrue(asUser == 400 || asUser == 403, "only the bot may read the totals: " + asUser);
+    }
+
     private Response internal(String method, String path, Object body) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
                 .header("Content-Type", "application/json")
