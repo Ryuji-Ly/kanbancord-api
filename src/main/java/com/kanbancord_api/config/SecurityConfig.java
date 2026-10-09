@@ -42,6 +42,7 @@ public class SecurityConfig {
                                     "/api/internal/sync/**",
                                     "/api/internal/notifications/**",
                                     "/api/internal/board-posts/**",
+                                    "/api/internal/stats",
                                     "/actuator/health",
                                     "/api/health",
                                     "/robots.txt",
