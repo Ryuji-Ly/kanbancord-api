@@ -15,7 +15,7 @@ class LanguageRequestCheckTest {
     /** Every language the website offers to request (frontend LanguageSettings.tsx). */
     private static final List<String> OFFERED = List.of(
             "ar", "bg", "bn", "ca", "cs", "da", "de", "el", "es", "es-419", "et", "fa", "fi", "fil", "fr", "he", "hi", "hr",
-            "hu", "id", "it", "ja", "ko", "lt", "lv", "ms", "nb", "nl", "pl", "pt-BR", "pt-PT", "ro", "ru", "sk", "sl", "sr",
+            "hu", "id", "it", "ja", "ko", "lt", "lv", "ms", "nb", "nl", "pl", "pt", "pt-BR", "ro", "ru", "sk", "sl", "sr",
             "sv", "sw", "ta", "th", "tr", "uk", "ur", "vi", "zh-Hans", "zh-Hant");
 
     @Test
