@@ -156,7 +156,8 @@ public class AccessCheckService {
                 flags.stream().map(DiscordPermissionFlag::getBit).collect(Collectors.toUnmodifiableSet()),
                 evaluation.boardRules(serverId, boardId),
                 evaluation.serverRules(serverId),
-                serverRepository.findOpenPermissions(serverId).orElse(false));
+                serverRepository.findOpenPermissions(serverId).orElse(false),
+                serverId);
 
         Names names = new Names(serverRoles, userRepository);
         RuleRef administratorRule = null;

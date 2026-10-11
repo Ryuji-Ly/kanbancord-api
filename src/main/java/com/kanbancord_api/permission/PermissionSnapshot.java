@@ -17,6 +17,8 @@ import java.util.Set;
  * @param boardRules      rules scoped to the board (its overrides), or empty at server scope
  * @param serverRules     rules scoped to the server
  * @param openPermissions the server has open permissions on (see {@link PermissionResolver#OPEN_KEYS})
+ * @param everyoneRoleId  the server's @everyone role (its id is the server's), whose rules form their own layer
+ *                        beneath the other roles; null treats it as an ordinary role
  */
 public record PermissionSnapshot(
         Long userId,
@@ -25,16 +27,24 @@ public record PermissionSnapshot(
         Set<Long> discordFlagBits,
         List<Permission> boardRules,
         List<Permission> serverRules,
-        boolean openPermissions) {
+        boolean openPermissions,
+        Long everyoneRoleId) {
 
     /** A snapshot of a server without open permissions. */
     public PermissionSnapshot(Long userId, boolean member, Set<Long> roleIds, Set<Long> discordFlagBits,
                               List<Permission> boardRules, List<Permission> serverRules) {
-        this(userId, member, roleIds, discordFlagBits, boardRules, serverRules, false);
+        this(userId, member, roleIds, discordFlagBits, boardRules, serverRules, false, null);
+    }
+
+    /** A snapshot that does not single out @everyone. */
+    public PermissionSnapshot(Long userId, boolean member, Set<Long> roleIds, Set<Long> discordFlagBits,
+                              List<Permission> boardRules, List<Permission> serverRules, boolean openPermissions) {
+        this(userId, member, roleIds, discordFlagBits, boardRules, serverRules, openPermissions, null);
     }
 
     public PermissionSnapshot withBoardRules(List<Permission> rules) {
-        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, rules, serverRules, openPermissions);
+        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, rules, serverRules, openPermissions,
+                everyoneRoleId);
     }
 
     /**
@@ -51,7 +61,8 @@ public record PermissionSnapshot(
                 server.add(after);
             }
         }
-        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, board, server, openPermissions);
+        return new PermissionSnapshot(userId, member, roleIds, discordFlagBits, board, server, openPermissions,
+                everyoneRoleId);
     }
 
     private static List<Permission> without(List<Permission> rules, Permission removed) {

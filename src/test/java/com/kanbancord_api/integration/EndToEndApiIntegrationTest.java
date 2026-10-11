@@ -53,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -2117,6 +2118,63 @@ class EndToEndApiIntegrationTest {
                 .get("hidden").asInt());
         assertEquals(403, asBot("POST", audience, BOT_TOKEN, MEMBER, w.serverId, Map.of("userIds", everyone)).status(),
                 "only those who may post the board may ask");
+    }
+
+    // ── @everyone and permission presets ─────────────────────────────────────
+
+    @Test
+    void everyone_isALayerBeneathRoles_likeInDiscord() throws Exception {
+        World w = bootstrapServer(true);
+        long board = w.createBoard(OWNER, "Mods only");
+        // Deny @everyone, allow one role: members of that role get in, everyone else stays out.
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.serverId, "VIEW_BOARD", "DENY").expect(201);
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.modsRole, "VIEW_BOARD", "ALLOW").expect(201);
+
+        assertEquals(200, call("GET", w.boardPath(board, ""), MOD, null).status(), "the role's allow wins");
+        assertNotEquals(200, call("GET", w.boardPath(board, ""), MEMBER, null).status(), "@everyone's deny holds");
+        assertNotEquals(200, call("GET", w.boardPath(board, ""), NEWBIE, null).status());
+    }
+
+    @Test
+    void presets_setUpStaffOnlyAndMembersView_inOneStep_andUndo() throws Exception {
+        World w = bootstrapServer(true);
+        long staffRoom = w.createBoard(OWNER, "Staff room");
+        long staffTodo = w.column(staffRoom, "Todo");
+        long open = w.createBoard(OWNER, "Roadmap");
+        long openTodo = w.column(open, "Todo");
+        String presets = w.path("/permissions/presets");
+
+        // One board, staff only.
+        JsonNode staffOnly = call("POST", presets, OWNER, Map.of("preset", "STAFF_ONLY", "scopeType", "BOARD",
+                "scopeId", staffRoom, "staffRoleId", w.modsRole)).expect(200).json();
+        assertTrue(staffOnly.get("created").asInt() > 0);
+        assertEquals(200, call("GET", w.boardPath(staffRoom, ""), MOD, null).status());
+        w.createTask(MOD, staffRoom, staffTodo, "Staff work");
+        assertNotEquals(200, call("GET", w.boardPath(staffRoom, ""), MEMBER, null).status());
+        assertEquals(200, call("GET", w.boardPath(open, ""), MEMBER, null).status(), "other boards are untouched");
+
+        // Applying it again changes nothing.
+        JsonNode again = call("POST", presets, OWNER, Map.of("preset", "STAFF_ONLY", "scopeType", "BOARD",
+                "scopeId", staffRoom, "staffRoleId", w.modsRole)).expect(200).json();
+        assertEquals(0, again.get("created").asInt() + again.get("changed").asInt() + again.get("removed").asInt());
+
+        // The whole server: everyone sees, only staff change tasks.
+        call("POST", presets, OWNER, Map.of("preset", "MEMBERS_VIEW", "staffRoleId", w.modsRole)).expect(200);
+        assertEquals(200, call("GET", w.boardPath(open, ""), MEMBER, null).status(), "members still see boards");
+        assertEquals(403, w.createTaskStatus(MEMBER, open, openTodo), "but cannot add tasks");
+        w.createTask(MOD, open, openTodo, "Staff can");
+
+        // Back to the defaults, server-wide: members contribute again. The staff room keeps its own setup.
+        call("POST", presets, OWNER, Map.of("preset", "EVERYONE")).expect(200);
+        w.createTask(MEMBER, open, openTodo, "Members can again");
+        assertNotEquals(200, call("GET", w.boardPath(staffRoom, ""), MEMBER, null).status());
+
+        // Only people who may manage permissions can apply one, and @everyone cannot be the staff role.
+        assertEquals(403, call("POST", presets, MEMBER, Map.of("preset", "STAFF_ONLY",
+                "staffRoleId", w.modsRole)).status());
+        assertEquals(400, call("POST", presets, OWNER, Map.of("preset", "STAFF_ONLY",
+                "staffRoleId", w.serverId)).status());
+        assertEquals(400, call("POST", presets, OWNER, Map.of("preset", "STAFF_ONLY")).status(), "a staff role is needed");
     }
 
     // ── Bot status ─────────────────────────────────────────────────────────
