@@ -200,7 +200,8 @@ public class PermissionEvaluationService {
                 discordFlagBits,
                 boardRules(serverId, boardId),
                 serverRules(serverId),
-                serverRepository.findOpenPermissions(serverId).orElse(false));
+                serverRepository.findOpenPermissions(serverId).orElse(false),
+                serverId);
     }
 
     public record Decision(boolean allowed, String sourceTier, String sourceScopeType, Long sourceScopeId,

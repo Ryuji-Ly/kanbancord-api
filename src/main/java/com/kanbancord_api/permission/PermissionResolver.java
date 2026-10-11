@@ -13,9 +13,11 @@ import java.util.Set;
  *
  * <p>Rules are applied as layers, in this order, each later layer overriding the earlier ones:
  * <ol>
- * <li>server scope: DISCORD_PERMISSION rules, then ROLE rules, then USER rules</li>
- * <li>board scope (the board's overrides): DISCORD_PERMISSION, then ROLE, then USER</li>
+ * <li>server scope: DISCORD_PERMISSION rules, then @everyone, then the other ROLE rules, then USER rules</li>
+ * <li>board scope (the board's overrides): DISCORD_PERMISSION, then @everyone, then ROLE, then USER</li>
  * </ol>
+ * As in Discord's own channel permissions, @everyone sits beneath the other roles: deny something to
+ * @everyone and allow it to a role, and members with that role have it.
  * A layer only takes effect if it has at least one rule matching the user and key. Within a layer a
  * DENY beats any ALLOW. If no layer matches, the key is denied.
  *
@@ -45,8 +47,11 @@ public final class PermissionResolver {
     static final String SUBJECT_USER = "USER";
     static final String SUBJECT_ROLE = "ROLE";
     static final String SUBJECT_DISCORD_PERMISSION = "DISCORD_PERMISSION";
+    /** The layer of @everyone's rules. They are stored as ROLE rules; this only names their layer. */
+    public static final String TIER_EVERYONE = "EVERYONE";
     private static final String STATE_ALLOW = "ALLOW";
-    private static final List<String> TIER_ORDER = List.of(SUBJECT_DISCORD_PERMISSION, SUBJECT_ROLE, SUBJECT_USER);
+    private static final List<String> TIER_ORDER =
+            List.of(SUBJECT_DISCORD_PERMISSION, TIER_EVERYONE, SUBJECT_ROLE, SUBJECT_USER);
 
     /** Deterministic choice of the rule reported as the decision's source within a layer. */
     private static final Comparator<Permission> REPORTING_ORDER = Comparator
@@ -99,7 +104,7 @@ public final class PermissionResolver {
         for (String scopeType : List.of("SERVER", "BOARD")) {
             List<Permission> scopeRules = "SERVER".equals(scopeType) ? snapshot.serverRules() : snapshot.boardRules();
             for (String tier : TIER_ORDER) {
-                List<Permission> matching = matching(scopeRules, key, tier, subjectIds(snapshot, tier));
+                List<Permission> matching = matching(scopeRules, key, storedType(tier), subjectIds(snapshot, tier));
                 if (!matching.isEmpty()) {
                     layers.add(new Layer(scopeType, tier, matching, decider(matching)));
                 }
@@ -118,7 +123,8 @@ public final class PermissionResolver {
         PermissionEvaluationService.Decision decision = PermissionEvaluationService.Decision.NONE;
         for (List<Permission> scopeRules : List.of(snapshot.serverRules(), snapshot.boardRules())) {
             for (String tier : TIER_ORDER) {
-                Optional<Permission> layerResult = resolveLayer(scopeRules, key, tier, subjectIds(snapshot, tier));
+                Optional<Permission> layerResult =
+                        resolveLayer(scopeRules, key, storedType(tier), subjectIds(snapshot, tier));
                 if (layerResult.isPresent()) {
                     decision = toDecision(layerResult.get(), tier);
                 }
@@ -155,11 +161,21 @@ public final class PermissionResolver {
                 .orElse(matching.get(0));
     }
 
+    /** The subject type a layer's rules are stored with: @everyone's are ROLE rules. */
+    private static String storedType(String tier) {
+        return TIER_EVERYONE.equals(tier) ? SUBJECT_ROLE : tier;
+    }
+
     private static Collection<Long> subjectIds(PermissionSnapshot snapshot, String tier) {
+        Long everyone = snapshot.everyoneRoleId();
         return switch (tier) {
             // No one in particular when checking what a set of roles allows.
             case SUBJECT_USER -> snapshot.userId() == null ? Set.of() : Set.of(snapshot.userId());
-            case SUBJECT_ROLE -> snapshot.member() ? snapshot.roleIds() : Set.of();
+            case TIER_EVERYONE -> snapshot.member() && everyone != null && snapshot.roleIds().contains(everyone)
+                    ? Set.of(everyone) : Set.of();
+            case SUBJECT_ROLE -> !snapshot.member() ? Set.of()
+                    : everyone == null ? snapshot.roleIds()
+                    : snapshot.roleIds().stream().filter(id -> !id.equals(everyone)).toList();
             default -> snapshot.member() ? snapshot.discordFlagBits() : Set.of();
         };
     }
