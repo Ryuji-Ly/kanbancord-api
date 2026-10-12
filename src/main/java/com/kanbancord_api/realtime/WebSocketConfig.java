@@ -1,5 +1,6 @@
 package com.kanbancord_api.realtime;
 
+import com.kanbancord_api.auth.DiscordActivity;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -18,6 +19,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final RealtimeChannelInterceptor realtimeChannelInterceptor;
     private final RealtimeOutboundInterceptor realtimeOutboundInterceptor;
     private final RealtimeConnectionRegistry realtimeConnectionRegistry;
+    private final DiscordActivity discordActivity;
 
     public WebSocketConfig(
             RealtimeProperties realtimeProperties,
@@ -25,13 +27,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             RealtimeHandshakeHandler realtimeHandshakeHandler,
             RealtimeChannelInterceptor realtimeChannelInterceptor,
             RealtimeOutboundInterceptor realtimeOutboundInterceptor,
-            RealtimeConnectionRegistry realtimeConnectionRegistry) {
+            RealtimeConnectionRegistry realtimeConnectionRegistry,
+            DiscordActivity discordActivity) {
         this.realtimeProperties = realtimeProperties;
         this.realtimeHandshakeInterceptor = realtimeHandshakeInterceptor;
         this.realtimeHandshakeHandler = realtimeHandshakeHandler;
         this.realtimeChannelInterceptor = realtimeChannelInterceptor;
         this.realtimeOutboundInterceptor = realtimeOutboundInterceptor;
         this.realtimeConnectionRegistry = realtimeConnectionRegistry;
+        this.discordActivity = discordActivity;
     }
 
     @Override
@@ -51,7 +55,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws")
                 .setHandshakeHandler(realtimeHandshakeHandler)
                 .addInterceptors(realtimeHandshakeInterceptor)
-                .setAllowedOriginPatterns(realtimeProperties.getAllowedOrigins().toArray(String[]::new));
+                .setAllowedOriginPatterns(discordActivity.withOrigin(realtimeProperties.getAllowedOrigins()).toArray(String[]::new));
     }
 
     @Override

@@ -73,11 +73,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI().substring(request.getContextPath().length());
         // The client IP; behind Cloudflare and nginx, Tomcat resolves it from CF-Connecting-IP.
-        if (path.equals("/api/auth/refresh") || path.equals("/api/auth/logout")) {
-            return limiter.tryAcquire("ip:" + request.getRemoteAddr() + ":session", properties.getSession());
+        // The Discord Activity reaches the API through Discord's proxy, so its requests share Discord's
+        // addresses; they get buckets of their own, so they cannot use up the website's.
+        String client = "ip:" + request.getRemoteAddr() + (path.startsWith("/api/auth/activity/") ? ":activity" : "");
+        if (path.equals("/api/auth/refresh") || path.equals("/api/auth/logout")
+                || path.equals("/api/auth/activity/refresh") || path.equals("/api/auth/activity/logout")) {
+            return limiter.tryAcquire(client + ":session", properties.getSession());
         }
         if (path.startsWith("/api/auth/")) {
-            return limiter.tryAcquire("ip:" + request.getRemoteAddr() + ":auth", properties.getAuth());
+            return limiter.tryAcquire(client + ":auth", properties.getAuth());
         }
         return 0;
     }

@@ -44,7 +44,10 @@ public class DiscordOAuthService {
         MultiValueMap<String, String> form = clientForm();
         form.add("grant_type", "authorization_code");
         form.add("code", code);
-        form.add("redirect_uri", redirectUri);
+        // Codes from the Activity's Embedded App SDK were issued without a redirect URI.
+        if (redirectUri != null) {
+            form.add("redirect_uri", redirectUri);
+        }
 
         try {
             return requestTokens(form);
