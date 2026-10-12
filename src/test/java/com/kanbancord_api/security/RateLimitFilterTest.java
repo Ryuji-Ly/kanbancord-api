@@ -48,6 +48,14 @@ class RateLimitFilterTest {
     }
 
     @Test
+    void activitySignIns_shareDiscordsAddress_soTheyHaveBucketsOfTheirOwn() throws Exception {
+        assertEquals(200, send("POST", "/api/auth/activity/exchange", "203.0.113.3").getStatus());
+        assertEquals(429, send("POST", "/api/auth/activity/exchange", "203.0.113.3").getStatus());
+        assertEquals(200, send("POST", "/api/auth/discord/exchange", "203.0.113.3").getStatus(),
+                "the website's sign-ins from the same address are not affected");
+    }
+
+    @Test
     void internalSync_preflights_andOtherUnauthenticatedRequests_areNotLimited() throws Exception {
         for (int i = 0; i < 5; i++) {
             assertEquals(200, send("PUT", "/api/internal/sync/servers/1").getStatus());

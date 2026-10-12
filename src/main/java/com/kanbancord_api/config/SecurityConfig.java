@@ -1,5 +1,6 @@
 package com.kanbancord_api.config;
 
+import com.kanbancord_api.auth.DiscordActivity;
 import com.kanbancord_api.security.BotActingUserFilter;
 import com.kanbancord_api.security.JwtAuthenticationFilter;
 import com.kanbancord_api.security.RateLimitFilter;
@@ -72,10 +73,12 @@ public class SecurityConfig {
 
 
         @Bean
-        public CorsConfigurationSource corsConfigurationSource(CorsProperties corsProperties) {
+        public CorsConfigurationSource corsConfigurationSource(
+                CorsProperties corsProperties,
+                DiscordActivity discordActivity) {
                 CorsConfiguration configuration = new CorsConfiguration();
 
-                configuration.setAllowedOrigins(List.copyOf(corsProperties.getAllowedOrigins()));
+                configuration.setAllowedOrigins(discordActivity.withOrigin(corsProperties.getAllowedOrigins()));
 
                 configuration.setAllowedMethods(List.of(
                         "GET",

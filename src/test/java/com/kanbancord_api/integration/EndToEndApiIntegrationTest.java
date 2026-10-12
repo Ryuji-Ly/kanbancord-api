@@ -84,6 +84,9 @@ class EndToEndApiIntegrationTest {
     private static final long NEWBIE = 1_004L;
 
     private static final String WEB_ORIGIN = "https://kanbancord.com";
+    private static final String DISCORD_CLIENT_ID = "424242424242";
+    /** Where Discord serves the Activity from; allowed without being configured. */
+    private static final String ACTIVITY_ORIGIN = "https://" + DISCORD_CLIENT_ID + ".discordsays.com";
     private static final Map<String, Boolean> ALL_FEATURES = Map.of("LABELS", true, "PRIORITIES", true,
             "ASSIGNEES", true, "COMMENTS", true, "DUE_DATES", true, "PERMISSIONS", true);
 
@@ -95,6 +98,7 @@ class EndToEndApiIntegrationTest {
         registry.add("kanbancord.auth.jwt.secret", () -> JWT_SECRET);
         registry.add("kanbancord.internal-sync.bot-token", () -> sha256Hex(BOT_TOKEN));
         registry.add("kanbancord.imgur.client-id", () -> "test-client-id");
+        registry.add("kanbancord.discord.oauth.client-id", () -> DISCORD_CLIENT_ID);
         registry.add("kanbancord.imgur.api-base-url", FAKE_IMGUR::baseUrl);
         // Notifications are grouped for a while in production; tests want them straight away.
         registry.add("kanbancord.notifications.group-window-seconds", () -> "0");
@@ -528,6 +532,33 @@ class EndToEndApiIntegrationTest {
         assertEquals(401, session("/api/auth/refresh", null, WEB_ORIGIN).statusCode());
         assertEquals(401, callRaw("GET", "/api/me", "Bearer " + jwtTokenService.issueToken(OWNER, UUID.randomUUID()), null)
                 .status(), "a token naming an unknown session is rejected");
+    }
+
+    @Test
+    void activitySessions_keepTheRefreshTokenInTheBody_andDiscordsProxyOriginIsAllowed() throws Exception {
+        World w = bootstrapServer();
+        String token = userSessionService.start(MEMBER, "Discord Activity").refreshToken();
+
+        JsonNode refreshed = callRaw("POST", "/api/auth/activity/refresh", null, Map.of("refreshToken", token))
+                .expect(200).json();
+        String rotated = refreshed.get("refreshToken").asText();
+        assertFalse(rotated.isBlank() || rotated.equals(token), "the refresh token is rotated");
+        assertEquals(MEMBER, refreshed.at("/session/user/userId").asLong());
+        String accessToken = "Bearer " + refreshed.at("/session/accessToken").asText();
+        assertEquals(200, callRaw("GET", "/api/me", accessToken, null).status());
+
+        assertEquals(401, callRaw("POST", "/api/auth/activity/refresh", null, Map.of("refreshToken", "made-up")).status());
+        assertEquals(400, callRaw("POST", "/api/auth/activity/refresh", null, Map.of()).status());
+
+        HttpResponse<String> activityPreflight = preflight(w.path("/boards"), ACTIVITY_ORIGIN, "GET");
+        assertEquals(ACTIVITY_ORIGIN, activityPreflight.headers().firstValue("Access-Control-Allow-Origin").orElse(null));
+        HttpResponse<String> otherActivity = preflight(w.path("/boards"), "https://1.discordsays.com", "GET");
+        assertTrue(otherActivity.headers().firstValue("Access-Control-Allow-Origin").isEmpty(),
+                "only this app's Activity, not other apps on Discord's proxy");
+
+        assertEquals(204, callRaw("POST", "/api/auth/activity/logout", null, Map.of("refreshToken", rotated)).status());
+        assertEquals(401, callRaw("POST", "/api/auth/activity/refresh", null, Map.of("refreshToken", rotated)).status());
+        assertEquals(401, callRaw("GET", "/api/me", accessToken, null).status(), "signing out ends the session");
     }
 
     @Test
