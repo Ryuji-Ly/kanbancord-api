@@ -49,12 +49,20 @@ public class JwtTokenService {
         }
     }
 
-    /** What a valid access token says: who it is for and which sign-in session issued it. */
-    public record AccessClaims(Long userId, UUID sessionId) {
+    /**
+     * What a valid access token says: who it is for, which sign-in session issued it, and whether that
+     * session is the Discord Activity's.
+     */
+    public record AccessClaims(Long userId, UUID sessionId, boolean activity) {
     }
 
-    /** A short-lived access token for a user's sign-in session. */
+    /** A short-lived access token for a user's sign-in session on the website. */
     public String issueToken(Long userId, UUID sessionId) {
+        return issueToken(userId, sessionId, false);
+    }
+
+    /** A short-lived access token; {@code activity} marks the Discord Activity's, so its changes are told apart. */
+    public String issueToken(Long userId, UUID sessionId, boolean activity) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(authJwtProperties.getExpirationSeconds());
 
@@ -63,6 +71,9 @@ public class JwtTokenService {
         payload.put("sub", String.valueOf(userId));
         payload.put("uid", userId);
         payload.put("sid", sessionId.toString());
+        if (activity) {
+            payload.put("act", true);
+        }
         payload.put("iat", now.getEpochSecond());
         payload.put("exp", exp.getEpochSecond());
 
@@ -101,7 +112,10 @@ public class JwtTokenService {
             if (sessionId == null) {
                 return Optional.empty();
             }
-            return Optional.of(new AccessClaims(toLong(payload.get("uid")), UUID.fromString(String.valueOf(sessionId))));
+            return Optional.of(new AccessClaims(
+                    toLong(payload.get("uid")),
+                    UUID.fromString(String.valueOf(sessionId)),
+                    Boolean.TRUE.equals(payload.get("act"))));
         } catch (Exception ex) {
             return Optional.empty();
         }

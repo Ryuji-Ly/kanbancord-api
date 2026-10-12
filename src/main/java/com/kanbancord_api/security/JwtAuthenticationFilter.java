@@ -44,7 +44,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     claims.userId(),
                                     null,
                                     List.of());
-                            auth.setDetails(new AuthenticatedSession(claims.sessionId()));
+                            auth.setDetails(new AuthenticatedSession(claims.sessionId(), claims.activity()));
                             SecurityContextHolder.getContext().setAuthentication(auth);
                         }
                     });

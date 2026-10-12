@@ -547,6 +547,21 @@ class EndToEndApiIntegrationTest {
         String accessToken = "Bearer " + refreshed.at("/session/accessToken").asText();
         assertEquals(200, callRaw("GET", "/api/me", accessToken, null).status());
 
+        // Changes made in the Activity are told apart from the website's in the audit log.
+        long board = w.createBoard(OWNER, "In a call");
+        long todo = w.column(board, "Todo");
+        callRaw("POST", w.boardPath(board, "/tasks"), accessToken,
+                Map.of("title", "Made in the Activity", "boardId", board, "columnId", todo)).expect(201);
+        call("POST", w.boardPath(board, "/tasks"), MEMBER,
+                Map.of("title", "Made on the website", "boardId", board, "columnId", todo)).expect(201);
+        Map<String, String> sources = new HashMap<>();
+        for (JsonNode entry : auditLog(w)) {
+            if ("TASK_CREATED".equals(entry.get("action").asText())) {
+                sources.put(entry.at("/details/title").asText(entry.toString()), entry.get("source").asText());
+            }
+        }
+        assertTrue(sources.containsValue("ACTIVITY") && sources.containsValue("API"), sources.toString());
+
         assertEquals(401, callRaw("POST", "/api/auth/activity/refresh", null, Map.of("refreshToken", "made-up")).status());
         assertEquals(400, callRaw("POST", "/api/auth/activity/refresh", null, Map.of()).status());
 
