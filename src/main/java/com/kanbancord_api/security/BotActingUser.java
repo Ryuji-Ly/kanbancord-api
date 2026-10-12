@@ -9,9 +9,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
  */
 public record BotActingUser(Long guildId) {
 
-    /** Where the current request came from, as recorded in the audit log. */
+    /**
+     * Where the current request came from, as recorded in the audit log: {@code DISCORD} for slash
+     * commands, {@code ACTIVITY} for the web app running as a Discord Activity, {@code API} for the website.
+     */
     public static String currentSource() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return authentication != null && authentication.getDetails() instanceof BotActingUser ? "DISCORD" : "API";
+        if (authentication == null) {
+            return "API";
+        }
+        if (authentication.getDetails() instanceof BotActingUser) {
+            return "DISCORD";
+        }
+        return authentication.getDetails() instanceof AuthenticatedSession session && session.activity() ? "ACTIVITY" : "API";
     }
 }

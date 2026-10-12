@@ -60,7 +60,7 @@ public class ActivityAuthController {
         DiscordSignInService.SignedIn signedIn =
                 discordSignInService.signIn(request.code(), null, sessionLabel(httpRequest));
         return new ActivityAuthResponse(
-                discordSignInService.authResponse(signedIn.user(), signedIn.issued().session()),
+                discordSignInService.authResponse(signedIn.user(), signedIn.issued().session(), true),
                 signedIn.issued().refreshToken());
     }
 
@@ -75,7 +75,7 @@ public class ActivityAuthController {
         User user = userService.findById(refreshed.session().getUserId())
                 .orElseThrow(() -> new UnauthenticatedException("Session expired"));
         return new ActivityAuthResponse(
-                discordSignInService.authResponse(user, refreshed.session()),
+                discordSignInService.authResponse(user, refreshed.session(), true),
                 refreshed.refreshToken());
     }
 

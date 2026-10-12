@@ -45,9 +45,14 @@ public class DiscordSignInService {
     }
 
     public AuthResponse authResponse(User user, UserSession session) {
+        return authResponse(user, session, false);
+    }
+
+    /** {@code activity}: the session is the Discord Activity's, so its changes are recorded as such. */
+    public AuthResponse authResponse(User user, UserSession session, boolean activity) {
         return new AuthResponse(
                 "Bearer",
-                jwtTokenService.issueToken(user.getUserId(), session.getSessionId()),
+                jwtTokenService.issueToken(user.getUserId(), session.getSessionId(), activity),
                 jwtTokenService.getExpirationSeconds(),
                 new UserResponse(
                         user.getUserId(),
