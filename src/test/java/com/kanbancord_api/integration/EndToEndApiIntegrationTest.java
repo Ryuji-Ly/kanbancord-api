@@ -2,6 +2,7 @@ package com.kanbancord_api.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kanbancord_api.integration.config.TestcontainersConfiguration;
 import com.kanbancord_api.security.JwtTokenService;
 import com.kanbancord_api.session.UserSessionService;
@@ -2532,6 +2533,139 @@ class EndToEndApiIntegrationTest {
         List<Map<?, ?>> events = probe.drain();
         assertFalse(events.isEmpty(), "expected a realtime event");
         return String.valueOf(events.get(events.size() - 1).get("eventType"));
+    }
+
+    // ── Import and export ────────────────────────────────────────────────────
+
+    /** A board with a label, a priority, an assignee, a role, a reply and a rule, ready to export. */
+    private long richBoard(World w, String name) throws Exception {
+        long board = w.createBoard(OWNER, name);
+        long doing = w.column(board, "Doing");
+        long task = w.createTask(MOD, board, doing, "Ship it");
+        w.createTask(MOD, board, w.column(board, "Todo"), "Plan it");
+        long label = call("POST", w.boardPath(board, "/labels"), OWNER,
+                Map.of("boardId", board, "name", "bug", "color", "#ff0000")).expect(201).json().get("labelId").asLong();
+        call("POST", w.boardPath(board, "/tasks/" + task + "/labels"), OWNER, Map.of("taskId", task, "labelId", label)).expect(201);
+        long high = w.snapshot(MOD, board).get("priorities").get(1).get("priorityId").asLong();
+        Map<String, Object> edit = new HashMap<>(Map.of("title", "Ship it", "boardId", board, "columnId", doing));
+        edit.put("priorityId", high);
+        call("PUT", w.boardPath(board, "/tasks/" + task), MOD, edit).expect(200);
+        call("POST", w.boardPath(board, "/tasks/" + task + "/assignments"), MOD, Map.of("taskId", task, "userId", MEMBER)).expect(201);
+        call("POST", w.boardPath(board, "/tasks/" + task + "/role-assignments"), MOD, Map.of("roleId", w.modsRole)).expect(201);
+        String comments = w.boardPath(board, "/tasks/" + task + "/comments");
+        long first = call("POST", comments, MEMBER, Map.of("taskId", task, "content", "On it")).expect(201).json().get("commentId").asLong();
+        call("POST", comments, MOD, Map.of("taskId", task, "content", "Thanks", "replyToId", first)).expect(201);
+        w.createRule(OWNER, "BOARD", board, "ROLE", w.membersRole, "EDIT_TASK", "DENY").expect(201);
+        return board;
+    }
+
+    private static final String ALL_PARTS = "/export?part=labels&part=priorities&part=assignees&part=comments&part=permissions";
+
+    @Test
+    void export_writesOnlyTheChosenParts() throws Exception {
+        World w = bootstrapServer();
+        long board = richBoard(w, "Exported");
+
+        JsonNode bare = call("GET", w.boardPath(board, "/export"), MEMBER, null).expect(200).json();
+        assertEquals("kanbancord-board", bare.get("format").asText());
+        assertEquals("Todo", bare.get("columns").get(0).get("name").asText());
+        assertEquals("Doing", bare.get("columns").get(1).get("name").asText());
+        assertEquals("Plan it", bare.get("tasks").get(0).get("title").asText(), "tasks follow the columns' order");
+        for (String part : List.of("labels", "priorities", "permissions")) {
+            assertFalse(bare.has(part), part + " is left out unless chosen");
+        }
+        JsonNode bareTask = bare.get("tasks").get(1);
+        for (String field : List.of("labels", "priority", "assignees", "roles", "comments")) {
+            assertFalse(bareTask.has(field), field + " is left out of tasks too");
+        }
+
+        assertEquals(403, call("GET", w.boardPath(board, "/export?part=permissions"), MEMBER, null).status(),
+                "a board's rules need permission to edit them");
+        assertEquals(400, call("GET", w.boardPath(board, "/export?part=nonsense"), OWNER, null).status());
+
+        JsonNode full = call("GET", w.boardPath(board, ALL_PARTS), OWNER, null).expect(200).json();
+        JsonNode task = full.get("tasks").get(1);
+        assertEquals(full.get("labels").get(0).get("id").asText(), task.get("labels").get(0).asText());
+        assertEquals(full.get("priorities").get(1).get("id").asText(), task.get("priority").asText());
+        assertEquals(String.valueOf(MEMBER), task.get("assignees").get(0).get("userId").asText());
+        assertEquals("Mods", task.get("roles").get(0).get("name").asText());
+        assertEquals(task.get("comments").get(0).get("id").asText(), task.get("comments").get(1).get("replyTo").asText());
+        assertEquals("Members", full.get("permissions").get(0).get("subjectName").asText());
+    }
+
+    @Test
+    void import_inTheSameServer_bringsBackEveryChosenPart_asOneNewBoard() throws Exception {
+        World w = bootstrapServer();
+        long board = richBoard(w, "Original");
+        JsonNode file = call("GET", w.boardPath(board, ALL_PARTS), OWNER, null).expect(200).json();
+        int auditBefore = auditLog(w).size();
+
+        JsonNode result = call("POST", w.path("/boards/import"), OWNER, Map.of("document", file)).expect(201).json();
+        long copy = result.get("board").get("boardId").asLong();
+        assertEquals("Original (2)", result.get("board").get("name").asText(), "a name in use gets a number");
+        assertEquals(2, result.get("imported").get("tasks").asInt());
+        assertEquals(1, result.get("imported").get("permissions").asInt());
+        assertFalse(result.get("skipped").has("assignees"));
+
+        JsonNode snapshot = w.snapshot(OWNER, copy);
+        assertEquals(2, snapshot.get("tasks").size());
+        JsonNode ship = null;
+        for (JsonNode candidate : snapshot.get("tasks")) {
+            if (candidate.get("title").asText().equals("Ship it")) {
+                ship = candidate;
+            }
+        }
+        assertNotNull(ship);
+        assertEquals(w.column(copy, "Doing"), ship.get("columnId").asLong());
+        assertEquals(snapshot.get("priorities").get(1).get("priorityId").asLong(), ship.get("priorityId").asLong());
+        assertEquals(MEMBER, snapshot.get("assignments").get(0).get("userId").asLong());
+        assertEquals(w.modsRole, snapshot.get("roleAssignments").get(0).get("roleId").asLong());
+        assertEquals("bug", snapshot.get("labels").get(0).get("name").asText());
+        assertEquals(1, snapshot.get("taskLabels").size());
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT count(*) FROM task_comments c JOIN tasks t USING (task_id) "
+                + "WHERE t.board_id = ? AND c.user_id IN (?, ?)", Integer.class, copy, MEMBER, MOD));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM task_comments c JOIN tasks t USING (task_id) "
+                + "WHERE t.board_id = ? AND c.reply_to IS NOT NULL", Integer.class, copy));
+        assertEquals(403, w.updateTask(MEMBER, copy, ship.get("taskId").asLong(), "Nope", ship.get("columnId").asLong()).status(),
+                "the board's rule came along");
+
+        List<String> added = auditLog(w).stream().skip(auditBefore).map(e -> e.get("action").asText()).toList();
+        assertEquals(List.of("BOARD_CREATED", "PERMISSION_CREATED"), added, "one board creation, not a change per task");
+
+        assertEquals(403, call("POST", w.path("/boards/import"), MEMBER, Map.of("document", file)).status(),
+                "importing needs permission to create boards");
+    }
+
+    @Test
+    void import_elsewhere_leavesOutWhoIsNotThere_andOnlyTheChosenParts() throws Exception {
+        World from = bootstrapServer();
+        long board = richBoard(from, "Travelling");
+        ObjectNode file = (ObjectNode) call("GET", from.boardPath(board, ALL_PARTS), OWNER, null).expect(200).json();
+        // The first comment's author has left: their comment is kept, naming them.
+        ((ObjectNode) file.get("tasks").get(1).get("comments").get(0).get("author")).put("userId", "777").put("name", "Gone");
+
+        World to = bootstrapServer();
+        JsonNode result = call("POST", to.path("/boards/import"), OWNER,
+                Map.of("document", file, "parts", List.of("assignees", "comments", "permissions"), "name", "Arrived")).expect(201).json();
+        long copy = result.get("board").get("boardId").asLong();
+        assertEquals("Arrived", result.get("board").get("name").asText());
+        assertEquals(1, result.get("imported").get("assignees").asInt(), "the member is a member here too");
+        assertEquals(1, result.get("skipped").get("roles").asInt(), "another server's roles don't exist here");
+        assertEquals(1, result.get("skipped").get("permissions").asInt(), "nor do rules about them");
+        assertEquals(1, result.get("skipped").get("commentAuthors").asInt());
+
+        JsonNode snapshot = to.snapshot(OWNER, copy);
+        assertEquals(0, snapshot.get("labels").size(), "labels were not chosen");
+        assertEquals(5, snapshot.get("priorities").size(), "without the file's levels, the board gets the defaults");
+        for (JsonNode task : snapshot.get("tasks")) {
+            assertTrue(task.get("priorityId").isNull(), "and no task keeps a level from the file");
+        }
+        assertEquals("*Gone wrote:*\nOn it", jdbcTemplate.queryForObject("SELECT c.content FROM task_comments c "
+                + "JOIN tasks t USING (task_id) WHERE t.board_id = ? AND c.user_id = ?", String.class, copy, OWNER));
+
+        ObjectNode wrong = file.deepCopy();
+        wrong.put("format", "trello");
+        assertEquals(400, call("POST", to.path("/boards/import"), OWNER, Map.of("document", wrong)).status());
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
