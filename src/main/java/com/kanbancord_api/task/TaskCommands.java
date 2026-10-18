@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Creating, changing and deleting tasks: authorization, validation, the change itself and its
@@ -151,8 +152,10 @@ public class TaskCommands {
     }
 
     /**
-     * Puts a task at a position in a column (its own or another) and renumbers the affected columns,
-     * so a drag and drop is one request, one event and one audit entry. Needs only MOVE_TASK.
+     * Puts a task at a position in a column (its own or another), so a drag and drop is one request,
+     * one event and one audit entry. Usually only the moved task is written, placed between its new
+     * neighbours; the column is renumbered only when there is no room left between them. Needs only
+     * MOVE_TASK.
      */
     public TaskResponse move(Long serverId, Long boardId, Long taskId, Long actorUserId, TaskMoveRequest request) {
         authorizer.requireBoardPermission(actorUserId, serverId, boardId, "MOVE_TASK");
@@ -164,22 +167,32 @@ public class TaskCommands {
                 .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", request.columnId()));
 
         TaskResponse before = TaskResponse.from(task);
-        Long sourceColumnId = task.getColumn().getColumnId();
-        List<Task> changed = new ArrayList<>();
+        boolean sameColumn = task.getColumn().getColumnId().equals(target.getColumnId());
 
-        List<Task> targetTasks = columnTasksWithout(target.getColumnId(), taskId);
-        Positions.insert(targetTasks, request.index(), task);
-        task.setColumn(target);
-        Positions.renumber(targetTasks, Task::getPosition, Task::setPosition);
-        changed.addAll(targetTasks);
-
-        if (!sourceColumnId.equals(target.getColumnId())) {
-            List<Task> sourceTasks = columnTasksWithout(sourceColumnId, taskId);
-            Positions.renumber(sourceTasks, Task::getPosition, Task::setPosition);
-            changed.addAll(sourceTasks);
+        List<Task> column = taskService.findByColumnIdOrdered(target.getColumnId());
+        int currentIndex = sameColumn ? indexOf(column, taskId) : -1;
+        List<Task> others = new ArrayList<>(column);
+        others.removeIf(other -> other.getTaskId().equals(taskId));
+        int index = Math.min(request.index(), others.size());
+        if (sameColumn && index == currentIndex) {
+            return before;
         }
 
-        taskService.updateAll(changed);
+        // Halfway between the new neighbours, unless they are too close (or unnumbered): then the
+        // column is numbered afresh, the only case where other tasks are written.
+        BigDecimal previous = index > 0 ? others.get(index - 1).getPosition() : null;
+        BigDecimal next = index < others.size() ? others.get(index).getPosition() : null;
+        boolean unnumbered = (index > 0 && previous == null) || (index < others.size() && next == null);
+        Optional<BigDecimal> position = unnumbered ? Optional.empty() : Positions.between(previous, next);
+        task.setColumn(target);
+        if (position.isPresent()) {
+            task.setPosition(position.get());
+            taskService.updateAll(List.of(task));
+        } else {
+            Positions.insert(others, index, task);
+            Positions.renumber(others, Task::getPosition, Task::setPosition);
+            taskService.updateAll(others);
+        }
         TaskResponse after = TaskResponse.from(task);
         boolean moved = !Objects.equals(before.columnId(), after.columnId())
                 || before.position() == null
@@ -201,10 +214,13 @@ public class TaskCommands {
                 .orElse(BigDecimal.ONE);
     }
 
-    private List<Task> columnTasksWithout(Long columnId, Long taskId) {
-        List<Task> tasks = new ArrayList<>(taskService.findByColumnIdOrdered(columnId));
-        tasks.removeIf(other -> other.getTaskId().equals(taskId));
-        return tasks;
+    private static int indexOf(List<Task> tasks, Long taskId) {
+        for (int i = 0; i < tasks.size(); i++) {
+            if (tasks.get(i).getTaskId().equals(taskId)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void delete(Long serverId, Long boardId, Long taskId, Long actorUserId) {

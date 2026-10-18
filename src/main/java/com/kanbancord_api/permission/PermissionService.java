@@ -12,13 +12,23 @@ import java.util.Optional;
 public class PermissionService {
 
     private final PermissionRepository permissionRepository;
+    private final ServerRulesCache serverRulesCache;
 
-    public PermissionService(PermissionRepository permissionRepository) {
+    public PermissionService(PermissionRepository permissionRepository, ServerRulesCache serverRulesCache) {
         this.permissionRepository = permissionRepository;
+        this.serverRulesCache = serverRulesCache;
     }
 
     public Permission create(Permission permission) {
+        changing(permission);
         return withKanbanPermissionLoaded(permissionRepository.save(permission));
+    }
+
+    /** Server rules are cached between requests; a change to one clears its server's once committed. */
+    private void changing(Permission permission) {
+        if ("SERVER".equals(permission.getScopeType())) {
+            serverRulesCache.clearAfterCommit(permission.getScopeId());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -37,6 +47,7 @@ public class PermissionService {
     }
 
     public Permission update(Permission permission) {
+        changing(permission);
         return withKanbanPermissionLoaded(permissionRepository.saveAndFlush(permission));
     }
 
@@ -50,6 +61,7 @@ public class PermissionService {
     }
 
     public void deleteById(Long id) {
+        permissionRepository.findById(id).ifPresent(this::changing);
         permissionRepository.deleteById(id);
     }
 

@@ -2,11 +2,6 @@ package com.kanbancord_api.permission;
 
 import com.kanbancord_api.feature.Feature;
 import com.kanbancord_api.feature.ServerFeatureService;
-import com.kanbancord_api.server.MemberRoleRepository;
-import com.kanbancord_api.server.Role;
-import com.kanbancord_api.server.ServerMember;
-import com.kanbancord_api.server.ServerMemberRepository;
-import com.kanbancord_api.server.ServerRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,13 +9,13 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Loads a {@link PermissionSnapshot} with a fixed handful of queries (membership, roles, owner,
- * server rules, board rules) and resolves keys in memory via {@link PermissionResolver}.
+ * Loads a {@link PermissionSnapshot} with at most two queries (the person's membership, roles and
+ * the server's settings in one, and the board's rules), the server's rules coming from
+ * {@link ServerRulesCache}, and resolves keys in memory via {@link PermissionResolver}.
  *
  * <p>The stored rules only apply while the server has custom permissions on. While they are off, the
  * defaults apply ({@link DefaultPermissionRules}) and boards have no rules of their own; the stored
@@ -34,25 +29,22 @@ public class PermissionEvaluationService {
     private static final String SCOPE_BOARD = "BOARD";
 
     private final PermissionRepository permissionRepository;
-    private final ServerMemberRepository serverMemberRepository;
-    private final MemberRoleRepository memberRoleRepository;
-    private final ServerRepository serverRepository;
+    private final MembershipQuery membershipQuery;
     private final DiscordPermissionParser discordPermissionParser;
     private final ServerFeatureService serverFeatureService;
+    private final ServerRulesCache serverRulesCache;
 
     public PermissionEvaluationService(
             PermissionRepository permissionRepository,
-            ServerMemberRepository serverMemberRepository,
-            MemberRoleRepository memberRoleRepository,
-            ServerRepository serverRepository,
+            MembershipQuery membershipQuery,
             DiscordPermissionParser discordPermissionParser,
-            ServerFeatureService serverFeatureService) {
+            ServerFeatureService serverFeatureService,
+            ServerRulesCache serverRulesCache) {
         this.permissionRepository = permissionRepository;
-        this.serverMemberRepository = serverMemberRepository;
-        this.memberRoleRepository = memberRoleRepository;
-        this.serverRepository = serverRepository;
+        this.membershipQuery = membershipQuery;
         this.discordPermissionParser = discordPermissionParser;
         this.serverFeatureService = serverFeatureService;
+        this.serverRulesCache = serverRulesCache;
     }
 
     /** Whether the server's stored rules apply, rather than the defaults. */
@@ -63,7 +55,8 @@ public class PermissionEvaluationService {
     /** The server-scope rules that apply: the stored ones, or the defaults while custom permissions are off. */
     public List<Permission> serverRules(Long serverId) {
         return customRulesApply(serverId)
-                ? permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_SERVER, serverId)
+                ? serverRulesCache.get(serverId,
+                        () -> permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(SCOPE_SERVER, serverId))
                 : DefaultPermissionRules.forServer(serverId);
     }
 
@@ -166,26 +159,12 @@ public class PermissionEvaluationService {
     }
 
     public PermissionSnapshot loadSnapshot(Long serverId, Long boardId, Long userId) {
-        Optional<ServerMember> member = serverMemberRepository.findByServer_ServerIdAndUser_UserId(serverId, userId);
+        MembershipQuery.Membership membership = membershipQuery.load(serverId, userId);
 
-        Set<Long> roleIds = Set.of();
         Set<Long> discordFlagBits = Set.of();
-        if (member.isPresent()) {
-            List<Role> roles = memberRoleRepository.findRolesWithEveryone(member.get().getId(), serverId);
-            roleIds = roles.stream().map(Role::getRoleId).collect(Collectors.toUnmodifiableSet());
-
-            long aggregatedDiscordPermissions = 0L;
-            for (Role role : roles) {
-                if (role.getDiscordPermissions() != null) {
-                    aggregatedDiscordPermissions |= role.getDiscordPermissions();
-                }
-            }
-
-            Set<DiscordPermissionFlag> flags = discordPermissionParser.parse(aggregatedDiscordPermissions);
-            boolean isServerOwner = serverRepository.findOwnerIdByServerId(serverId)
-                    .map(userId::equals)
-                    .orElse(false);
-            if (isServerOwner) {
+        if (membership.member()) {
+            Set<DiscordPermissionFlag> flags = discordPermissionParser.parse(membership.discordPermissions());
+            if (membership.owner()) {
                 flags.add(DiscordPermissionFlag.ADMINISTRATOR);
             }
             discordFlagBits = flags.stream()
@@ -195,12 +174,12 @@ public class PermissionEvaluationService {
 
         return new PermissionSnapshot(
                 userId,
-                member.isPresent(),
-                roleIds,
+                membership.member(),
+                membership.roleIds(),
                 discordFlagBits,
                 boardRules(serverId, boardId),
                 serverRules(serverId),
-                serverRepository.findOpenPermissions(serverId).orElse(false),
+                membership.openPermissions(),
                 serverId);
     }
 

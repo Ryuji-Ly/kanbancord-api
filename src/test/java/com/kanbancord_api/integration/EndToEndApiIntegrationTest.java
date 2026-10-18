@@ -683,6 +683,46 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void moves_writeOnlyTheMovedTask_untilTheGapRunsOut() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Long column");
+        long todo = w.column(board, "Todo");
+        List<Long> tasks = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            tasks.add(w.createTask(OWNER, board, todo, "Task " + i));
+        }
+        String versions = "SELECT string_agg(xmin::text, ',' ORDER BY task_id) FROM tasks WHERE board_id = ? AND task_id <> ?";
+        long last = tasks.get(29);
+        String othersBefore = jdbcTemplate.queryForObject(versions, String.class, board, last);
+
+        w.moveTask(OWNER, board, last, todo, 0).expect(200);
+        List<Long> expected = new ArrayList<>(tasks);
+        expected.remove(last);
+        expected.add(0, last);
+        assertEquals(expected, w.tasksByColumn(board).get(todo));
+        assertEquals(othersBefore, jdbcTemplate.queryForObject(versions, String.class, board, last),
+                "moving to the top of 30 tasks writes only the moved one");
+
+        // Dropping a task where it already is changes nothing, and is not a move.
+        int movesBefore = (int) auditLog(w).stream().filter(e -> "TASK_MOVED".equals(e.get("action").asText())).count();
+        w.moveTask(OWNER, board, last, todo, 0).expect(200);
+        assertEquals(movesBefore, auditLog(w).stream().filter(e -> "TASK_MOVED".equals(e.get("action").asText())).count());
+
+        // Moving into the same gap again and again halves it until there is no room; then the column is
+        // numbered afresh, and the order is still right.
+        long first = tasks.get(0);
+        long second = tasks.get(1);
+        for (int i = 0; i < 40; i++) {
+            long moving = i % 2 == 0 ? tasks.get(5) : tasks.get(6);
+            w.moveTask(OWNER, board, moving, todo, 2).expect(200);
+            List<Long> order = w.tasksByColumn(board).get(todo);
+            assertEquals(List.of(last, first, moving), order.subList(0, 3), "move " + i);
+            assertEquals(30, order.size());
+        }
+        assertTrue(w.tasksByColumn(board).get(todo).contains(second));
+    }
+
+    @Test
     void boardSnapshot_returnsEverythingTheBoardPageNeeds_andRespectsVisibility() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Snapshot");
@@ -2003,6 +2043,25 @@ class EndToEndApiIntegrationTest {
         long task = w.createTask(MOD, board, w.column(board, "Todo"), "Still a member");
         assertEquals(403, w.updateTask(MOD, board, task, "Renamed", w.column(board, "Todo")).status());
 
+        // The same sync again rewrites nothing: every row keeps the version it had (xmin changes on a write).
+        List<String> versions = List.of(
+                "SELECT string_agg(xmin::text, ',' ORDER BY user_id) FROM users WHERE user_id IN "
+                        + "(SELECT user_id FROM server_members WHERE server_id = ?)",
+                "SELECT string_agg(xmin::text, ',' ORDER BY id) FROM server_members WHERE server_id = ?",
+                "SELECT string_agg(xmin::text, ',' ORDER BY role_id) FROM roles WHERE server_id = ?",
+                "SELECT string_agg(mr.xmin::text, ',' ORDER BY mr.server_member_id, mr.role_id) FROM member_roles mr "
+                        + "JOIN server_members sm ON sm.id = mr.server_member_id WHERE sm.server_id = ?",
+                "SELECT xmin::text FROM servers WHERE server_id = ?");
+        List<String> before = new ArrayList<>();
+        for (String sql : versions) {
+            before.add(jdbcTemplate.queryForObject(sql, String.class, w.serverId));
+        }
+        assertEquals(204, sync("POST", bootstrap, body));
+        for (int i = 0; i < versions.size(); i++) {
+            assertEquals(before.get(i), jdbcTemplate.queryForObject(versions.get(i), String.class, w.serverId),
+                    "unchanged rows are not rewritten: " + versions.get(i));
+        }
+
         // A sync that could not read the members (an empty list) removes nobody, and no one's roles.
         body.put("members", List.of());
         assertEquals(204, sync("POST", bootstrap, body));
@@ -2125,6 +2184,30 @@ class EndToEndApiIntegrationTest {
         assertFalse(only(claimPosts(), second).get("boardExists").asBoolean());
         reportPosts(List.of(), List.of(second), List.of());
         assertEquals(0, count("SELECT count(*) FROM board_posts WHERE post_id = " + second));
+
+        // Posting a board again in the same channel replaces the older post there, not one elsewhere.
+        long again = w.createBoard(OWNER, "Again");
+        String againPosts = w.boardPath(again, "/posts");
+        long old = asBot("POST", againPosts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "8001")).expect(201).json().get("postId").asLong();
+        long elsewhere = asBot("POST", againPosts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5002", "messageId", "8002")).expect(201).json().get("postId").asLong();
+        claimPosts();
+        reportPosts(List.of(old, elsewhere), List.of(), List.of());
+        long fresh = asBot("POST", againPosts, BOT_TOKEN, OWNER, w.serverId,
+                Map.of("channelId", "5001", "messageId", "8003")).expect(201).json().get("postId").asLong();
+        JsonNode round = claimPosts();
+        assertEquals("8003", only(round, old).get("replacedByMessageId").asText(), "the old post points to the new one");
+        assertTrue(only(round, fresh).get("replacedByMessageId").isNull());
+        assertTrue(mine(round, elsewhere).isEmpty(), "a post in another channel stays as it is");
+        reportPosts(List.of(fresh), List.of(old), List.of());
+        w.createTask(OWNER, again, w.column(again, "Todo"), "After");
+        settle(fresh);
+        settle(elsewhere);
+        round = claimPosts();
+        only(round, fresh);
+        only(round, elsewhere);
+        assertEquals(0, count("SELECT count(*) FROM board_posts WHERE post_id = " + old), "the replaced post is forgotten");
 
         // At most ten posts per board.
         long busy = w.createBoard(OWNER, "Busy");

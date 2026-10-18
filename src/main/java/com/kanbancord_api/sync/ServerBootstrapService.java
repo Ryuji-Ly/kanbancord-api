@@ -24,7 +24,8 @@ import java.util.stream.Collectors;
  *
  * <p>Servers can have thousands of members, so everything is written in batches, in one
  * transaction: the whole sync takes a handful of statements per thousand members rather than
- * several per member.
+ * several per member. Rows that have not changed are left alone, not rewritten: most of a resync is
+ * the same as last time, and in PostgreSQL every rewritten row leaves a dead copy to vacuum.
  */
 @Service
 public class ServerBootstrapService {
@@ -64,12 +65,16 @@ public class ServerBootstrapService {
                 INSERT INTO users (user_id, username, global_name, avatar_url) VALUES (?, ?, ?, ?)
                 ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, global_name = EXCLUDED.global_name,
                     avatar_url = EXCLUDED.avatar_url, updated_at = CURRENT_TIMESTAMP
+                WHERE (users.username, users.global_name, users.avatar_url)
+                    IS DISTINCT FROM (EXCLUDED.username, EXCLUDED.global_name, EXCLUDED.avatar_url)
                 """, users);
 
         jdbcTemplate.update("""
                 INSERT INTO servers (server_id, name, icon_url, owner_id, bot_present) VALUES (?, ?, ?, ?, TRUE)
                 ON CONFLICT (server_id) DO UPDATE SET name = EXCLUDED.name, icon_url = EXCLUDED.icon_url,
                     owner_id = EXCLUDED.owner_id, bot_present = TRUE, updated_at = CURRENT_TIMESTAMP
+                WHERE (servers.name, servers.icon_url, servers.owner_id, servers.bot_present)
+                    IS DISTINCT FROM (EXCLUDED.name, EXCLUDED.icon_url, EXCLUDED.owner_id, TRUE)
                 """, serverId, request.name(), request.iconUrl(), request.ownerId());
 
         List<Object[]> roles = request.roles().stream()
@@ -81,12 +86,15 @@ public class ServerBootstrapService {
                 ON CONFLICT (role_id) DO UPDATE SET server_id = EXCLUDED.server_id, name = EXCLUDED.name,
                     color = EXCLUDED.color, position = EXCLUDED.position,
                     discord_permissions = EXCLUDED.discord_permissions, updated_at = CURRENT_TIMESTAMP
+                WHERE (roles.server_id, roles.name, roles.color, roles.position, roles.discord_permissions)
+                    IS DISTINCT FROM (EXCLUDED.server_id, EXCLUDED.name, EXCLUDED.color, EXCLUDED.position,
+                        EXCLUDED.discord_permissions)
                 """, roles);
 
         List<Object[]> memberRows = members.values().stream()
                 .map(entry -> {
                     Timestamp joined = entry.joinedAt() == null ? null : Timestamp.valueOf(entry.joinedAt());
-                    return new Object[]{serverId, entry.userId(), entry.nickname(), joined, joined};
+                    return new Object[]{serverId, entry.userId(), entry.nickname(), joined, joined, joined};
                 })
                 .toList();
         batch("""
@@ -94,6 +102,8 @@ public class ServerBootstrapService {
                 VALUES (?, ?, ?, COALESCE(CAST(? AS TIMESTAMP), CURRENT_TIMESTAMP))
                 ON CONFLICT (server_id, user_id) DO UPDATE SET nickname = EXCLUDED.nickname,
                     joined_at = COALESCE(CAST(? AS TIMESTAMP), server_members.joined_at), updated_at = CURRENT_TIMESTAMP
+                WHERE server_members.nickname IS DISTINCT FROM EXCLUDED.nickname
+                    OR server_members.joined_at IS DISTINCT FROM COALESCE(CAST(? AS TIMESTAMP), server_members.joined_at)
                 """, memberRows);
 
         // Removals. An empty list can only mean the bot could not read it (a server always has its
@@ -111,10 +121,10 @@ public class ServerBootstrapService {
             rolesRemoved = deleteNotIn("DELETE FROM roles WHERE server_id = ? AND NOT (role_id = ANY (?))", serverId, roleIds);
         }
 
-        // Each member's roles, replaced wholesale; skipped with the member list it depends on. Role ids
-        // the server does not have are skipped.
+        // Each member's roles, made what the bot sent by removing and adding only the differences;
+        // skipped with the member list it depends on. Role ids the server does not have are skipped.
         if (!members.isEmpty()) {
-            replaceMemberRoles(serverId, members);
+            syncMemberRoles(serverId, members);
         }
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
@@ -125,26 +135,54 @@ public class ServerBootstrapService {
         return result;
     }
 
-    private void replaceMemberRoles(Long serverId, Map<Long, InternalBootstrapRequest.MemberEntry> members) {
-        jdbcTemplate.update("""
-                DELETE FROM member_roles
-                WHERE server_member_id IN (SELECT id FROM server_members WHERE server_id = ?)
-                """, serverId);
-        List<Object[]> memberRoles = new ArrayList<>();
+    /**
+     * Makes every member's roles what the bot sent, in two statements whatever the server's size: one
+     * removes the roles members no longer have, one adds the ones they gained. A member sent without
+     * a role list has none.
+     */
+    private void syncMemberRoles(Long serverId, Map<Long, InternalBootstrapRequest.MemberEntry> members) {
+        List<Long> userIds = new ArrayList<>();
+        List<Long> roleIds = new ArrayList<>();
         for (InternalBootstrapRequest.MemberEntry entry : members.values()) {
             if (entry.roleIds() == null) {
                 continue;
             }
             for (Long roleId : Set.copyOf(entry.roleIds())) {
-                memberRoles.add(new Object[]{roleId, serverId, serverId, entry.userId()});
+                userIds.add(entry.userId());
+                roleIds.add(roleId);
             }
         }
-        batch("""
-                INSERT INTO member_roles (server_member_id, role_id)
-                SELECT sm.id, r.role_id FROM server_members sm JOIN roles r ON r.role_id = ? AND r.server_id = ?
-                WHERE sm.server_id = ? AND sm.user_id = ?
-                ON CONFLICT DO NOTHING
-                """, memberRoles);
+        Long[] users = userIds.toArray(Long[]::new);
+        Long[] roles = roleIds.toArray(Long[]::new);
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                    DELETE FROM member_roles mr
+                    USING server_members sm
+                    WHERE mr.server_member_id = sm.id AND sm.server_id = ?
+                      AND NOT EXISTS (
+                          SELECT 1 FROM unnest(?::bigint[], ?::bigint[]) AS wanted(user_id, role_id)
+                          WHERE wanted.user_id = sm.user_id AND wanted.role_id = mr.role_id)
+                    """);
+            statement.setLong(1, serverId);
+            statement.setArray(2, connection.createArrayOf("bigint", users));
+            statement.setArray(3, connection.createArrayOf("bigint", roles));
+            return statement;
+        });
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO member_roles (server_member_id, role_id)
+                    SELECT sm.id, r.role_id
+                    FROM unnest(?::bigint[], ?::bigint[]) AS wanted(user_id, role_id)
+                    JOIN server_members sm ON sm.server_id = ? AND sm.user_id = wanted.user_id
+                    JOIN roles r ON r.role_id = wanted.role_id AND r.server_id = ?
+                    ON CONFLICT DO NOTHING
+                    """);
+            statement.setArray(1, connection.createArrayOf("bigint", users));
+            statement.setArray(2, connection.createArrayOf("bigint", roles));
+            statement.setLong(3, serverId);
+            statement.setLong(4, serverId);
+            return statement;
+        });
     }
 
     private void batch(String sql, List<Object[]> rows) {

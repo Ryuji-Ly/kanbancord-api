@@ -39,7 +39,7 @@ public class Task {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "position", precision = 10, scale = 2)
+    @Column(name = "position", precision = 20, scale = 10)
     private BigDecimal position;
 
     /** One of the board's priority levels, or null for none. */

@@ -42,11 +42,13 @@ public class InternalBoardPostController {
             @JsonSerialize(using = ToStringSerializer.class) Long boardId,
             @JsonSerialize(using = ToStringSerializer.class) Long channelId,
             @JsonSerialize(using = ToStringSerializer.class) Long messageId,
-            boolean boardExists) {
+            boolean boardExists,
+            /** The newer post of the same board in the same channel, once it was posted again there. */
+            @JsonSerialize(using = ToStringSerializer.class) Long replacedByMessageId) {
 
         static ClaimedPost from(BoardPostService.Claimed claimed) {
             return new ClaimedPost(claimed.postId(), claimed.serverId(), claimed.boardId(), claimed.channelId(),
-                    claimed.messageId(), claimed.boardExists());
+                    claimed.messageId(), claimed.boardExists(), claimed.replacedByMessageId());
         }
     }
 

@@ -1,5 +1,6 @@
 package com.kanbancord_api.unit.service;
 
+import com.kanbancord_api.permission.ServerRulesCache;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
 import com.kanbancord_api.permission.KanbanPermission;
 import com.kanbancord_api.permission.KanbanPermissionCatalog;
@@ -36,7 +37,7 @@ class PermissionBootstrapServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PermissionBootstrapService(kanbanPermissionRepository, permissionRepository);
+        service = new PermissionBootstrapService(kanbanPermissionRepository, permissionRepository, new ServerRulesCache());
     }
 
     @Test

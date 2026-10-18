@@ -40,9 +40,12 @@ public class BoardPostService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    /** A post the bot should redraw; {@code boardExists} is false once its board was deleted. */
+    /**
+     * A post the bot should redraw; {@code boardExists} is false once its board was deleted, and
+     * {@code replacedByMessageId} is the newer post of the same board in the same channel, once there is one.
+     */
     public record Claimed(long postId, long serverId, long boardId, long channelId, long messageId,
-                          boolean boardExists) {
+                          boolean boardExists, Long replacedByMessageId) {
     }
 
     /** The active boards posted in a channel, by id. */
@@ -54,7 +57,12 @@ public class BoardPostService {
                 """, Long.class, serverId, channelId);
     }
 
-    /** Records a message the bot just posted. It is drawn again at once from the whole board. */
+    /**
+     * Records a message the bot just posted. It is drawn again at once from the whole board. Older
+     * posts of the same board in the same channel are replaced by it: they are redrawn once more to
+     * say so, then forgotten, so posting a board again where the old post got buried does not leave
+     * several copies to keep up to date.
+     */
     @Transactional
     public long register(long serverId, long boardId, long channelId, long messageId, long createdBy) {
         Integer onBoard = jdbcTemplate.queryForObject(
@@ -75,6 +83,10 @@ public class BoardPostService {
                     VALUES (?, ?, ?, ?, ?, now() - make_interval(secs => ?))
                     RETURNING post_id
                     """, Long.class, serverId, boardId, channelId, messageId, createdBy, SETTLE_SECONDS);
+            jdbcTemplate.update("""
+                    UPDATE board_posts SET replaced_by_message_id = ?, dirty_at = now() - make_interval(secs => ?)
+                    WHERE board_id = ? AND channel_id = ? AND post_id <> ? AND replaced_by_message_id IS NULL
+                    """, messageId, SETTLE_SECONDS, boardId, channelId, postId);
             return postId == null ? 0 : postId;
         } catch (DuplicateKeyException ex) {
             throw new BadRequestException("That message is already a board post");
@@ -92,11 +104,15 @@ public class BoardPostService {
             return;
         }
         if (event.boardId() != null) {
-            jdbcTemplate.update("UPDATE board_posts SET dirty_at = now() WHERE board_id = ? AND dirty_at IS NULL",
-                    event.boardId());
+            jdbcTemplate.update("""
+                    UPDATE board_posts SET dirty_at = now()
+                    WHERE board_id = ? AND dirty_at IS NULL AND replaced_by_message_id IS NULL
+                    """, event.boardId());
         } else {
-            jdbcTemplate.update("UPDATE board_posts SET dirty_at = now() WHERE server_id = ? AND dirty_at IS NULL",
-                    event.serverId());
+            jdbcTemplate.update("""
+                    UPDATE board_posts SET dirty_at = now()
+                    WHERE server_id = ? AND dirty_at IS NULL AND replaced_by_message_id IS NULL
+                    """, event.serverId());
         }
     }
 
@@ -121,9 +137,10 @@ public class BoardPostService {
                 UPDATE board_posts p SET dirty_at = NULL, claimed_at = now()
                 FROM due WHERE p.post_id = due.post_id
                 RETURNING p.post_id, p.server_id, p.board_id, p.channel_id, p.message_id,
-                    EXISTS (SELECT 1 FROM boards b WHERE b.board_id = p.board_id AND b.server_id = p.server_id)
+                    EXISTS (SELECT 1 FROM boards b WHERE b.board_id = p.board_id AND b.server_id = p.server_id),
+                    p.replaced_by_message_id
                 """, (row, index) -> new Claimed(row.getLong(1), row.getLong(2), row.getLong(3), row.getLong(4),
-                row.getLong(5), row.getBoolean(6)), SETTLE_SECONDS, CLAIM_TIMEOUT_SECONDS, CLAIM_TIMEOUT_SECONDS, limit);
+                row.getLong(5), row.getBoolean(6), row.getObject(7, Long.class)), SETTLE_SECONDS, CLAIM_TIMEOUT_SECONDS, CLAIM_TIMEOUT_SECONDS, limit);
     }
 
     /**
@@ -139,6 +156,9 @@ public class BoardPostService {
                         blocked_notice_at = NULL
                     WHERE post_id = ANY (?)
                     """, longArray(done));
+            // A replaced post has had its last drawing, whichever the bot drew.
+            jdbcTemplate.update("DELETE FROM board_posts WHERE post_id = ANY (?) AND replaced_by_message_id IS NOT NULL",
+                    longArray(done));
         }
         if (!gone.isEmpty()) {
             jdbcTemplate.update("DELETE FROM board_posts WHERE post_id = ANY (?)", longArray(gone));

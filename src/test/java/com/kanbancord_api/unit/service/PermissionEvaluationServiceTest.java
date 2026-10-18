@@ -2,6 +2,8 @@ package com.kanbancord_api.unit.service;
 
 import com.kanbancord_api.feature.Feature;
 import com.kanbancord_api.feature.ServerFeatureService;
+import com.kanbancord_api.permission.MembershipQuery;
+import com.kanbancord_api.permission.ServerRulesCache;
 import com.kanbancord_api.permission.DefaultPermissionRules;
 import com.kanbancord_api.permission.DiscordPermissionFlag;
 import com.kanbancord_api.permission.DiscordPermissionParser;
@@ -288,11 +290,7 @@ class PermissionEvaluationServiceTest {
         @Mock
         private PermissionRepository permissionRepository;
         @Mock
-        private ServerMemberRepository serverMemberRepository;
-        @Mock
-        private MemberRoleRepository memberRoleRepository;
-        @Mock
-        private ServerRepository serverRepository;
+        private MembershipQuery membershipQuery;
         @Mock
         private ServerFeatureService serverFeatureService;
 
@@ -302,11 +300,10 @@ class PermissionEvaluationServiceTest {
         void setUp() {
             service = new PermissionEvaluationService(
                     permissionRepository,
-                    serverMemberRepository,
-                    memberRoleRepository,
-                    serverRepository,
+                    membershipQuery,
                     new DiscordPermissionParser(),
-                    serverFeatureService);
+                    serverFeatureService,
+                    new ServerRulesCache());
             lenient().when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(true);
             lenient().when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc(
                     eq("SERVER"), eq(SERVER))).thenReturn(List.of());
@@ -314,8 +311,8 @@ class PermissionEvaluationServiceTest {
 
         @Test
         void owner_withoutRoles_getsAdministratorFlag() {
+            owner = true;
             memberWithRoles();
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.of(USER));
 
             PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
 
@@ -326,7 +323,6 @@ class PermissionEvaluationServiceTest {
         @Test
         void discordFlags_areAggregatedAcrossRoles() {
             memberWithRoles(role(1L, VIEW_CHANNEL), role(2L, MANAGE_MESSAGES));
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.of(1234L));
 
             PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
 
@@ -336,8 +332,8 @@ class PermissionEvaluationServiceTest {
 
         @Test
         void nonMember_loadsNoRolesAndNoBoardRulesAtServerScope() {
-            when(serverMemberRepository.findByServer_ServerIdAndUser_UserId(SERVER, USER))
-                    .thenReturn(Optional.empty());
+            when(membershipQuery.load(SERVER, USER))
+                    .thenReturn(new MembershipQuery.Membership(false, Set.of(), 0L, false, false));
 
             PermissionSnapshot snapshot = service.loadSnapshot(SERVER, null, USER);
 
@@ -350,7 +346,6 @@ class PermissionEvaluationServiceTest {
         @Test
         void resolveAll_evaluatesManyKeysFromOneSnapshot() {
             memberWithRoles(role(ROLE, 0L));
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
             when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", SERVER))
                     .thenReturn(List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
             when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("BOARD", BOARD))
@@ -362,13 +357,12 @@ class PermissionEvaluationServiceTest {
             assertTrue(decisions.get("VIEW_BOARD").allowed());
             assertTrue(decisions.get("EDIT_TASK").allowed());
             assertFalse(decisions.get("DELETE_BOARD").allowed());
-            verify(serverMemberRepository).findByServer_ServerIdAndUser_UserId(SERVER, USER);
+            verify(membershipQuery).load(SERVER, USER);
         }
 
         @Test
         void filterAllowedBoards_appliesEachBoardsOverrides() {
             memberWithRoles(role(ROLE, 0L));
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
             when(permissionRepository.findByScopeTypeAndScopeIdOrderByPriorityDescIdDesc("SERVER", SERVER))
                     .thenReturn(List.of(serverRule(1L, "VIEW_BOARD", "ALLOW", "ROLE", ROLE)));
             Permission hideBoardTwo = boardRule(2L, "VIEW_BOARD", "DENY", "ROLE", ROLE);
@@ -385,7 +379,6 @@ class PermissionEvaluationServiceTest {
         void customPermissionsOff_appliesTheDefaults_andNoStoredRules() {
             when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(false);
             memberWithRoles(role(ROLE, VIEW_CHANNEL | DiscordPermissionFlag.SEND_MESSAGES.getBit()));
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
 
             PermissionSnapshot snapshot = service.loadSnapshot(SERVER, BOARD, USER);
 
@@ -401,7 +394,6 @@ class PermissionEvaluationServiceTest {
         void customPermissionsOff_boardsHaveNoRulesOfTheirOwn() {
             when(serverFeatureService.isEnabled(SERVER, Feature.PERMISSIONS)).thenReturn(false);
             memberWithRoles(role(ROLE, VIEW_CHANNEL));
-            when(serverRepository.findOwnerIdByServerId(SERVER)).thenReturn(Optional.empty());
 
             Set<Long> visible = service.filterAllowedBoards(SERVER, List.of(1L, 2L), USER, "VIEW_BOARD");
 
@@ -409,12 +401,18 @@ class PermissionEvaluationServiceTest {
             verify(permissionRepository, never()).findByScopeTypeAndScopeIdIn(eq("BOARD"), anyCollection());
         }
 
+        /** Whether the next member stubbed owns the server. */
+        private boolean owner;
+
         private void memberWithRoles(Role... roles) {
-            ServerMember member = new ServerMember();
-            member.setId(7L);
-            when(serverMemberRepository.findByServer_ServerIdAndUser_UserId(SERVER, USER))
-                    .thenReturn(Optional.of(member));
-            when(memberRoleRepository.findRolesWithEveryone(7L, SERVER)).thenReturn(List.of(roles));
+            long permissions = 0L;
+            Set<Long> roleIds = new java.util.HashSet<>();
+            for (Role role : roles) {
+                roleIds.add(role.getRoleId());
+                permissions |= role.getDiscordPermissions();
+            }
+            when(membershipQuery.load(SERVER, USER))
+                    .thenReturn(new MembershipQuery.Membership(true, roleIds, permissions, owner, false));
         }
     }
 

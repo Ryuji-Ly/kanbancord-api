@@ -14,12 +14,15 @@ public class PermissionBootstrapService {
 
     private final KanbanPermissionRepository kanbanPermissionRepository;
     private final PermissionRepository permissionRepository;
+    private final ServerRulesCache serverRulesCache;
 
     public PermissionBootstrapService(
             KanbanPermissionRepository kanbanPermissionRepository,
-            PermissionRepository permissionRepository) {
+            PermissionRepository permissionRepository,
+            ServerRulesCache serverRulesCache) {
         this.kanbanPermissionRepository = kanbanPermissionRepository;
         this.permissionRepository = permissionRepository;
+        this.serverRulesCache = serverRulesCache;
     }
 
     public void ensureCatalogSeeded() {
@@ -90,5 +93,8 @@ public class PermissionBootstrapService {
         permission.setIsImmutable(existingImmutable || immutable);
 
         permissionRepository.save(permission);
+        if (SCOPE_SERVER.equals(scopeType)) {
+            serverRulesCache.clearAfterCommit(scopeId);
+        }
     }
 }
