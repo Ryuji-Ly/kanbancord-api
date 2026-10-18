@@ -1283,6 +1283,40 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void channelSync_writesOnlyTheChannelsThatChanged() throws Exception {
+        World w = bootstrapServer();
+        String path = "/api/internal/sync/servers/" + w.serverId + "/channels";
+        long general = Long.parseLong("951" + w.serverId);
+        long random = Long.parseLong("952" + w.serverId);
+        long old = Long.parseLong("953" + w.serverId);
+        java.util.function.BiFunction<String, Boolean, List<Map<String, Object>>> channels = (name, withOld) -> {
+            List<Map<String, Object>> list = new ArrayList<>(List.of(
+                    Map.of("channelId", String.valueOf(general), "name", name, "position", 1, "botCanPost", true),
+                    Map.of("channelId", String.valueOf(random), "name", "random", "position", 2, "botCanPost", true)));
+            if (withOld) {
+                list.add(Map.of("channelId", String.valueOf(old), "name", "old", "position", 3, "botCanPost", true));
+            }
+            return list;
+        };
+        String version = "SELECT xmin::text FROM discord_channels WHERE channel_id = ?";
+
+        assertEquals(200, sync("PUT", path, channels.apply("general", true)));
+        String generalBefore = jdbcTemplate.queryForObject(version, String.class, general);
+        String randomBefore = jdbcTemplate.queryForObject(version, String.class, random);
+
+        assertEquals(200, sync("PUT", path, channels.apply("general", true)));
+        assertEquals(generalBefore, jdbcTemplate.queryForObject(version, String.class, general), "the same report writes nothing");
+        assertEquals(randomBefore, jdbcTemplate.queryForObject(version, String.class, random));
+
+        // #general renamed and #old deleted: only those two are written.
+        assertEquals(200, sync("PUT", path, channels.apply("chat", false)));
+        assertNotEquals(generalBefore, jdbcTemplate.queryForObject(version, String.class, general));
+        assertEquals("chat", jdbcTemplate.queryForObject("SELECT name FROM discord_channels WHERE channel_id = ?", String.class, general));
+        assertEquals(randomBefore, jdbcTemplate.queryForObject(version, String.class, random), "an unchanged channel stays as it was");
+        assertEquals(0, count("SELECT count(*) FROM discord_channels WHERE channel_id = " + old), "a deleted channel is removed");
+    }
+
+    @Test
     void lostChannels_areReportedOnce_whenTheBotLosesAccessOrAChannelGoes() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Watched");

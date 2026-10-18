@@ -63,10 +63,21 @@ public class NotificationSettingsService {
                 rs.getBoolean("bot_can_private_thread")), serverId);
     }
 
-    /** Makes the server's channels exactly those the bot reported. */
+    /**
+     * Makes the server's channels exactly those the bot reported, writing only what changed: channels
+     * no longer there are removed, and the others are added or updated only when they differ. The bot
+     * reports a server's channels after every channel or role change, so most reports are the same.
+     */
     @Transactional
     public void replaceChannels(Long serverId, List<Channel> channels) {
-        jdbcTemplate.update("DELETE FROM discord_channels WHERE server_id = ?", serverId);
+        Long[] kept = channels.stream().map(Channel::channelId).toArray(Long[]::new);
+        jdbcTemplate.update(connection -> {
+            var statement = connection.prepareStatement(
+                    "DELETE FROM discord_channels WHERE server_id = ? AND NOT (channel_id = ANY (?))");
+            statement.setLong(1, serverId);
+            statement.setArray(2, connection.createArrayOf("bigint", kept));
+            return statement;
+        });
         jdbcTemplate.batchUpdate("""
                 INSERT INTO discord_channels (channel_id, server_id, name, category, position, bot_can_post,
                                               bot_can_thread, bot_can_private_thread)
@@ -74,6 +85,11 @@ public class NotificationSettingsService {
                 ON CONFLICT (channel_id) DO UPDATE SET server_id = EXCLUDED.server_id, name = EXCLUDED.name,
                     category = EXCLUDED.category, position = EXCLUDED.position, bot_can_post = EXCLUDED.bot_can_post,
                     bot_can_thread = EXCLUDED.bot_can_thread, bot_can_private_thread = EXCLUDED.bot_can_private_thread
+                WHERE (discord_channels.server_id, discord_channels.name, discord_channels.category,
+                       discord_channels.position, discord_channels.bot_can_post, discord_channels.bot_can_thread,
+                       discord_channels.bot_can_private_thread)
+                    IS DISTINCT FROM (EXCLUDED.server_id, EXCLUDED.name, EXCLUDED.category, EXCLUDED.position,
+                       EXCLUDED.bot_can_post, EXCLUDED.bot_can_thread, EXCLUDED.bot_can_private_thread)
                 """, channels.stream()
                 .map(channel -> new Object[]{channel.channelId(), serverId, truncate(channel.name(), 100),
                         truncate(channel.category(), 100), channel.position(), channel.botCanPost(),
