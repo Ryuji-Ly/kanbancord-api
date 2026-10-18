@@ -128,6 +128,8 @@ public class ServerBootstrapService {
         }
 
         permissionBootstrapService.initializeDefaultServerConfiguration(serverId);
+        jdbcTemplate.update("UPDATE servers SET sync_fingerprint = ?, synced_at = now() WHERE server_id = ?",
+                request.fingerprint(), serverId);
 
         Result result = new Result(roles.size(), members.size(), rolesRemoved, membersRemoved);
         log.info("Synced server {}: {} roles, {} members, removed {} roles and {} members, in {} ms", serverId,
@@ -183,6 +185,26 @@ public class ServerBootstrapService {
             statement.setLong(4, serverId);
             return statement;
         });
+    }
+
+    /** How long a fingerprint may stand in for a full sync: a full one still runs at least this often. */
+    static final int FINGERPRINT_HOURS = 24;
+
+    /**
+     * Whether the server is as it was at its last full sync, so the bot need not send it again: the
+     * bot is in it, the fingerprint is the same, and that sync was less than {@link #FINGERPRINT_HOURS}
+     * ago. Events in between keep it current; the daily full sync catches anything they missed.
+     */
+    @Transactional(readOnly = true)
+    public boolean unchanged(Long serverId, String fingerprint) {
+        if (fingerprint == null || fingerprint.isBlank()) {
+            return false;
+        }
+        Boolean same = jdbcTemplate.query("""
+                SELECT bot_present AND sync_fingerprint = ? AND synced_at > now() - make_interval(hours => ?)
+                FROM servers WHERE server_id = ?
+                """, row -> row.next() ? row.getBoolean(1) : Boolean.FALSE, fingerprint, FINGERPRINT_HOURS, serverId);
+        return Boolean.TRUE.equals(same);
     }
 
     private void batch(String sql, List<Object[]> rows) {

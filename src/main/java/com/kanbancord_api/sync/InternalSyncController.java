@@ -15,6 +15,8 @@ import com.kanbancord_api.server.ServerService;
 import com.kanbancord_api.user.User;
 import com.kanbancord_api.user.UserService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -224,6 +226,23 @@ public class InternalSyncController {
         memberRoleService.replaceForMember(member, request.roleIds());
         announce(EventType.MEMBER_SYNCED, serverId, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    /** The bot's fingerprint of a server, to compare before sending it whole. */
+    public record FingerprintRequest(@NotBlank @Size(max = 64) String fingerprint) {
+    }
+
+    /** {@code unchanged}: the server is as at its last full sync, so the bot need not send it. */
+    public record FingerprintAnswer(boolean unchanged) {
+    }
+
+    @PostMapping("/servers/{serverId}/fingerprint")
+    public ResponseEntity<FingerprintAnswer> compareFingerprint(
+            @PathVariable Long serverId,
+            @RequestHeader(BOT_TOKEN_HEADER) String botToken,
+            @Valid @RequestBody FingerprintRequest request) {
+        authorizer.requireInternalSyncAccess(botToken);
+        return ResponseEntity.ok(new FingerprintAnswer(serverBootstrapService.unchanged(serverId, request.fingerprint())));
     }
 
     @PostMapping("/servers/{serverId}/bootstrap")

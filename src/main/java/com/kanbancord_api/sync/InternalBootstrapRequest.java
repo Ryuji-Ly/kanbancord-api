@@ -37,7 +37,11 @@ public record InternalBootstrapRequest(
 
         @Valid
         @NotNull(message = "Members list is required")
-        List<MemberEntry> members) {
+        List<MemberEntry> members,
+
+        /** The bot's fingerprint of this server, kept so the next sync can be skipped if nothing changed. */
+        @Size(max = 64, message = "Fingerprint must not exceed 64 characters")
+        String fingerprint) {
 
     public InternalBootstrapRequest {
         if (roles == null) {

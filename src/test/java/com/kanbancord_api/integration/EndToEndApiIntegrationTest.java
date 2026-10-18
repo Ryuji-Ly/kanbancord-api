@@ -2043,15 +2043,15 @@ class EndToEndApiIntegrationTest {
         long task = w.createTask(MOD, board, w.column(board, "Todo"), "Still a member");
         assertEquals(403, w.updateTask(MOD, board, task, "Renamed", w.column(board, "Todo")).status());
 
-        // The same sync again rewrites nothing: every row keeps the version it had (xmin changes on a write).
+        // The same sync again rewrites no member, user or role: each keeps the version it had (xmin changes on a write).
         List<String> versions = List.of(
                 "SELECT string_agg(xmin::text, ',' ORDER BY user_id) FROM users WHERE user_id IN "
                         + "(SELECT user_id FROM server_members WHERE server_id = ?)",
                 "SELECT string_agg(xmin::text, ',' ORDER BY id) FROM server_members WHERE server_id = ?",
                 "SELECT string_agg(xmin::text, ',' ORDER BY role_id) FROM roles WHERE server_id = ?",
                 "SELECT string_agg(mr.xmin::text, ',' ORDER BY mr.server_member_id, mr.role_id) FROM member_roles mr "
-                        + "JOIN server_members sm ON sm.id = mr.server_member_id WHERE sm.server_id = ?",
-                "SELECT xmin::text FROM servers WHERE server_id = ?");
+                        + "JOIN server_members sm ON sm.id = mr.server_member_id WHERE sm.server_id = ?");
+        // (The server's own row is written each time: it records when the last full sync was.)
         List<String> before = new ArrayList<>();
         for (String sql : versions) {
             before.add(jdbcTemplate.queryForObject(sql, String.class, w.serverId));
@@ -2071,6 +2071,34 @@ class EndToEndApiIntegrationTest {
                 SELECT count(*) FROM member_roles mr JOIN server_members sm ON sm.id = mr.server_member_id
                 WHERE sm.server_id = ? AND mr.role_id = ?
                 """, Long.class, w.serverId, w.membersRole));
+    }
+
+    @Test
+    void serverSync_fingerprint_letsTheBotSkipAServerThatHasNotChanged_forADayAtMost() throws Exception {
+        World w = bootstrapServer();
+        String check = "/api/internal/sync/servers/" + w.serverId + "/fingerprint";
+        assertFalse(internal("POST", check, Map.of("fingerprint", "abc")).expect(200).json().get("unchanged").asBoolean(),
+                "a server never synced with a fingerprint is sent whole");
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("name", "Fingerprinted");
+        body.put("ownerId", OWNER);
+        body.put("ownerUsername", "owner");
+        body.put("roles", List.of(Map.of("roleId", w.membersRole, "name", "Members", "position", 1,
+                "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES)));
+        body.put("members", List.of(Map.of("userId", OWNER, "username", "owner", "roleIds", List.of())));
+        body.put("fingerprint", "abc");
+        assertEquals(204, sync("POST", "/api/internal/sync/servers/" + w.serverId + "/bootstrap", body));
+
+        assertTrue(internal("POST", check, Map.of("fingerprint", "abc")).expect(200).json().get("unchanged").asBoolean());
+        assertFalse(internal("POST", check, Map.of("fingerprint", "xyz")).expect(200).json().get("unchanged").asBoolean(),
+                "anything different is sent whole");
+        jdbcTemplate.update("UPDATE servers SET synced_at = now() - interval '25 hours' WHERE server_id = ?", w.serverId);
+        assertFalse(internal("POST", check, Map.of("fingerprint", "abc")).expect(200).json().get("unchanged").asBoolean(),
+                "a full sync still runs at least once a day");
+        assertFalse(internal("POST", "/api/internal/sync/servers/424242/fingerprint", Map.of("fingerprint", "abc"))
+                .expect(200).json().get("unchanged").asBoolean(), "an unknown server is sent whole");
+        assertTrue(callRaw("POST", check, null, Map.of("fingerprint", "abc")).status() >= 400, "only the bot may ask");
     }
 
     // ── The bot acting for a user ───────────────────────────────────────────────

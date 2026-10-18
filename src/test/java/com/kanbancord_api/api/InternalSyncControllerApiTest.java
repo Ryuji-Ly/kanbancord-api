@@ -183,7 +183,7 @@ class InternalSyncControllerApiTest {
         InternalBootstrapRequest.MemberEntry member =
                 new InternalBootstrapRequest.MemberEntry(300L, "member1", null, null, null, null, null);
         InternalBootstrapRequest request = new InternalBootstrapRequest("Bootstrapped Server", null, 200L,
-                "bootstrap-owner", null, null, java.util.List.of(role), java.util.List.of(member));
+                "bootstrap-owner", null, null, java.util.List.of(role), java.util.List.of(member), null);
 
         mockMvc.perform(post("/api/internal/sync/servers/123/bootstrap")
                 .header("X-Internal-Bot-Token", "valid-bot-token")
