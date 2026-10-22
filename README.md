@@ -78,17 +78,28 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 
 ## Backlog
 
-Ideas for when KanbanCord grows. None of these are being built yet.
+### Planned
 
-- **API tokens for developers.** Personal tokens to use the API from your own scripts and tools: create a task from a
-  script, or show a board somewhere else. A token only works for the servers and boards it was granted for, only
-  those you administer can be granted, and it is limited to the permissions it was approved for (for example "read
-  tasks" or "create and move tasks"), never more than the person who granted it.
-- **Integrations**, built on those tokens: GitHub, Slack, Jira and similar services, so that something happening there
-  creates a task automatically, under conditions you set. For example, a new GitHub issue labelled "bug" becomes a task
-  in the Issues column.
-- **Reports as tasks.** Bug reports and suggestions sent with `/report` added straight to KanbanCord's own board.
-- **Discord scheduled events for due dates** (under consideration): a task's due date shown as an event in the server.
+- **Public documentation** of how KanbanCord works and how to use it.
+- **Rolling updates**, so deploying a new version causes no downtime.
+- **Lazy member storage.** Only people who use KanbanCord, or are assigned, are kept; others are looked up in Discord
+  when needed, such as when searching for someone to assign.
+- **Removing orphaned users**: people no longer in any server with the bot.
+- **Per-assignee completion.** For tasks everyone has to do individually, each assignee marks their own part done, and
+  the task shows who is still pending.
+- **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
+- **An updates and announcements page** on the website.
+- **A Redis message queue**, so real-time updates reach everyone whichever API instance they are connected to.
+- **Multiple API instances.**
+
+### Maybe
+
+- **Reports as tasks.** Bug reports and suggestions sent with `/report` added straight to the Issues column of
+  KanbanCord's own board.
+- **API access for other services.** Personal tokens to use the API from your own scripts and tools, limited to the
+  servers, boards and permissions they were granted for, and integrations built on them (GitHub, Slack, Jira and
+  similar), so that something happening there creates a task automatically, under conditions you set.
+- **Discord scheduled events for due dates**: a task's due date shown as an event in the server.
 
 ## License
 
