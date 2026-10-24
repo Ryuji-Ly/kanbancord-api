@@ -16,16 +16,22 @@ public record RoadmapResponse(
         String description,
         String issuesColumnId,
         List<Column> columns,
+        List<Label> labels,
+        List<Priority> priorities,
         List<Task> tasks) {
 
-    public record Column(String id, String name) {
+    public record Column(String id, String name, String color) {
     }
 
-    public record Chip(String name, String color) {
+    public record Label(String id, String name, String color) {
+    }
+
+    /** {@code position} 1 is the most urgent, shown as P1. */
+    public record Priority(String id, String name, String color, int position) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Task(String id, String columnId, String title, String description, List<Chip> labels,
-                       Chip priority, LocalDateTime createdAt) {
+    public record Task(String id, String columnId, String title, String description, List<String> labelIds,
+                       String priorityId, LocalDateTime createdAt) {
     }
 }

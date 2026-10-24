@@ -111,19 +111,22 @@ public class RoadmapService {
         Set<Feature> on = features.enabled(serverId, board.getBoardId());
         List<BoardColumn> columns = columnService.findByBoardIdOrdered(board.getBoardId());
 
-        Map<Long, RoadmapResponse.Chip> labels = on.contains(Feature.LABELS)
-                ? labelService.findByBoardId(board.getBoardId()).stream().collect(Collectors.toMap(
-                        label -> label.getLabelId(), label -> new RoadmapResponse.Chip(label.getName(), label.getColor())))
-                : Map.of();
-        Map<Long, List<RoadmapResponse.Chip>> labelsByTask = labels.isEmpty() ? Map.of()
-                : taskLabelService.findByBoardId(board.getBoardId()).stream()
-                        .filter(link -> labels.containsKey(link.getLabel().getLabelId()))
-                        .collect(Collectors.groupingBy(link -> link.getTask().getTaskId(),
-                                Collectors.mapping(link -> labels.get(link.getLabel().getLabelId()), Collectors.toList())));
-        Map<Long, RoadmapResponse.Chip> priorities = on.contains(Feature.PRIORITIES)
-                ? priorityService.findByBoardId(board.getBoardId()).stream().collect(Collectors.toMap(
-                        level -> level.getPriorityId(), level -> new RoadmapResponse.Chip(level.getName(), level.getColor())))
-                : Map.of();
+        List<RoadmapResponse.Label> labels = on.contains(Feature.LABELS)
+                ? labelService.findByBoardId(board.getBoardId()).stream()
+                        .map(label -> new RoadmapResponse.Label(String.valueOf(label.getLabelId()), label.getName(), label.getColor()))
+                        .toList()
+                : List.of();
+        Map<Long, List<String>> labelsByTask = labels.isEmpty() ? Map.of()
+                : taskLabelService.findByBoardId(board.getBoardId()).stream().collect(Collectors.groupingBy(
+                        link -> link.getTask().getTaskId(),
+                        Collectors.mapping(link -> String.valueOf(link.getLabel().getLabelId()), Collectors.toList())));
+        List<RoadmapResponse.Priority> priorities = on.contains(Feature.PRIORITIES)
+                ? priorityService.findByBoardId(board.getBoardId()).stream()
+                        .map(level -> new RoadmapResponse.Priority(String.valueOf(level.getPriorityId()), level.getName(),
+                                level.getColor(), level.getPosition()))
+                        .toList()
+                : List.of();
+        boolean showPriorities = !priorities.isEmpty();
 
         Map<Long, Integer> order = columns.stream().collect(Collectors.toMap(BoardColumn::getColumnId, columns::indexOf));
         List<RoadmapResponse.Task> tasks = taskService.findByBoardId(board.getBoardId()).stream()
@@ -137,7 +140,7 @@ public class RoadmapService {
                         task.getTitle(),
                         task.getDescription(),
                         labelsByTask.getOrDefault(task.getTaskId(), List.of()),
-                        task.getPriorityId() == null ? null : priorities.get(task.getPriorityId()),
+                        showPriorities && task.getPriorityId() != null ? String.valueOf(task.getPriorityId()) : null,
                         task.getCreatedAt()))
                 .toList();
 
@@ -145,7 +148,10 @@ public class RoadmapService {
                 board.getName(),
                 board.getDescription(),
                 issuesColumn(columns).map(column -> String.valueOf(column.getColumnId())).orElse(null),
-                columns.stream().map(column -> new RoadmapResponse.Column(String.valueOf(column.getColumnId()), column.getName())).toList(),
+                columns.stream().map(column -> new RoadmapResponse.Column(String.valueOf(column.getColumnId()), column.getName(),
+                        column.getColor())).toList(),
+                labels,
+                priorities,
                 tasks);
     }
 
