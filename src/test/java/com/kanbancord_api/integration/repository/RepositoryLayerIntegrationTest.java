@@ -261,7 +261,7 @@ class RepositoryLayerIntegrationTest {
     @Test
     void taskRepository_returnsBoardColumnArchiveAndScopedResults_happyAndUnhappy() {
         assertEquals(1, taskRepository.findByBoard_BoardId(board.getBoardId()).size());
-        assertEquals(1, taskRepository.findByColumn_ColumnIdOrderByPositionAsc(column.getColumnId()).size());
+        assertEquals(1, taskRepository.findByColumn_ColumnIdAndIsArchivedFalseOrderByPositionAsc(column.getColumnId()).size());
         assertTrue(taskRepository.findByTaskIdAndServerId(task.getTaskId(), server.getServerId()).isPresent());
         assertTrue(taskRepository.findByTaskIdAndServerId(task.getTaskId(), otherServer.getServerId()).isEmpty());
         assertEquals(1, taskRepository.findByBoard_BoardIdAndIsArchived(board.getBoardId(), false).size());

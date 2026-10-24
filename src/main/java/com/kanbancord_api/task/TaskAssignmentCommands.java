@@ -50,6 +50,7 @@ public class TaskAssignmentCommands {
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        resourceValidator.validateTaskNotArchived(task);
         authorizer.requireBoardPermission(actorUserId, serverId, boardId,
                 assignPermissionFor(actorUserId, request.userId()));
         resourceValidator.validatePermissionSubjectBelongsToServer("USER", request.userId(), serverId);

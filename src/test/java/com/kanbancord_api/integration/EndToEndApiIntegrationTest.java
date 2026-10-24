@@ -686,6 +686,58 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void archivedTasks_leaveTheBoard_stayUnchangeable_andComeBackAtTheEndOfTheirColumn() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Archive");
+        long todo = w.column(board, "Todo");
+        long done = w.column(board, "Doing");
+        long a = w.createTask(MOD, board, todo, "A");
+        long b = w.createTask(MOD, board, todo, "B");
+        long c = w.createTask(MOD, board, todo, "C");
+        String archive = "/tasks/" + a + "/archive";
+
+        // Archiving needs ARCHIVE_TASK, which members do not have by default.
+        assertEquals(403, call("PATCH", w.boardPath(board, archive), MEMBER, null).status());
+        JsonNode archived = call("PATCH", w.boardPath(board, archive), MOD, null).expect(200).json();
+        assertTrue(archived.get("isArchived").asBoolean());
+        assertEquals(Map.of(todo, List.of(b, c)), w.tasksByColumn(board), "off the board");
+        List<JsonNode> listed = new ArrayList<>();
+        call("GET", w.boardPath(board, "/tasks?archived=true"), MEMBER, null).expect(200).json().get("content")
+                .forEach(listed::add);
+        assertEquals(List.of(a), listed.stream().map(t -> t.get("taskId").asLong()).toList(), "listed on its own");
+
+        // Unchangeable until restored: no edits, moves, labels, people or comments.
+        assertEquals(409, w.moveTask(MOD, board, a, done, 0).status());
+        assertEquals(409, call("POST", w.boardPath(board, "/tasks/" + a + "/comments"), MOD,
+                Map.of("taskId", a, "content", "Still here?")).status());
+        // Moves in the column skip it: index 1 is after B, not after the archived A.
+        w.moveTask(MOD, board, c, todo, 0).expect(200);
+        assertEquals(Map.of(todo, List.of(c, b)), w.tasksByColumn(board));
+
+        // Restoring puts it back at the end of its column.
+        call("PATCH", w.boardPath(board, archive + "?archived=false"), MOD, null).expect(200);
+        assertEquals(Map.of(todo, List.of(c, b, a)), w.tasksByColumn(board));
+
+        // A whole column at once is one audit entry, not one per task.
+        w.moveTask(MOD, board, b, done, 0).expect(200);
+        assertEquals(403, call("POST", w.boardPath(board, "/columns/" + todo + "/archive-tasks"), MEMBER, null).status());
+        JsonNode cleared = call("POST", w.boardPath(board, "/columns/" + todo + "/archive-tasks"), MOD, null)
+                .expect(200).json();
+        assertEquals(2, cleared.get("archived").asInt());
+        assertEquals(Map.of(done, List.of(b)), w.tasksByColumn(board));
+        assertEquals(0, call("POST", w.boardPath(board, "/columns/" + todo + "/archive-tasks"), MOD, null)
+                .expect(200).json().get("archived").asInt(), "nothing left to archive");
+
+        List<String> actions = auditLog(w).stream().map(e -> e.get("action").asText())
+                .filter(action -> action.contains("ARCHIVED") || action.contains("RESTORED")).toList();
+        assertEquals(List.of("TASK_ARCHIVED", "TASK_RESTORED", "COLUMN_TASKS_ARCHIVED"), actions);
+        JsonNode column = auditLog(w).stream().filter(e -> "COLUMN_TASKS_ARCHIVED".equals(e.get("action").asText()))
+                .findFirst().orElseThrow();
+        assertEquals("Todo", column.at("/changes/created/name").asText());
+        assertEquals(2, column.at("/changes/created/count").asInt());
+    }
+
+    @Test
     void moves_writeOnlyTheMovedTask_untilTheGapRunsOut() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Long column");

@@ -41,6 +41,7 @@ public class TaskLabelCommands {
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        resourceValidator.validateTaskNotArchived(task);
         Label label = resourceValidator.requireLabelInServer(request.labelId(), serverId);
         resourceValidator.validateLabelBelongsToBoard(label.getLabelId(), boardId);
 

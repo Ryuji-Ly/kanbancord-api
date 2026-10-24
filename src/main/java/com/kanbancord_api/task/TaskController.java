@@ -106,6 +106,17 @@ public class TaskController {
         return ResponseEntity.ok(taskCommands.move(serverId, boardId, taskId, userId, request));
     }
 
+    /** Archives the task, or with {@code archived=false} restores it. */
+    @PatchMapping("/{taskId}/archive")
+    public ResponseEntity<TaskResponse> archiveTask(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @PathVariable Long taskId,
+            @RequestParam(defaultValue = "true") Boolean archived,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(taskCommands.setArchived(serverId, boardId, taskId, userId, Boolean.TRUE.equals(archived)));
+    }
+
     @DeleteMapping("/{taskId}")
     public ResponseEntity<Void> deleteTask(
             @PathVariable Long serverId,

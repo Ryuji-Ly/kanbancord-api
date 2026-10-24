@@ -55,6 +55,7 @@ public class TaskCommentCommands {
         resourceValidator.validatePathMatchesRequestId("taskId", taskId, request.taskId());
         resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
         Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        resourceValidator.validateTaskNotArchived(task);
 
         TaskComment comment = new TaskComment();
         comment.setTask(task);

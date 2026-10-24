@@ -42,14 +42,15 @@ public class TaskService {
         return taskRepository.findByBoard_BoardId(boardId, pageable);
     }
 
+    /** The column's tasks in order, without archived ones: they are out of the column until restored. */
     @Transactional(readOnly = true)
     public List<Task> findByColumnIdOrdered(Long columnId) {
-        return taskRepository.findByColumn_ColumnIdOrderByPositionAsc(columnId);
+        return taskRepository.findByColumn_ColumnIdAndIsArchivedFalseOrderByPositionAsc(columnId);
     }
 
     @Transactional(readOnly = true)
     public Page<Task> findByColumnIdOrdered(Long columnId, Pageable pageable) {
-        return taskRepository.findByColumn_ColumnIdOrderByPositionAsc(columnId, pageable);
+        return taskRepository.findByColumn_ColumnIdAndIsArchivedFalseOrderByPositionAsc(columnId, pageable);
     }
 
     @Transactional(readOnly = true)
