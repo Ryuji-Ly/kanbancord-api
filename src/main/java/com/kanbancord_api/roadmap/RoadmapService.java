@@ -42,13 +42,12 @@ import java.util.stream.Collectors;
  * The roadmap: KanbanCord's own development board, shown to everyone on the website. Which board it
  * is comes from configuration ({@code KANBANCORD_ROADMAP_BOARD_ID}), so it is a single exception for
  * the developer's board, not a setting servers have. Anyone may read it; anyone signed in may add an
- * issue to its issues column, at most {@code kanbancord.roadmap.issues-per-hour} an hour.
+ * issue to its first column, whatever it is called, at most {@code kanbancord.roadmap.issues-per-hour} an hour.
  */
 @Service
 public class RoadmapService {
 
     private final Long boardId;
-    private final String issuesColumnName;
     private final int issuesPerHour;
     private final BoardRepository boardRepository;
     private final BoardColumnService columnService;
@@ -64,7 +63,6 @@ public class RoadmapService {
 
     public RoadmapService(
             @Value("${kanbancord.roadmap.board-id:}") String boardId,
-            @Value("${kanbancord.roadmap.issues-column:Issues}") String issuesColumnName,
             @Value("${kanbancord.roadmap.issues-per-hour:1}") int issuesPerHour,
             BoardRepository boardRepository,
             BoardColumnService columnService,
@@ -78,7 +76,6 @@ public class RoadmapService {
             ApplicationEventPublisher events,
             JdbcTemplate jdbcTemplate) {
         this.boardId = boardId == null || boardId.isBlank() ? null : Long.valueOf(boardId.trim());
-        this.issuesColumnName = issuesColumnName;
         this.issuesPerHour = issuesPerHour;
         this.boardRepository = boardRepository;
         this.columnService = columnService;
@@ -100,8 +97,9 @@ public class RoadmapService {
                 .orElseThrow(() -> new ResourceNotFoundException("Roadmap", "board", "configured"));
     }
 
+    /** Issues go to the board's first column, so it can be renamed freely. */
     private Optional<BoardColumn> issuesColumn(List<BoardColumn> columns) {
-        return columns.stream().filter(column -> column.getName().trim().equalsIgnoreCase(issuesColumnName)).findFirst();
+        return columns.stream().findFirst();
     }
 
     @Transactional(readOnly = true)

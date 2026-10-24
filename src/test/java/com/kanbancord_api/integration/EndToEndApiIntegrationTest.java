@@ -2914,6 +2914,11 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of("The board is slow", "Someone else"), callRaw("GET", roadmap, null, null).json().get("tasks")
                 .findValuesAsText("title").subList(0, 2), "issues come first, in the order they were added");
 
+        // Issues go to the first column, whatever it is called.
+        jdbcTemplate.update("UPDATE columns SET name = 'Issues/Suggestions' WHERE column_id = ?", w.column(ROADMAP_BOARD, "Issues"));
+        assertEquals(String.valueOf(w.column(ROADMAP_BOARD, "Issues/Suggestions")),
+                callRaw("GET", roadmap, null, null).json().get("issuesColumnId").asText());
+
         // Archiving the board takes the roadmap down.
         jdbcTemplate.update("UPDATE boards SET is_archived = true WHERE board_id = ?", ROADMAP_BOARD);
         assertEquals(404, callRaw("GET", roadmap, null, null).status());
