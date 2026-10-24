@@ -83,6 +83,8 @@ class EndToEndApiIntegrationTest {
     private static final long MEMBER = 1_002L;
     private static final long OTHER = 1_003L;
     private static final long NEWBIE = 1_004L;
+    /** The board the roadmap tests make: its id is set before the API starts, as on the VPS. */
+    private static final long ROADMAP_BOARD = 9_000_000_001L;
 
     private static final String WEB_ORIGIN = "https://kanbancord.com";
     private static final String DISCORD_CLIENT_ID = "424242424242";
@@ -105,6 +107,7 @@ class EndToEndApiIntegrationTest {
         registry.add("kanbancord.notifications.group-window-seconds", () -> "0");
         // Tests run the reminder check themselves, when they want it.
         registry.add("kanbancord.notifications.reminder-first-check-ms", () -> String.valueOf(24L * 60 * 60 * 1000));
+        registry.add("kanbancord.roadmap.board-id", () -> String.valueOf(ROADMAP_BOARD));
     }
 
     @LocalServerPort
@@ -2811,6 +2814,57 @@ class EndToEndApiIntegrationTest {
         ObjectNode wrong = file.deepCopy();
         wrong.put("format", "trello");
         assertEquals(400, call("POST", to.path("/boards/import"), OWNER, Map.of("document", wrong)).status());
+    }
+
+    // ── Public roadmap ──────────────────────────────────────────────────────────
+
+    @Test
+    void roadmap_isReadableByAnyone_andTakesOneIssuePerHourFromAnyoneSignedIn() throws Exception {
+        World w = bootstrapServer();
+        String roadmap = "/api/public/roadmap";
+        jdbcTemplate.update("DELETE FROM boards WHERE board_id = ?", ROADMAP_BOARD);
+        assertEquals(404, callRaw("GET", roadmap, null, null).status(), "no board yet: no roadmap");
+
+        jdbcTemplate.update("INSERT INTO boards (board_id, server_id, name, description, created_by) VALUES (?, ?, 'KanbanCord', 'What is next', ?)",
+                ROADMAP_BOARD, w.serverId, OWNER);
+        jdbcTemplate.update("INSERT INTO columns (board_id, name, position) VALUES (?, 'Issues', 1), (?, 'To Do', 2), (?, 'Done', 3)",
+                ROADMAP_BOARD, ROADMAP_BOARD, ROADMAP_BOARD);
+        long todo = w.column(ROADMAP_BOARD, "To Do");
+        w.createTask(OWNER, ROADMAP_BOARD, todo, "Public board");
+        call("POST", w.boardPath(ROADMAP_BOARD, "/tasks/" + w.createTask(OWNER, ROADMAP_BOARD, todo, "Assigned")
+                + "/assignments"), OWNER, Map.of("taskId", 0, "userId", MEMBER));
+
+        // Anyone, signed in or not, can read it; nothing about people is in it.
+        JsonNode board = callRaw("GET", roadmap, null, null).expect(200).json();
+        assertEquals("KanbanCord", board.get("name").asText());
+        assertEquals(List.of("Issues", "To Do", "Done"), board.get("columns").findValuesAsText("name"));
+        assertEquals(String.valueOf(w.column(ROADMAP_BOARD, "Issues")), board.get("issuesColumnId").asText());
+        assertEquals(List.of("Public board", "Assigned"), board.get("tasks").findValuesAsText("title"));
+        assertFalse(board.toString().contains(String.valueOf(MEMBER)), "no assignees");
+        assertFalse(board.toString().contains(String.valueOf(OWNER)), "no creators");
+
+        // Adding an issue needs signing in; anyone signed in may, once an hour.
+        assertEquals(401, callRaw("POST", roadmap + "/issues", null, Map.of("title", "Anonymous")).status());
+        long stranger = 4_242L;
+        JsonNode issue = call("POST", roadmap + "/issues", stranger, Map.of("title", "The board is slow", "description", "On my phone"))
+                .expect(201).json();
+        assertEquals(String.valueOf(w.column(ROADMAP_BOARD, "Issues")), issue.get("columnId").asText());
+        Response again = call("POST", roadmap + "/issues", stranger, Map.of("title", "Again"));
+        assertEquals(429, again.status());
+        assertTrue(again.body().contains("another issue in"), again.body());
+        assertEquals(201, call("POST", roadmap + "/issues", MEMBER, Map.of("title", "Someone else")).status(),
+                "the limit is per person");
+        assertEquals(400, call("POST", roadmap + "/issues", OTHER, Map.of("title", " ")).status());
+
+        // It is an ordinary new task: recorded under who added it, and on the board.
+        assertTrue(auditLog(w).stream().anyMatch(e -> "TASK_CREATED".equals(e.get("action").asText())
+                && String.valueOf(stranger).equals(e.get("userId").asText())));
+        assertEquals(List.of("The board is slow", "Someone else"), callRaw("GET", roadmap, null, null).json().get("tasks")
+                .findValuesAsText("title").subList(0, 2), "issues come first, in the order they were added");
+
+        // Archiving the board takes the roadmap down.
+        jdbcTemplate.update("UPDATE boards SET is_archived = true WHERE board_id = ?", ROADMAP_BOARD);
+        assertEquals(404, callRaw("GET", roadmap, null, null).status());
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

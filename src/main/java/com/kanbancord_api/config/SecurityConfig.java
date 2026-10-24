@@ -49,6 +49,9 @@ public class SecurityConfig {
                                     "/robots.txt",
                                     "/ws/**")
                             .permitAll()
+                            // The public roadmap is readable by anyone; adding an issue needs signing in.
+                            .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/public/roadmap")
+                            .permitAll()
                             .anyRequest().authenticated())
                     .exceptionHandling(exceptions -> exceptions
                             .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))

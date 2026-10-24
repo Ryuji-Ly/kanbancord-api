@@ -60,6 +60,7 @@ It listens on port 8080. Configuration comes from environment variables:
 | `KANBANCORD_CORS_ALLOWED_ORIGINS`, `KANBANCORD_REALTIME_ALLOWED_ORIGINS` | Optional: where the website runs. Default to localhost and kanbancord.com. |
 | `KANBANCORD_SESSION_COOKIE_SECURE` | Optional: set to `false` for local development over plain HTTP. |
 | `KANBANCORD_RATE_LIMIT_ENABLED` | Optional: rate limiting, on by default. |
+| `KANBANCORD_ROADMAP_BOARD_ID` | Optional: the board shown to everyone at kanbancord.com/roadmap. Anyone signed in can add one issue an hour to its column named `KANBANCORD_ROADMAP_ISSUES_COLUMN` (default `Issues`). Off when unset. |
 | `KANBANCORD_DB_POOL_SIZE` | Optional: database connections, 20 by default. Requests run on virtual threads and wait for a connection when all are busy. |
 | `KANBANCORD_PERFORMANCE_LOG_MS` | Optional: how often a line on requests, database connections and memory is logged; every 15 minutes by default, 0 for never. |
 | `JAVA_TOOL_OPTIONS` | Optional: JVM settings, such as `-XX:MaxRAMPercentage=50` for the heap. Without a container memory limit the percentage is of the whole machine. |
