@@ -76,7 +76,7 @@ public class BusinessValidationService {
      */
     public void validateTaskNotArchived(Task task) {
         if (task.getIsArchived() != null && task.getIsArchived()) {
-            throw new IllegalStateException("Cannot modify an archived task");
+            throw new IllegalStateException("This task is archived: restore it to change it");
         }
     }
 

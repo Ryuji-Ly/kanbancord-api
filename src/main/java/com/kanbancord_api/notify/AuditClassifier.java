@@ -24,6 +24,7 @@ public final class AuditClassifier {
         return switch (action) {
             case "TASK_CREATED" -> EnumSet.of(NotificationEvent.TASK_CREATED);
             case "TASK_DELETED" -> EnumSet.of(NotificationEvent.TASK_DELETED);
+            case "TASK_ARCHIVED", "TASK_RESTORED", "COLUMN_TASKS_ARCHIVED" -> EnumSet.of(NotificationEvent.TASK_ARCHIVED);
             case DUE_SOON_ACTION -> EnumSet.of(NotificationEvent.DUE_SOON);
             case OVERDUE_ACTION -> EnumSet.of(NotificationEvent.OVERDUE);
             // A move within one column only reorders it: not worth announcing.

@@ -16,9 +16,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
 
     Page<Task> findByBoard_BoardId(Long boardId, Pageable pageable);
 
-    List<Task> findByColumn_ColumnIdOrderByPositionAsc(Long columnId);
+    List<Task> findByColumn_ColumnIdAndIsArchivedFalseOrderByPositionAsc(Long columnId);
 
-    Page<Task> findByColumn_ColumnIdOrderByPositionAsc(Long columnId, Pageable pageable);
+    Page<Task> findByColumn_ColumnIdAndIsArchivedFalseOrderByPositionAsc(Long columnId, Pageable pageable);
 
     List<Task> findByBoard_BoardIdAndIsArchived(Long boardId, Boolean isArchived);
 

@@ -176,7 +176,7 @@ public class NotificationRouter {
             return null;
         }
         java.util.Optional<TaskThreadService.TaskThread> existing = threads.thread(taskId);
-        boolean close = task.deleted() || archived(taskId);
+        boolean close = task.deleted() || task.archived();
         java.util.Optional<TaskThreadService.Settings> on = threads.active(serverId, boardId);
         if (on.isEmpty()) {
             // Switched off: no new threads and nothing posted in old ones, but a task's thread still closes with it.
@@ -202,12 +202,6 @@ public class NotificationRouter {
         }
         return new ThreadPlan(String.valueOf(settings.channelId()), thread == null ? null : String.valueOf(thread.threadId()),
                 privateThread, settings.updates().name(), task.title(), close, members);
-    }
-
-    private boolean archived(Long taskId) {
-        List<Boolean> archived = jdbcTemplate.queryForList("SELECT is_archived FROM tasks WHERE task_id = ?",
-                Boolean.class, taskId);
-        return !archived.isEmpty() && Boolean.TRUE.equals(archived.get(0));
     }
 
     /**
@@ -264,7 +258,7 @@ public class NotificationRouter {
                     continue;
                 }
                 entriesByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>()).add(entry.log().logId());
-                if (feed.interactive() && task != null && !task.deleted()) {
+                if (feed.interactive() && task != null && !task.deleted() && !task.archived()) {
                     interactiveChannels.add(feed.channelId());
                 }
                 LinkedHashSet<String> users = usersByChannel.computeIfAbsent(feed.channelId(), id -> new LinkedHashSet<>());
@@ -340,8 +334,8 @@ public class NotificationRouter {
     // ── What the entries refer to ────────────────────────────────────────────
 
     /** The task's people. For a deleted task, those assigned when it was deleted, kept in its audit entry. */
-    private record TaskContext(String title, boolean deleted, Long creatorId, Set<Long> assignees, Set<Long> roles,
-                               Set<Long> commenters, Set<Long> followers) {
+    private record TaskContext(String title, boolean deleted, boolean archived, Long creatorId, Set<Long> assignees,
+                               Set<Long> roles, Set<Long> commenters, Set<Long> followers) {
 
         Set<Long> related() {
             Set<Long> related = new LinkedHashSet<>(assignees);
@@ -356,13 +350,14 @@ public class NotificationRouter {
 
     private TaskContext taskContext(Long taskId, List<Entry> entries) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT title, created_by FROM tasks WHERE task_id = ?", taskId);
+                "SELECT title, created_by, is_archived FROM tasks WHERE task_id = ?", taskId);
         Set<Long> commenters = new LinkedHashSet<>(jdbcTemplate.queryForList(
                 "SELECT DISTINCT user_id FROM task_comments WHERE task_id = ? AND deleted_at IS NULL", Long.class, taskId));
         Set<Long> followers = new LinkedHashSet<>(jdbcTemplate.queryForList(
                 "SELECT user_id FROM task_followers WHERE task_id = ?", Long.class, taskId));
         if (!rows.isEmpty()) {
             return new TaskContext((String) rows.get(0).get("title"), false,
+                    Boolean.TRUE.equals(rows.get(0).get("is_archived")),
                     ((Number) rows.get(0).get("created_by")).longValue(),
                     new LinkedHashSet<>(jdbcTemplate.queryForList(
                             "SELECT user_id FROM task_assignments WHERE task_id = ?", Long.class, taskId)),
@@ -380,7 +375,7 @@ public class NotificationRouter {
             ids.stream().map(AuditClassifier::longOf).filter(Objects::nonNull).forEach(assignees::add);
         }
         Object title = snapshot.get("title");
-        return new TaskContext(title == null ? null : String.valueOf(title), true,
+        return new TaskContext(title == null ? null : String.valueOf(title), true, false,
                 AuditClassifier.longOf(snapshot.get("createdBy")), assignees, Set.of(), Set.of(), Set.of());
     }
 

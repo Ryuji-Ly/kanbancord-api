@@ -20,11 +20,15 @@ public enum EventType {
     COLUMN_UPDATED(EntityType.BOARD_COLUMN, false),
     COLUMN_MOVED(EntityType.BOARD_COLUMN, false),
     COLUMN_DELETED(EntityType.BOARD_COLUMN, false),
+    /** Every task in a column archived at once: one entry for all of them, not one per task. */
+    COLUMN_TASKS_ARCHIVED(EntityType.BOARD_COLUMN, false),
 
     TASK_CREATED(EntityType.TASK, false),
     TASK_UPDATED(EntityType.TASK, false),
     TASK_MOVED(EntityType.TASK, false),
     TASK_DELETED(EntityType.TASK, false),
+    TASK_ARCHIVED(EntityType.TASK, false),
+    TASK_RESTORED(EntityType.TASK, false),
 
     TASK_ASSIGNMENT_CREATED(EntityType.TASK_ASSIGNMENT, false),
     TASK_ASSIGNMENT_DELETED(EntityType.TASK_ASSIGNMENT, false),

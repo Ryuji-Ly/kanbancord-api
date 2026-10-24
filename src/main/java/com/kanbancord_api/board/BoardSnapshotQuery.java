@@ -117,7 +117,7 @@ public class BoardSnapshotQuery {
                 .map(BoardColumnResponse::from)
                 .toList();
         List<TaskResponse> tasks = canViewTasks
-                ? taskService.findByBoardId(boardId).stream().map(TaskResponse::from).toList()
+                ? taskService.findByBoardIdAndArchived(boardId, false).stream().map(TaskResponse::from).toList()
                 : List.of();
         Set<Feature> enabled = serverFeatureService.enabled(serverId, boardId);
         Set<Feature> serverEnabled = serverFeatureService.enabled(serverId);

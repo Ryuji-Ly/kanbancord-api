@@ -3,6 +3,7 @@ package com.kanbancord_api.board;
 import com.kanbancord_api.access.Authorizer;
 import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.security.CurrentUser;
+import com.kanbancord_api.task.TaskCommands;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,16 +22,33 @@ public class BoardColumnController {
     private final Authorizer authorizer;
     private final ResourceValidator resourceValidator;
     private final ColumnCommands columnCommands;
+    private final TaskCommands taskCommands;
 
     public BoardColumnController(
             BoardColumnService boardColumnService,
             Authorizer authorizer,
             ResourceValidator resourceValidator,
-            ColumnCommands columnCommands) {
+            ColumnCommands columnCommands,
+            TaskCommands taskCommands) {
         this.boardColumnService = boardColumnService;
         this.authorizer = authorizer;
         this.resourceValidator = resourceValidator;
         this.columnCommands = columnCommands;
+        this.taskCommands = taskCommands;
+    }
+
+    /** How many tasks archiving a column archived, for the client to say so. */
+    public record ArchivedTasks(int archived) {
+    }
+
+    /** Archives every task in the column. */
+    @PostMapping("/{columnId}/archive-tasks")
+    public ResponseEntity<ArchivedTasks> archiveColumnTasks(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @PathVariable Long columnId,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(new ArchivedTasks(taskCommands.archiveColumn(serverId, boardId, columnId, userId)));
     }
 
     @PostMapping

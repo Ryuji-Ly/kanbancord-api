@@ -204,6 +204,59 @@ public class TaskCommands {
         return after;
     }
 
+    /**
+     * Archives a task, or restores one. An archived task is off the board and cannot be changed, but
+     * keeps everything it had; restoring puts it back at the end of its column. Needs ARCHIVE_TASK.
+     */
+    public TaskResponse setArchived(Long serverId, Long boardId, Long taskId, Long actorUserId, boolean archived) {
+        authorizer.requireBoardPermission(actorUserId, serverId, boardId, "ARCHIVE_TASK");
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+        resourceValidator.validateTaskBelongsToBoard(taskId, boardId);
+        Task task = resourceValidator.requireTaskInServer(taskId, serverId);
+        if (Boolean.TRUE.equals(task.getIsArchived()) == archived) {
+            return TaskResponse.from(task);
+        }
+
+        TaskResponse before = TaskResponse.from(task);
+        if (!archived) {
+            task.setPosition(endOf(task.getColumn().getColumnId()));
+        }
+        task.setIsArchived(archived);
+        TaskResponse after = TaskResponse.from(taskService.update(task));
+        events.publishEvent(DomainEvent.changed(archived ? EventType.TASK_ARCHIVED : EventType.TASK_RESTORED,
+                serverId, boardId, taskId, actorUserId, before, after));
+        return after;
+    }
+
+    /**
+     * Archives every task in a column, as one change with one audit entry, so clearing out a Done
+     * column of a hundred tasks is not a hundred announcements. Returns how many were archived.
+     */
+    public int archiveColumn(Long serverId, Long boardId, Long columnId, Long actorUserId) {
+        authorizer.requireBoardPermission(actorUserId, serverId, boardId, "ARCHIVE_TASK");
+        Board board = resourceValidator.requireBoardInServer(boardId, serverId);
+        resourceValidator.validateBoardNotArchived(board);
+        resourceValidator.validateColumnBelongsToBoard(columnId, boardId);
+        BoardColumn column = boardColumnService.findById(columnId)
+                .orElseThrow(() -> new ResourceNotFoundException("BoardColumn", "columnId", columnId));
+
+        List<Task> tasks = taskService.findByColumnIdOrdered(columnId);
+        if (tasks.isEmpty()) {
+            return 0;
+        }
+        tasks.forEach(task -> task.setIsArchived(true));
+        taskService.updateAll(tasks);
+        Map<String, Object> archived = new java.util.LinkedHashMap<>();
+        archived.put("columnId", columnId);
+        archived.put("name", column.getName());
+        archived.put("count", tasks.size());
+        archived.put("taskIds", tasks.stream().map(Task::getTaskId).toList());
+        events.publishEvent(DomainEvent.created(EventType.COLUMN_TASKS_ARCHIVED, serverId, boardId, columnId,
+                actorUserId, archived));
+        return tasks.size();
+    }
+
     /** The position after the last task of a column, so tasks created without one go to the end. */
     private BigDecimal endOf(Long columnId) {
         return taskService.findByColumnIdOrdered(columnId).stream()
