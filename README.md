@@ -89,7 +89,6 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **Per-assignee completion.** For tasks everyone has to do individually, each assignee marks their own part done, and
   the task shows who is still pending.
 - **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
-- **An updates and announcements page** on the website.
 - **Import from common formats**: CSV, Excel, or a pasted list, one task per line (other tools' exports later).
 - **A Redis message queue**, so real-time updates reach everyone whichever API instance they are connected to.
 - **Multiple API instances.**
@@ -102,6 +101,8 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
   servers, boards and permissions they were granted for, and integrations built on them (GitHub, Slack, Jira and
   similar), so that something happening there creates a task automatically, under conditions you set.
 - **Discord scheduled events for due dates**: a task's due date shown as an event in the server.
+- **Active boards across servers** in the dashboard: one view of the boards you work on in every server. Pinned
+  boards already cover quick access to them.
 
 ## License
 
