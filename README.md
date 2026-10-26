@@ -89,7 +89,8 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **Per-assignee completion.** For tasks everyone has to do individually, each assignee marks their own part done, and
   the task shows who is still pending.
 - **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
-- **Import from common formats**: CSV, Excel, or a pasted list, one task per line (other tools' exports later).
+- **Import from other tools**: Trello, Jira and similar exports, and Excel files directly (lists, CSV and pasted
+  spreadsheet cells can already be imported).
 - **A Redis message queue**, so real-time updates reach everyone whichever API instance they are connected to.
 - **Multiple API instances.**
 

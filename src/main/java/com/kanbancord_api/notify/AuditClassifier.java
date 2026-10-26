@@ -22,7 +22,7 @@ public final class AuditClassifier {
     public static Set<NotificationEvent> eventsOf(String action, Map<String, Object> changes) {
         Map<String, Object> fields = changes == null ? Map.of() : changes;
         return switch (action) {
-            case "TASK_CREATED" -> EnumSet.of(NotificationEvent.TASK_CREATED);
+            case "TASK_CREATED", "TASKS_IMPORTED" -> EnumSet.of(NotificationEvent.TASK_CREATED);
             case "TASK_DELETED" -> EnumSet.of(NotificationEvent.TASK_DELETED);
             case "TASK_ARCHIVED", "TASK_RESTORED", "COLUMN_TASKS_ARCHIVED" -> EnumSet.of(NotificationEvent.TASK_ARCHIVED);
             case DUE_SOON_ACTION -> EnumSet.of(NotificationEvent.DUE_SOON);

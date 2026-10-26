@@ -738,6 +738,69 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void taskImport_previewsExactly_matchesTheBoard_andIsOneChange() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Imports");
+        long todo = w.column(board, "Todo");
+        long doing = w.column(board, "Doing");
+        w.createTask(OWNER, board, todo, "Already here");
+        call("POST", w.boardPath(board, "/labels"), OWNER, Map.of("boardId", board, "name", "Bug", "color", "#ff0000"))
+                .expect(201);
+        String list = """
+                # Doing
+                - [ ] Fix login
+                  - [ ] Reproduce it
+                - [x] Ticked, so done
+                # Ideas
+                - Dark mode
+                """;
+        String preview = w.boardPath(board, "/import-tasks/preview");
+        String run = w.boardPath(board, "/import-tasks");
+
+        // A preview changes nothing and says where everything goes; ticked items go to the last column.
+        JsonNode plan = call("POST", preview, OWNER, Map.of("text", list)).expect(200).json();
+        assertEquals("LIST", plan.get("format").asText());
+        assertEquals(List.of("Fix login", "Ticked, so done", "Dark mode"), plan.get("tasks").findValuesAsText("title"));
+        assertEquals(List.of("Doing", "Doing", "Ideas"), plan.get("tasks").findValuesAsText("column"));
+        assertEquals("- [ ] Reproduce it", plan.get("tasks").get(0).get("description").asText());
+        assertEquals(List.of("Doing", "Ideas"), plan.get("columns").findValuesAsText("name"));
+        assertTrue(plan.get("columns").get(1).get("created").asBoolean(), "a column the board lacks is created");
+        assertEquals(1, w.snapshot(OWNER, board).get("tasks").size(), "nothing changed yet");
+
+        // Without CREATE_COLUMN its tasks go to the default column instead, and the preview says so.
+        JsonNode member = call("POST", preview, MEMBER, Map.of("text", list, "defaultColumnId", todo)).expect(200).json();
+        assertEquals(List.of("Doing", "Doing", "Todo"), member.get("tasks").findValuesAsText("column"));
+        assertEquals("COLUMNS_NOT_CREATED", member.get("notes").get(0).get("code").asText());
+        assertEquals("Ideas", member.get("notes").get(0).get("examples").get(0).asText());
+
+        // A table: labels and priorities by name, unknown ones noted, the rest imported.
+        String csv = "Title,Status,Priority,Labels,Due\nCrash on save,Doing,High,\"Bug, Nope\",2026-11-01\nTidy up,,P9,,soon\n";
+        JsonNode table = call("POST", preview, OWNER, Map.of("text", csv)).expect(200).json();
+        assertEquals("CSV", table.get("format").asText());
+        JsonNode crash = table.get("tasks").get(0);
+        assertEquals("High", crash.get("priority").asText());
+        assertEquals(1, crash.get("labels").size());
+        assertEquals("Bug", crash.get("labels").get(0).asText());
+        assertEquals("2026-11-01T23:59", crash.get("dueDate").asText());
+        List<String> codes = table.get("notes").findValuesAsText("code");
+        assertTrue(codes.containsAll(List.of("LABEL_UNKNOWN", "PRIORITY_UNKNOWN", "DUE_UNREADABLE")), codes.toString());
+
+        // Importing does what the preview showed, as one audit entry, after the column's own tasks.
+        int before = auditLog(w).size();
+        call("POST", run, OWNER, Map.of("text", list)).expect(201);
+        JsonNode snapshot = w.snapshot(OWNER, board);
+        assertEquals(List.of("Todo", "Doing", "Ideas"), snapshot.get("columns").findValuesAsText("name"));
+        Map<Long, List<Long>> byColumn = w.tasksByColumn(board);
+        assertEquals(2, byColumn.get(doing).size());
+        List<JsonNode> added = auditLog(w).subList(before, auditLog(w).size());
+        assertEquals(List.of("TASKS_IMPORTED"), added.stream().map(e -> e.get("action").asText()).toList());
+        assertEquals(3, added.get(0).at("/changes/created/count").asInt());
+
+        assertEquals(400, call("POST", run, OWNER, Map.of("text", "\n\n")).status(), "nothing to import");
+        assertEquals(403, call("POST", run, 4_243L, Map.of("text", list)).status(), "someone outside the server");
+    }
+
+    @Test
     void moves_writeOnlyTheMovedTask_untilTheGapRunsOut() throws Exception {
         World w = bootstrapServer();
         long board = w.createBoard(OWNER, "Long column");
