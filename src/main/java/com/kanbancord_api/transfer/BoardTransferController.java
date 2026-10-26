@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Exporting a board as a file, and importing one as a new board. */
+/** Exporting a board as a file, importing one as a new board, and importing tasks into a board. */
 @RestController
 @RequestMapping("/api/servers/{serverId}/boards")
 @Validated
@@ -23,10 +23,13 @@ public class BoardTransferController {
 
     private final BoardExportQuery exportQuery;
     private final BoardImportCommands importCommands;
+    private final TaskImportCommands taskImportCommands;
 
-    public BoardTransferController(BoardExportQuery exportQuery, BoardImportCommands importCommands) {
+    public BoardTransferController(BoardExportQuery exportQuery, BoardImportCommands importCommands,
+                                   TaskImportCommands taskImportCommands) {
         this.exportQuery = exportQuery;
         this.importCommands = importCommands;
+        this.taskImportCommands = taskImportCommands;
     }
 
     /**
@@ -49,5 +52,25 @@ public class BoardTransferController {
             @Valid @RequestBody BoardImportRequest request,
             @CurrentUser Long userId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(importCommands.importBoard(serverId, userId, request));
+    }
+
+    /** What importing the text into the board would do: its columns, tasks and anything left out. */
+    @PostMapping("/{boardId}/import-tasks/preview")
+    public ResponseEntity<TaskImportPlan> previewTaskImport(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @Valid @RequestBody TaskImportRequest request,
+            @CurrentUser Long userId) {
+        return ResponseEntity.ok(taskImportCommands.preview(serverId, boardId, userId, request));
+    }
+
+    /** Adds the text's tasks to the board, as one change. */
+    @PostMapping("/{boardId}/import-tasks")
+    public ResponseEntity<TaskImportPlan> importTasks(
+            @PathVariable Long serverId,
+            @PathVariable Long boardId,
+            @Valid @RequestBody TaskImportRequest request,
+            @CurrentUser Long userId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(taskImportCommands.importTasks(serverId, boardId, userId, request));
     }
 }

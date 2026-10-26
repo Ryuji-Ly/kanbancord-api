@@ -15,6 +15,8 @@ public enum EventType {
     BOARD_ARCHIVED(EntityType.BOARD, true),
     BOARD_RESTORED(EntityType.BOARD, true),
     BOARD_DELETED(EntityType.BOARD, true),
+    /** Tasks added to a board from a list or a file: one entry for all of them. Only the board's page needs to know. */
+    TASKS_IMPORTED(EntityType.BOARD, false),
 
     COLUMN_CREATED(EntityType.BOARD_COLUMN, false),
     COLUMN_UPDATED(EntityType.BOARD_COLUMN, false),
