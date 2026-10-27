@@ -97,19 +97,24 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
 - **Import from other tools**: Trello, Jira and similar exports, and Excel files directly (lists, CSV and pasted
   spreadsheet cells can already be imported).
-- **GitHub Projects sync**: a KanbanCord board kept in step with a GitHub Project (the board view of a repository's
-  or organisation's project), first one way, then both ways. Teams already plan sprints in GitHub (the pothole
-  detection team keeps its code there).
-  - *How a Project maps:* its Status options are the columns, its items (issues, pull requests and draft items) the
-    tasks, in their order. A task links back to its issue or item.
-  - *One way, first (GitHub to KanbanCord):* items added, moved between statuses, edited or removed in the Project
-    change the board to match; a new Status option becomes a column.
-  - *Both ways, later:* moving, editing or adding a task updates the Project (its Status, title or a new draft item).
-    Each change records where it came from, so a change made by the sync is never sent back.
-  - *Connecting:* a GitHub App, using the GraphQL API for Projects. Webhook events for Projects are, as far as known,
-    only sent for organisation-owned Projects; a user-owned Project would be checked every few minutes instead (verify
-    in GitHub's current docs first). Webhooks are verified by their signature; only the installation, the Project and
-    the item ids are stored. GitHub accounts are not linked to Discord ones at first, so assignees are left out.
+- **GitHub integration**, with two kinds of sync a board can use, each first one way and then both ways. Teams
+  already plan sprints in GitHub (the pothole detection team keeps its code there).
+  - *Repository issues:* new issues in a linked repository become tasks in the board's chosen issues column, and
+    their title, body, labels (matched by name) and open or closed state follow them; a merged pull request that says
+    "Fixes #12" closes the task too. Later both ways: editing, moving or closing the task updates the issue (closing it
+    in the last column, reopening it when moved back).
+  - *GitHub Projects:* a board kept in step with a GitHub Project (the board view of a repository's or organisation's
+    project). Its Status options are the columns, its items (issues, pull requests and draft items) the tasks, in
+    their order. First one way, items added, moved, edited or removed in the Project change the board; then both ways,
+    moving, editing or adding a task updates the Project (its Status, title or a new draft item).
+  - Every change records where it came from, so a change made by a sync is never sent back. Tasks link to their issue
+    or item.
+  - *Connecting:* a GitHub App (REST for issues, GraphQL for Projects), with webhooks verified by their signature. Only
+    the installation, the repository or Project and the issue or item ids are stored. GitHub accounts are not linked to
+    Discord ones at first, so assignees are left out.
+  - *Delay disclaimer:* GitHub only sends live events for Projects owned by an organisation (verify in GitHub's current
+    docs). A Project owned by a personal account is checked every few minutes instead, so changes made there reach the
+    board a few minutes late; the board's settings say so when such a Project is linked. Repository issues arrive live.
   - Set up from the board's settings and with a `/board github` command, for Discord parity.
   - **Ship it on a feature branch and merge it at a quiet time** (early morning UTC, the quietest hours in the
     dashboard's heatmap), not in the evening when most people use KanbanCord: it will need fixes after it goes live.
