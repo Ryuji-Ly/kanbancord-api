@@ -103,10 +103,14 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
     their title, body, labels (matched by name) and open or closed state follow them; a merged pull request that says
     "Fixes #12" closes the task too. Later both ways: editing, moving or closing the task updates the issue (closing it
     in the last column, reopening it when moved back).
-  - *GitHub Projects:* a board kept in step with a GitHub Project (the board view of a repository's or organisation's
-    project). Its Status options are the columns, its items (issues, pull requests and draft items) the tasks, in
-    their order. First one way, items added, moved, edited or removed in the Project change the board; then both ways,
-    moving, editing or adding a task updates the Project (its Status, title or a new draft item).
+  - *GitHub Projects:* a board kept in step with the contents of a GitHub Project that has a kanban board, or something
+    like one. A Project's board, table and roadmap are only views of the same items and fields, so what is synced is
+    the items (issues, pull requests and draft items, in their order) and the single-select field a board view groups
+    them by, Status unless the view says otherwise: its options are the columns. With several such fields, the one to
+    use is chosen when linking; a Project with none has nothing to map columns to and is not offered. Views
+    themselves (filters, sorting, hidden columns) are not copied. First one way, items added, moved, edited or removed
+    in the Project change the board; then both ways, moving, editing or adding a task updates the Project (that
+    field, the title, or a new draft item).
   - Every change records where it came from, so a change made by a sync is never sent back. Tasks link to their issue
     or item.
   - *Connecting:* a GitHub App (REST for issues, GraphQL for Projects), with webhooks verified by their signature. Only
