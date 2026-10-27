@@ -97,6 +97,18 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
 - **Import from other tools**: Trello, Jira and similar exports, and Excel files directly (lists, CSV and pasted
   spreadsheet cells can already be imported).
+- **GitHub integration**, first one way, then both ways. Teams already plan sprints in GitHub repos (the pothole
+  detection team keeps its code there), so a board linked to a repository through a GitHub App:
+  - *One way, first:* new issues become tasks in a chosen column, closed issues move to the last column, and an
+    issue's title, body and labels (matched by name) follow it. A merged pull request that says "Fixes #12" closes
+    the task too. Tasks link back to their issue.
+  - *Both ways, later:* moving or editing a linked task updates the issue (closing it in the last column, reopening it
+    when moved back). Each change records where it came from, so a change made by the sync is never sent back.
+  - Webhooks verified by their signature; only the installation, the repository and the issue numbers are stored. GitHub
+    accounts are not linked to Discord ones at first, so issue assignees are left out.
+  - Set up from the board's settings and with a `/board github` command, for Discord parity.
+  - **Ship it on a feature branch and merge it at a quiet time** (early morning UTC, the quietest hours in the
+    dashboard's heatmap), not in the evening when most people use KanbanCord: it will need fixes after it goes live.
 - **A Redis message queue**, so real-time updates reach everyone whichever API instance they are connected to.
 - **Multiple API instances.**
 
@@ -105,8 +117,8 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **Reports as tasks.** Bug reports and suggestions sent with `/report` added straight to the Issues column of
   KanbanCord's own board.
 - **API access for other services.** Personal tokens to use the API from your own scripts and tools, limited to the
-  servers, boards and permissions they were granted for, and integrations built on them (GitHub, Slack, Jira and
-  similar), so that something happening there creates a task automatically, under conditions you set.
+  servers, boards and permissions they were granted for, and integrations built on them (Slack, Jira and similar;
+  GitHub is planned above), so that something happening there creates a task automatically, under conditions you set.
 - **Discord scheduled events for due dates**: a task's due date shown as an event in the server.
 - **Active boards across servers** in the dashboard: one view of the boards you work on in every server. Pinned
   boards already cover quick access to them.
