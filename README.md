@@ -81,12 +81,6 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 
 ### Planned
 
-- **Fix: long board names without spaces** push the ⋯ button out of the board card on wide screens. The card's
-  name block (`.kc-board-card-head > div`) cannot shrink below its longest word, and the title does not wrap; on a
-  wide screen the dashboard grid (`minmax(240px, 1fr)`) gives each card about 250px, too little for such a word plus
-  the button, while narrower screens fit fewer, wider cards. Fix with `min-width: 0` and `flex: 1` on the name block,
-  `overflow-wrap: anywhere` (or an ellipsis with the full name as a tooltip) on the title, and `flex-shrink: 0` on the
-  button; check the board page title too.
 - **Public documentation** of how KanbanCord works and how to use it.
 - **Rolling updates**, so deploying a new version causes no downtime.
 - **Lazy member storage.** Only people who use KanbanCord, or are assigned, are kept; others are looked up in Discord
