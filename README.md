@@ -82,7 +82,6 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 ### Planned
 
 - **Public documentation** of how KanbanCord works and how to use it.
-- **Rolling updates**, so deploying a new version causes no downtime.
 - **Lazy member storage.** Only people who use KanbanCord, or are assigned, are kept; others are looked up in Discord
   when needed, such as when searching for someone to assign.
 - **Removing orphaned users**: people no longer in any server with the bot.
