@@ -43,6 +43,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.stream.StreamSupport;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -696,6 +697,10 @@ class EndToEndApiIntegrationTest {
         long b = w.createTask(MOD, board, todo, "B");
         long c = w.createTask(MOD, board, todo, "C");
         String archive = "/tasks/" + a + "/archive";
+        long label = call("POST", w.boardPath(board, "/labels"), OWNER,
+                Map.of("boardId", board, "name", "UI", "color", "#ff0000")).expect(201).json().get("labelId").asLong();
+        call("POST", w.boardPath(board, "/tasks/" + a + "/labels"), OWNER, Map.of("taskId", a, "labelId", label))
+                .expect(201);
 
         // Archiving needs ARCHIVE_TASK, which members do not have by default.
         assertEquals(403, call("PATCH", w.boardPath(board, archive), MEMBER, null).status());
@@ -706,6 +711,10 @@ class EndToEndApiIntegrationTest {
         call("GET", w.boardPath(board, "/tasks?archived=true"), MEMBER, null).expect(200).json().get("content")
                 .forEach(listed::add);
         assertEquals(List.of(a), listed.stream().map(t -> t.get("taskId").asLong()).toList(), "listed on its own");
+        // Its labels stay in the snapshot: a label's summary counts archived tasks as done by them.
+        JsonNode snapshot = w.snapshot(MEMBER, board);
+        assertTrue(StreamSupport.stream(snapshot.get("taskLabels").spliterator(), false)
+                .anyMatch(taskLabel -> taskLabel.get("taskId").asLong() == a), "the archived task's label is listed");
 
         // Unchangeable until restored: no edits, moves, labels, people or comments.
         assertEquals(409, w.moveTask(MOD, board, a, done, 0).status());

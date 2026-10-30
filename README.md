@@ -90,7 +90,6 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **Removing orphaned users**: people no longer in any server with the bot.
 - **Per-assignee completion.** For tasks everyone has to do individually, each assignee marks their own part done, and
   the task shows who is still pending.
-- **A one-line summary for a label**: how many of its tasks are done and who still has open ones, at a glance.
 - **Import from other tools**: Trello, Jira and similar exports, and Excel files directly (lists, CSV and pasted
   spreadsheet cells can already be imported).
 - **GitHub integration**, with two kinds of sync a board can use, each first one way and then both ways. Teams
