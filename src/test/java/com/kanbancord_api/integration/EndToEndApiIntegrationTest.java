@@ -1220,6 +1220,10 @@ class EndToEndApiIntegrationTest {
         assertTrue(call("GET", w.path("/permissions/mine"), NEWBIE, null).expect(200).json()
                 .get("server").get("MANAGE_SERVER_PERMISSIONS").asBoolean());
         call("PUT", w.path("/features"), NEWBIE, Map.of("LABELS", true)).expect(200);
+        // "Enable everything" switches on custom permissions too; the stored rules must keep it that way.
+        call("PUT", w.path("/features"), NEWBIE, ALL_FEATURES).expect(200);
+        call("PUT", w.path("/features"), NEWBIE, Map.of("COMMENTS", false)).expect(200);
+        call("PUT", w.path("/features"), NEWBIE, Map.of("COMMENTS", true)).expect(200);
     }
 
     @Test
