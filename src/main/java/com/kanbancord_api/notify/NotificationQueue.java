@@ -56,14 +56,15 @@ public class NotificationQueue {
 
     /**
      * A claimed group: its id and kind. Changes have a server and audit entries; a reminder has a
-     * server, the task it is about and why ({@code reminderKind} DUE_SOON or OVERDUE); a language
+     * server, the task it is about and why ({@code reminderKind} DUE_SOON, BEFORE_n (n minutes before) or OVERDUE, and
+     * {@code reminderUserId} for a reminder at one person's own time); a language
      * request has only the request.
      */
     public record Batch(long batchId, Kind kind, Long serverId, List<Long> auditIds, String reminderKind,
-                        Long reminderTaskId, LocalDateTime reminderDue, LanguageRequest request) {
+                        Long reminderTaskId, LocalDateTime reminderDue, Long reminderUserId, LanguageRequest request) {
 
         public Batch(long batchId, long serverId, List<Long> auditIds) {
-            this(batchId, Kind.CHANGES, serverId, auditIds, null, null, null, null);
+            this(batchId, Kind.CHANGES, serverId, auditIds, null, null, null, null, null);
         }
 
         public boolean isReminder() {
@@ -77,24 +78,26 @@ public class NotificationQueue {
     private static final int LANGUAGE_REQUEST_LOCK = 72_001;
 
     /**
-     * Queues a reminder about a task's due date, once per task, kind and due date: returns false when
-     * that reminder was already sent.
+     * Queues a reminder about a task's due date, once per task, kind, due date and person: returns false when
+     * that reminder was already sent. Without a person it is the shared one (feeds, and everyone without
+     * reminder times of their own); with one, a direct message to that person alone, at their own time.
      */
     @Transactional
-    public boolean enqueueReminder(long serverId, long taskId, String kind, LocalDateTime dueDate) {
+    public boolean enqueueReminder(long serverId, long taskId, String kind, LocalDateTime dueDate, Long userId) {
         int recorded = jdbcTemplate.update("""
-                INSERT INTO task_due_reminders (task_id, kind, due_date) VALUES (?, ?, ?)
+                INSERT INTO task_due_reminders (task_id, kind, due_date, user_id) VALUES (?, ?, ?, ?)
                 ON CONFLICT DO NOTHING
-                """, taskId, kind, Timestamp.valueOf(dueDate));
+                """, taskId, kind, Timestamp.valueOf(dueDate), userId == null ? 0L : userId);
         if (recorded == 0) {
             return false;
         }
+        String groupKey = "reminder:" + taskId + ":" + kind + ":" + dueDate + (userId == null ? "" : ":" + userId);
         jdbcTemplate.update("""
                 INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after, claimed_at,
-                    reminder_kind, reminder_task_id, reminder_due)
-                VALUES ('REMINDER', ?, ?, '{}', CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+                    reminder_kind, reminder_task_id, reminder_due, reminder_user_id)
+                VALUES ('REMINDER', ?, ?, '{}', CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
                 ON CONFLICT DO NOTHING
-                """, serverId, "reminder:" + taskId + ":" + kind + ":" + dueDate, kind, taskId, Timestamp.valueOf(dueDate));
+                """, serverId, groupKey, kind, taskId, Timestamp.valueOf(dueDate), userId);
         return true;
     }
 
@@ -168,12 +171,13 @@ public class NotificationQueue {
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
                 RETURNING batch_id, kind, server_id, audit_ids, reminder_kind, reminder_task_id, reminder_due,
-                    request_user_id, request_language, request_note
+                    reminder_user_id, request_user_id, request_language, request_note
                 """, (rs, row) -> new Batch(rs.getLong("batch_id"), Kind.valueOf(rs.getString("kind")),
                         (Long) rs.getObject("server_id"),
                         List.of((Long[]) rs.getArray("audit_ids").getArray()), rs.getString("reminder_kind"),
                         (Long) rs.getObject("reminder_task_id"),
                         rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime(),
+                        (Long) rs.getObject("reminder_user_id"),
                         rs.getObject("request_user_id") == null ? null : new LanguageRequest(rs.getLong("request_user_id"),
                                 rs.getString("request_language"), rs.getString("request_note"))),
                 MAX_ATTEMPTS, CLAIM_TIMEOUT.toSeconds() + " seconds", limit);

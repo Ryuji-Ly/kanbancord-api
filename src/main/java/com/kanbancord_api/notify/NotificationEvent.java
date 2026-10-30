@@ -19,7 +19,7 @@ public enum NotificationEvent {
     TASK_PRIORITY(Category.TASKS, "Priority changed", true, false),
     TASK_ARCHIVED(Category.TASKS, "Task archived or restored", true, false),
     /** Reminders: not something anyone did, so never in the audit log channel. */
-    DUE_SOON(Category.TASKS, "Due within a day (reminder)", false, true),
+    DUE_SOON(Category.TASKS, "Due soon (reminder)", false, true),
     OVERDUE(Category.TASKS, "Overdue (reminder)", false, true),
 
     USER_ASSIGNED(Category.PEOPLE, "Someone assigned", true, true),

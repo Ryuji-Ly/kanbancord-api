@@ -36,7 +36,8 @@ public class BotActingUserFilter extends OncePerRequestFilter {
 
     private static final Pattern SERVER_PATH = Pattern.compile("^/api/servers/(\\d+)(/.*)?$");
     /** The user's own settings the bot may change for them, from /notifications. Nothing else of theirs. */
-    private static final java.util.Set<String> OWN_SETTINGS_PATHS = java.util.Set.of("/api/me/notifications");
+    private static final java.util.Set<String> OWN_SETTINGS_PATHS =
+            java.util.Set.of("/api/me/notifications", "/api/me/reminders");
     private static final Pattern SNOWFLAKE = Pattern.compile("^\\d{1,20}$");
 
     private final InternalSyncProperties internalSyncProperties;
