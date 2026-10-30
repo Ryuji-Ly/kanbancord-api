@@ -1211,6 +1211,18 @@ class EndToEndApiIntegrationTest {
     }
 
     @Test
+    void manageServer_throughEveryone_switchesFeaturesOn() throws Exception {
+        // As in a real server: Manage Server given to @everyone, and a member with no roles of their own.
+        World w = bootstrapServer(true, false);
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/roles/" + w.serverId,
+                Map.of("name", "@everyone", "position", 0,
+                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES | MANAGE_GUILD)));
+        assertTrue(call("GET", w.path("/permissions/mine"), NEWBIE, null).expect(200).json()
+                .get("server").get("MANAGE_SERVER_PERMISSIONS").asBoolean());
+        call("PUT", w.path("/features"), NEWBIE, Map.of("LABELS", true)).expect(200);
+    }
+
+    @Test
     void featureSuggestions_pointToFeaturesDoneByHand_untilDismissed() throws Exception {
         World w = bootstrapServerWithoutFeatures();
         long board = w.createBoard(OWNER, "Game");
