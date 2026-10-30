@@ -29,6 +29,9 @@ task and setting, decides who may do what, and works out who should hear about e
 - **Notifications.** Every change is recorded in an audit log and routed to update feeds, the audit log channel and
   direct messages, by each feed's events and mentions and each person's preferences. The bot claims and delivers them.
 - **Board posts and task threads**: boards shown live in a Discord message, and a thread per task, managed with the bot.
+- **Feature suggestions.** Boards in simple mode that do a feature by hand (tags like `[M]` in titles, `P1`, deadlines
+  or names written into tasks) get a suggestion to switch that feature on, worked out from the board when asked. Only
+  dismissals are stored, per board.
 - **Live updates** to the website over WebSockets, so changes from Discord appear at once.
 - **Sign-in with Discord** (OAuth2), with short-lived access tokens and rotating sessions.
 
@@ -125,6 +128,9 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 - **API access for other services.** Personal tokens to use the API from your own scripts and tools, limited to the
   servers, boards and permissions they were granted for, and integrations built on them (Slack, Jira and similar;
   GitHub is planned above), so that something happening there creates a task automatically, under conditions you set.
+- **Turning hand-written tags into labels and priorities.** After labels or priorities are switched on from a
+  suggestion, offer to create them from the tags found (`[M]`, `[E]`), apply them and remove the tags from titles, with
+  a preview, a confirmation and an audit log entry. Waiting for a decision.
 - **Discord scheduled events for due dates**: a task's due date shown as an event in the server.
 - **Active boards across servers** in the dashboard: one view of the boards you work on in every server. Pinned
   boards already cover quick access to them.
