@@ -77,6 +77,7 @@ class EndToEndApiIntegrationTest {
     private static final long VIEW_CHANNEL = 1L << 10;
     private static final long SEND_MESSAGES = 1L << 11;
     private static final long MANAGE_MESSAGES = 1L << 13;
+    private static final long MANAGE_GUILD = 1L << 5;
 
     private static final long OWNER = 1_000L;
     private static final long MOD = 1_001L;
@@ -1158,7 +1159,7 @@ class EndToEndApiIntegrationTest {
         assertTrue(cleared.get("dueDate").isNull(), "a due date can be removed");
         call("PUT", w.path("/features"), OWNER, Map.of("DUE_DATES", false)).expect(200);
 
-        // Only server administrators change features, and the change is audited.
+        // Only server managers change features, and the change is audited.
         assertEquals(403, call("PUT", w.path("/features"), MOD, Map.of("LABELS", true)).status());
         assertEquals(400, call("PUT", w.path("/features"), OWNER, Map.of("NOPE", true)).status());
         assertTrue(auditLog(w).stream().anyMatch(e -> "SERVER_FEATURES_UPDATED".equals(e.get("action").asText())));
@@ -1207,6 +1208,49 @@ class EndToEndApiIntegrationTest {
         call("PUT", features, OWNER, Map.of("LABELS", true)).expect(200);
         assertTrue(w.snapshot(MEMBER, plain).get("features").get("LABELS").asBoolean());
         assertEquals(2, auditLog(w).stream().filter(e -> "BOARD_FEATURES_UPDATED".equals(e.get("action").asText())).count());
+    }
+
+    @Test
+    void featureSuggestions_pointToFeaturesDoneByHand_untilDismissed() throws Exception {
+        World w = bootstrapServerWithoutFeatures();
+        long board = w.createBoard(OWNER, "Game");
+        long todo = w.column(board, "Todo");
+        for (String title : List.of("[US1-T3] [M] [E] Implement event spaces", "[US2-T8] [S] [D] Point notifications",
+                "[SH-10] [M] [E] End-to-end testing", "[US1-T4] [S] [E] Event board")) {
+            w.createTask(MOD, board, todo, title);
+        }
+        String path = w.boardPath(board, "/feature-suggestions");
+
+        // Everyone who sees the board sees the suggestion; only a server manager may switch it on.
+        JsonNode suggestions = call("GET", path, MEMBER, null).expect(200).json().get("suggestions");
+        assertEquals(2, suggestions.size(), suggestions.toString());
+        assertEquals("LABELS", suggestions.get(0).get("feature").asText());
+        assertEquals("TAGS", suggestions.get(0).get("signal").asText());
+        assertEquals("PRIORITIES", suggestions.get(1).get("feature").asText());
+        assertEquals("SERVER", suggestions.get(1).get("scope").asText());
+        assertFalse(suggestions.get(1).get("canEnable").asBoolean());
+        assertTrue(call("GET", path, OWNER, null).expect(200).json().get("suggestions").get(1).get("canEnable").asBoolean());
+
+        // Manage Server is enough to switch features on, not only Administrator.
+        assertFalse(call("GET", path, MOD, null).expect(200).json().get("suggestions").get(0).get("canEnable").asBoolean());
+        assertEquals(204, sync("PUT", "/api/internal/sync/servers/" + w.serverId + "/roles/" + w.modsRole,
+                Map.of("name", "Mods", "position", 2,
+                        "discordPermissions", VIEW_CHANNEL | SEND_MESSAGES | MANAGE_MESSAGES | MANAGE_GUILD)));
+        assertTrue(call("GET", path, MOD, null).expect(200).json().get("suggestions").get(0).get("canEnable").asBoolean());
+        call("PUT", w.path("/features"), MOD, Map.of("LABELS", true)).expect(200);
+
+        // A feature that is on is not suggested; a dismissed one never again, for anyone.
+        suggestions = call("GET", path, MEMBER, null).expect(200).json().get("suggestions");
+        assertEquals(1, suggestions.size());
+        call("POST", path + "/dismiss", MEMBER, Map.of("features", List.of("PRIORITIES"))).expect(204);
+        assertEquals(0, call("GET", path, OWNER, null).expect(200).json().get("suggestions").size());
+        assertEquals(400, call("POST", path + "/dismiss", MEMBER, Map.of("features", List.of("NOPE"))).status());
+
+        // Off for this board only: switching it back on is for whoever edits the board's settings.
+        call("PUT", w.boardPath(board, "/features"), OWNER, Map.of("LABELS", false)).expect(200);
+        JsonNode boardOnly = call("GET", path, MOD, null).expect(200).json().get("suggestions").get(0);
+        assertEquals("BOARD", boardOnly.get("scope").asText());
+        assertEquals(403, call("GET", path, NEWBIE, null).status(), "people who cannot see the board get nothing");
     }
 
     // ── Discord notifications ───────────────────────────────────────────────────
