@@ -35,11 +35,13 @@ public class NotificationRouter {
     private final PermissionEvaluationService permissions;
     private final JdbcTemplate jdbcTemplate;
     private final TaskThreadService threads;
+    private final ReminderTimes reminderTimes;
 
     public NotificationRouter(AuditLogRepository auditLogRepository, NotificationSettingsService settings,
                               PermissionEvaluationService permissions, JdbcTemplate jdbcTemplate,
-                              TaskThreadService threads) {
+                              TaskThreadService threads, ReminderTimes reminderTimes) {
         this.auditLogRepository = auditLogRepository;
+        this.reminderTimes = reminderTimes;
         this.settings = settings;
         this.permissions = permissions;
         this.jdbcTemplate = jdbcTemplate;
@@ -151,7 +153,12 @@ public class NotificationRouter {
         Long taskId = AuditClassifier.taskIdOf(first.entityType(), first.action(), first.entityId(), first.changes());
         TaskContext task = taskId == null ? null : taskContext(taskId, entries);
 
-        List<ChannelDelivery> channels = new ArrayList<>(feedDeliveries(serverId, boardId, entries, task));
+        // A reminder at someone's own time is a direct message to them alone: feeds and threads follow the
+        // board's times, with the shared reminder.
+        boolean personal = batch.isReminder() && batch.reminderUserId() != null;
+        List<ChannelDelivery> channels = personal
+                ? new ArrayList<>()
+                : new ArrayList<>(feedDeliveries(serverId, boardId, entries, task));
         // The audit channel records what people did; a reminder is only time passing.
         if (!batch.isReminder()) {
             settings.auditChannel(serverId).ifPresent(channelId -> channels.add(new ChannelDelivery(String.valueOf(channelId),
@@ -160,12 +167,21 @@ public class NotificationRouter {
         List<DirectMessage> directMessages = task == null || boardId == null
                 ? List.of()
                 : directMessages(serverId, boardId, entries, task);
+        if (personal) {
+            String userId = String.valueOf(batch.reminderUserId());
+            directMessages = directMessages.stream().filter(message -> message.userId().equals(userId)).toList();
+        } else if (batch.isReminder() && !"OVERDUE".equals(batch.reminderKind()) && boardId != null) {
+            // People with their own times get their own reminder, at those times, instead of this one.
+            Set<String> ownTimes = reminderTimes.personalByBoard(List.of(boardId)).getOrDefault(boardId, Map.of())
+                    .keySet().stream().map(String::valueOf).collect(java.util.stream.Collectors.toSet());
+            directMessages = directMessages.stream().filter(message -> !ownTimes.contains(message.userId())).toList();
+        }
 
         return new Plan(batch.batchId(), batch.kind().name(), String.valueOf(serverId), board,
                 task == null ? null : new TaskRef(taskId, task.title(), task.deleted()),
                 entries.stream().map(Entry::log).toList(),
                 boardId == null ? new Names(Map.of(), Map.of(), Map.of()) : names(boardId),
-                channels, directMessages, threadPlan(serverId, boardId, taskId, task), null);
+                channels, directMessages, personal ? null : threadPlan(serverId, boardId, taskId, task), null);
     }
 
     // ── Task threads ─────────────────────────────────────────────────────────
@@ -230,8 +246,21 @@ public class NotificationRouter {
         String action = "OVERDUE".equals(batch.reminderKind()) ? AuditClassifier.OVERDUE_ACTION : AuditClassifier.DUE_SOON_ACTION;
         return java.util.Optional.of(new AuditLogResponse(-batch.batchId(), batch.serverId(),
                 ((Number) row.get("board_id")).longValue(), (String) row.get("board_name"), null, null, null, null,
-                action, "TASK", batch.reminderTaskId(), "SYSTEM", Map.of("dueDate", batch.reminderDue().toString()),
+                action, "TASK", batch.reminderTaskId(), "SYSTEM", reminderChanges(batch),
                 java.time.LocalDateTime.now()));
+    }
+
+    /** The due date, and for a reminder before it, how many minutes before (from the kind: DUE_SOON or BEFORE_n). */
+    private static Map<String, Object> reminderChanges(NotificationQueue.Batch batch) {
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("dueDate", batch.reminderDue().toString());
+        String kind = batch.reminderKind();
+        if ("DUE_SOON".equals(kind)) {
+            changes.put("remindBefore", 1440);
+        } else if (kind != null && kind.startsWith("BEFORE_")) {
+            changes.put("remindBefore", Integer.parseInt(kind.substring("BEFORE_".length())));
+        }
+        return changes;
     }
 
     private Plan empty(NotificationQueue.Batch batch) {

@@ -1634,6 +1634,97 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of(), drainPlans(w.serverId));
     }
 
+    @Test
+    void reminderTimes_serverBoardAndPersonal_eachRemindOnceAtTheLatestTimeReached() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Times");
+        long todo = w.column(board, "Todo");
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).withNano(0);
+        String server = w.path("/reminders");
+        String boardTimes = w.boardPath(board, "/reminders");
+        String mine = w.boardPath(board, "/reminders/mine");
+
+        // A day before, as always, until the server's managers choose otherwise; times are checked.
+        assertEquals(List.of(1440), ints(call("GET", server, MEMBER, null).expect(200).json().get("minutes")));
+        assertEquals(403, call("PUT", server, MEMBER, Map.of("minutes", List.of(60))).status());
+        assertEquals(400, call("PUT", server, OWNER, Map.of("minutes", List.of(1))).status());
+        assertEquals(400, call("PUT", server, OWNER, Map.of("minutes", List.of(10, 20, 30, 40, 50, 60))).status());
+        assertEquals(List.of(1440, 180), ints(call("PUT", server, OWNER, Map.of("minutes", List.of(180, 1440, 180)))
+                .expect(200).json().get("minutes")), "latest first, no repeats");
+
+        // Due in two hours with reminders a day and three hours before: one reminder, the three-hour one.
+        long soon = dueTask(w, board, todo, "Soon", now.plusHours(2));
+        call("POST", w.boardPath(board, "/tasks/" + soon + "/assignments"), MOD, Map.of("taskId", soon, "userId", MEMBER))
+                .expect(201);
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        List<JsonNode> plans = drainPlans(w.serverId);
+        assertEquals(1, plans.size());
+        assertEquals(180, plans.get(0).get("entries").get(0).at("/changes/remindBefore").asInt());
+        assertNotNull(directMessage(plans.get(0), MEMBER));
+        dueReminderScheduler.remind();
+        assertEquals(List.of(), drainPlans(w.serverId), "once");
+
+        // Someone's own times replace the shared ones for them alone: everywhere, or for one board.
+        assertEquals(List.of(30), ints(call("PUT", "/api/me/reminders", MEMBER, Map.of("minutes", List.of(30))).expect(200)
+                .json().get("everywhere")));
+        assertEquals(List.of(30), ints(call("GET", mine, MEMBER, null).expect(200).json().get("effective")));
+        long shortly = dueTask(w, board, todo, "Shortly", now.plusMinutes(20));
+        call("POST", w.boardPath(board, "/tasks/" + shortly + "/assignments"), MOD,
+                Map.of("taskId", shortly, "userId", MEMBER)).expect(201);
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        JsonNode shared = null;
+        JsonNode own = null;
+        for (JsonNode plan : drainPlans(w.serverId)) {
+            if (plan.get("channels").isEmpty() && directMessage(plan, MOD) == null) {
+                own = plan;
+            } else {
+                shared = plan;
+            }
+        }
+        assertNotNull(shared);
+        assertNotNull(own);
+        assertNull(directMessage(shared, MEMBER), "not in the shared reminder");
+        assertNotNull(directMessage(shared, MOD), "everyone else is");
+        assertNotNull(directMessage(own, MEMBER), "their own, at their own time");
+        assertEquals(30, own.get("entries").get(0).at("/changes/remindBefore").asInt());
+
+        call("PUT", mine, MEMBER, Map.of("minutes", List.of(60))).expect(200);
+        assertEquals(List.of(60), ints(call("GET", mine, MEMBER, null).expect(200).json().get("effective")),
+                "the board's own beats everywhere");
+        JsonNode listed = call("GET", "/api/me/reminders", MEMBER, null).expect(200).json();
+        assertEquals(board, listed.get("boards").get(0).get("boardId").asLong());
+        call("PUT", mine, MEMBER, Map.of()).expect(200);
+        // From /notifications in Discord, the bot sets them for the person who ran it.
+        assertEquals(List.of(45), ints(asBot("PUT", "/api/me/reminders", BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("minutes", List.of(45))).expect(200).json().get("everywhere")));
+        call("PUT", "/api/me/reminders", MEMBER, Map.of()).expect(200);
+        assertEquals(List.of(1440, 180), ints(call("GET", mine, MEMBER, null).expect(200).json().get("effective")),
+                "removing their own goes back to the board's");
+
+        // A board can have its own times, set by whoever edits it, and go back to the server's.
+        assertEquals(403, call("PUT", boardTimes, MEMBER, Map.of("minutes", List.of(60))).status());
+        call("PUT", boardTimes, OWNER, Map.of("minutes", List.of(10080))).expect(200);
+        long nextWeek = dueTask(w, board, todo, "In three days", now.plusDays(3));
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        List<JsonNode> weekly = drainPlans(w.serverId);
+        assertEquals(1, weekly.size(), "a week before reached");
+        assertEquals(nextWeek, weekly.get(0).get("task").get("taskId").asLong());
+        JsonNode reset = call("PUT", boardTimes, OWNER, Map.of()).expect(200).json();
+        assertTrue(reset.get("minutes").isNull());
+        assertEquals(List.of(1440, 180), ints(reset.get("effective")));
+        assertTrue(auditLog(w).stream().anyMatch(e -> "NOTIFICATIONS_UPDATED".equals(e.get("action").asText())
+                && e.toString().contains("reminders")));
+    }
+
+    private static List<Integer> ints(JsonNode array) {
+        List<Integer> values = new ArrayList<>();
+        array.forEach(value -> values.add(value.asInt()));
+        return values;
+    }
+
     private long dueTask(World w, long board, long column, String title, java.time.LocalDateTime due) throws Exception {
         return call("POST", w.boardPath(board, "/tasks"), MOD, Map.of("title", title, "boardId", board, "columnId", column,
                 "dueDate", due.toString())).expect(201).json().get("taskId").asLong();
