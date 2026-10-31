@@ -67,6 +67,8 @@ class InternalSyncControllerApiTest {
     private MemberRoleService memberRoleService;
     @MockitoBean
     private RealtimeSubscriptionRevoker realtimeSubscriptionRevoker;
+    @MockitoBean
+    private com.kanbancord_api.server.MemberDirectory memberDirectory;
 
     @Test
     void upsertServer_returnsNoContent_onHappyPath() throws Exception {

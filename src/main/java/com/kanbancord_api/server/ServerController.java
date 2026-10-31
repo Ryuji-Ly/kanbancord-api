@@ -17,16 +17,19 @@ public class ServerController {
     private final Authorizer authorizer;
     private final RoleService roleService;
     private final ServerMemberService serverMemberService;
+    private final MemberDirectory memberDirectory;
 
     public ServerController(
             ServerService serverService,
             Authorizer authorizer,
             RoleService roleService,
-            ServerMemberService serverMemberService) {
+            ServerMemberService serverMemberService,
+            MemberDirectory memberDirectory) {
         this.serverService = serverService;
         this.authorizer = authorizer;
         this.roleService = roleService;
         this.serverMemberService = serverMemberService;
+        this.memberDirectory = memberDirectory;
     }
 
     /**
@@ -65,8 +68,8 @@ public class ServerController {
     }
 
     /**
-     * Get all members of a server
-     * Only accessible to server members
+     * The server's stored members: everyone when all are stored, otherwise the people who use KanbanCord there or
+     * were picked for something. {@link #searchServerMembers} also finds the others.
      */
     @GetMapping("/{serverId}/members")
     public ResponseEntity<List<ServerMemberResponse>> getServerMembers(
@@ -81,6 +84,21 @@ public class ServerController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
+    }
+
+    /**
+     * Members whose name contains {@code q}: stored ones, then (when members are stored only as needed) the ones
+     * Discord finds by the start of their name. Someone found in Discord has no {@code id} until they are picked.
+     */
+    @GetMapping("/{serverId}/members/search")
+    public ResponseEntity<List<ServerMemberResponse>> searchServerMembers(
+            @PathVariable Long serverId,
+            @RequestParam(name = "q", defaultValue = "") String query,
+            @CurrentUser Long userId) {
+
+        authorizer.requireServerPermission(userId, serverId, "VIEW_SERVER");
+        String trimmed = query.length() > 100 ? query.substring(0, 100) : query;
+        return ResponseEntity.ok(memberDirectory.search(serverId, trimmed));
     }
 
     private ServerResponse mapToServerResponse(Server server) {

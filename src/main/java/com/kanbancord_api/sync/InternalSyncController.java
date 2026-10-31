@@ -5,6 +5,7 @@ import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
 import com.kanbancord_api.exception.BadRequestException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -47,6 +48,7 @@ public class InternalSyncController {
     private final ServerMemberService serverMemberService;
     private final MemberRoleService memberRoleService;
     private final ServerBootstrapService serverBootstrapService;
+    private final MemberDirectory memberDirectory;
     private final ApplicationEventPublisher events;
 
     public InternalSyncController(
@@ -57,6 +59,7 @@ public class InternalSyncController {
             ServerMemberService serverMemberService,
             MemberRoleService memberRoleService,
             ServerBootstrapService serverBootstrapService,
+            MemberDirectory memberDirectory,
             ApplicationEventPublisher events) {
         this.authorizer = authorizer;
         this.serverService = serverService;
@@ -65,6 +68,7 @@ public class InternalSyncController {
         this.serverMemberService = serverMemberService;
         this.memberRoleService = memberRoleService;
         this.serverBootstrapService = serverBootstrapService;
+        this.memberDirectory = memberDirectory;
         this.events = events;
     }
 
@@ -173,12 +177,22 @@ public class InternalSyncController {
         Server server = serverService.findById(serverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Server", "serverId", serverId));
 
+        // With lazy storage, someone not stored is left to be looked up when needed; only the name and avatar of
+        // a user who is stored anyway (they made something) are kept current.
+        boolean store = !memberDirectory.lazy() || memberDirectory.isStored(serverId, userId);
+        if (!store && userService.findById(userId).isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
         User user = userService.findById(userId).orElseGet(User::new);
         user.setUserId(userId);
         user.setUsername(request.username());
         user.setGlobalName(request.globalName());
         user.setAvatarUrl(request.avatarUrl());
         user = userService.update(user);
+        if (!store) {
+            return ResponseEntity.noContent().build();
+        }
 
         ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId)
                 .orElseGet(ServerMember::new);
@@ -220,8 +234,14 @@ public class InternalSyncController {
 
         authorizer.requireInternalSyncAccess(botToken);
 
-        ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId)
-                .orElseThrow(() -> new ResourceNotFoundException("ServerMember", "userId", userId));
+        ServerMember member = serverMemberService.findByServerIdAndUserId(serverId, userId).orElse(null);
+        if (member == null) {
+            if (memberDirectory.lazy()) {
+                // Not stored: their roles are read from Discord when they are.
+                return ResponseEntity.noContent().build();
+            }
+            throw new ResourceNotFoundException("ServerMember", "userId", userId);
+        }
 
         memberRoleService.replaceForMember(member, request.roleIds());
         announce(EventType.MEMBER_SYNCED, serverId, userId);

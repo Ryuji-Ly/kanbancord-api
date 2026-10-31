@@ -4,7 +4,7 @@ import com.kanbancord_api.board.BoardRepository;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.permission.PermissionEvaluationService;
-import com.kanbancord_api.server.ServerMemberRepository;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.ServerRepository;
 import org.springframework.stereotype.Service;
 
@@ -16,24 +16,25 @@ public class ServerAccessValidator {
 
     private static final String VIEW_BOARD = "VIEW_BOARD";
 
-    private final ServerMemberRepository serverMemberRepository;
+    private final MemberDirectory memberDirectory;
     private final ServerRepository serverRepository;
     private final BoardRepository boardRepository;
     private final PermissionEvaluationService permissionEvaluationService;
 
     public ServerAccessValidator(
-            ServerMemberRepository serverMemberRepository,
+            MemberDirectory memberDirectory,
             ServerRepository serverRepository,
             BoardRepository boardRepository,
             PermissionEvaluationService permissionEvaluationService) {
-        this.serverMemberRepository = serverMemberRepository;
+        this.memberDirectory = memberDirectory;
         this.serverRepository = serverRepository;
         this.boardRepository = boardRepository;
         this.permissionEvaluationService = permissionEvaluationService;
     }
 
     /**
-     * Validates that a user is a member of the specified server.
+     * Validates that a user is a member of the specified server, looking them up in Discord if they are not stored
+     * yet, and records that they used KanbanCord there.
      * 
      * @throws AccessDeniedException     if user is not a member
      * @throws ResourceNotFoundException if server doesn't exist
@@ -43,9 +44,10 @@ public class ServerAccessValidator {
             throw new ResourceNotFoundException("Server", "serverId", serverId);
         }
 
-        if (!serverMemberRepository.existsByServer_ServerIdAndUser_UserId(serverId, userId)) {
+        if (!memberDirectory.ensure(serverId, userId)) {
             throw new AccessDeniedException("You are not a member of this server");
         }
+        memberDirectory.markUsed(serverId, userId);
     }
 
     /**

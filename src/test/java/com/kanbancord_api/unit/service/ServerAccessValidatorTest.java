@@ -5,7 +5,7 @@ import com.kanbancord_api.board.BoardRepository;
 import com.kanbancord_api.exception.AccessDeniedException;
 import com.kanbancord_api.exception.ResourceNotFoundException;
 import com.kanbancord_api.permission.PermissionEvaluationService;
-import com.kanbancord_api.server.ServerMemberRepository;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.ServerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
 class ServerAccessValidatorTest {
 
     @Mock
-    private ServerMemberRepository serverMemberRepository;
+    private MemberDirectory memberDirectory;
 
     @Mock
     private ServerRepository serverRepository;
@@ -46,7 +46,7 @@ class ServerAccessValidatorTest {
     @BeforeEach
     void setUp() {
         serverAccessValidator = new ServerAccessValidator(
-                serverMemberRepository,
+                memberDirectory,
                 serverRepository,
                 boardRepository,
                 permissionEvaluationService);
@@ -55,7 +55,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_allowsWhenPermissionBlank_afterMembershipCheck() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
 
         assertDoesNotThrow(() -> serverAccessValidator.validateUserHasPermission(1L, 2L, null, " "));
 
@@ -75,7 +75,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_throwsForbidden_whenUserLacksMembership() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(false);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(false);
 
         assertThrows(AccessDeniedException.class,
                 () -> serverAccessValidator.validateUserHasPermission(1L, 2L, null, "VIEW_BOARD"));
@@ -86,7 +86,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_throwsForbidden_whenPermissionDenied() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
         when(permissionEvaluationService.isAllowed(2L, null, 1L, "EDIT_BOARD_DETAILS")).thenReturn(false);
 
         assertThrows(AccessDeniedException.class,
@@ -96,7 +96,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_allows_whenPermissionGranted() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
         when(permissionEvaluationService.isAllowed(2L, null, 1L, "VIEW_BOARD")).thenReturn(true);
 
         assertDoesNotThrow(() -> serverAccessValidator.validateUserHasPermission(1L, 2L, null, "VIEW_BOARD"));
@@ -107,7 +107,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_evaluatesAtBoardScope_forBoardOfThisServer() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
         when(boardRepository.existsByBoardIdAndServer_ServerId(5L, 2L)).thenReturn(true);
         when(permissionEvaluationService.resolveAll(2L, 5L, 1L, List.of("VIEW_BOARD", "EDIT_TASK")))
                 .thenReturn(Map.of("VIEW_BOARD", ALLOWED, "EDIT_TASK", ALLOWED));
@@ -118,7 +118,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_insideBoard_alsoRequiresViewBoard() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
         when(boardRepository.existsByBoardIdAndServer_ServerId(5L, 2L)).thenReturn(true);
         when(permissionEvaluationService.resolveAll(2L, 5L, 1L, List.of("VIEW_BOARD", "VIEW_TASK")))
                 .thenReturn(Map.of("VIEW_BOARD", PermissionEvaluationService.Decision.NONE, "VIEW_TASK", ALLOWED));
@@ -131,7 +131,7 @@ class ServerAccessValidatorTest {
     @Test
     void validateUserHasPermission_rejectsBoardFromAnotherServer_beforeEvaluating() {
         when(serverRepository.existsById(2L)).thenReturn(true);
-        when(serverMemberRepository.existsByServer_ServerIdAndUser_UserId(2L, 1L)).thenReturn(true);
+        when(memberDirectory.ensure(2L, 1L)).thenReturn(true);
         when(boardRepository.existsByBoardIdAndServer_ServerId(5L, 2L)).thenReturn(false);
 
         assertThrows(ResourceNotFoundException.class,

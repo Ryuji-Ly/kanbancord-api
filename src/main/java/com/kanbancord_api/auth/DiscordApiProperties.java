@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 public class DiscordApiProperties {
 
     private String apiBaseUrl = "https://discord.com/api/v10";
+    /** The bot's token, for reading server members; blank when not configured. */
+    private String botToken = "";
 
     public String getApiBaseUrl() {
         return apiBaseUrl;
@@ -15,5 +17,13 @@ public class DiscordApiProperties {
 
     public void setApiBaseUrl(String apiBaseUrl) {
         this.apiBaseUrl = apiBaseUrl;
+    }
+
+    public String getBotToken() {
+        return botToken;
+    }
+
+    public void setBotToken(String botToken) {
+        this.botToken = botToken;
     }
 }

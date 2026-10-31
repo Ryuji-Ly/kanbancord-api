@@ -25,7 +25,10 @@ task and setting, decides who may do what, and works out who should hear about e
   optional rules per role, per person and per board on top, and a "check access" endpoint that explains every decision.
   See [how permissions are resolved](https://kanbancord.com/guides/roles-and-permissions).
 - **Discord sync.** The bot keeps servers, members, roles and channels in step with Discord through internal endpoints;
-  Discord stays the source of truth for who is who.
+  Discord stays the source of truth for who is who. With `KANBANCORD_DISCORD_BOT_TOKEN` set, only members who use
+  KanbanCord on a server (or were assigned or named in a permission rule there) are stored; anyone else is looked up in
+  Discord the first time they are needed, and member search (`/members/search`) finds them through Discord. Once a day,
+  members nothing needs and users in no server who made nothing are removed.
 - **Notifications.** Every change is recorded in an audit log and routed to update feeds, the audit log channel and
   direct messages, by each feed's events and mentions and each person's preferences. The bot claims and delivers them.
   Due-date reminders come at times the server, a board or each person chooses (a day before by default).
@@ -60,6 +63,7 @@ It listens on port 8080. Configuration comes from environment variables:
 | `KANBANCORD_JWT_SECRET` | Signs access tokens; at least 32 bytes. Without it, signing in is disabled. |
 | `KANBANCORD_TOKEN_ENCRYPTION_KEY` | Optional: encrypts stored Discord tokens (32 bytes, base64). Derived from the JWT secret if left out. |
 | `KANBANCORD_BOT_TOKEN` | The shared secret the bot sends on internal endpoints (the bot's `KANBANCORD_INTERNAL_SYNC_TOKEN`). |
+| `KANBANCORD_DISCORD_BOT_TOKEN` | Optional: the bot's Discord token (the bot's `DISCORD_BOT_TOKEN`), used only to read server members. Without it every member the bot syncs is stored. |
 | `KANBANCORD_IMGUR_CLIENT_ID` | Optional: enables image and video uploads. |
 | `KANBANCORD_CORS_ALLOWED_ORIGINS`, `KANBANCORD_REALTIME_ALLOWED_ORIGINS` | Optional: where the website runs. Default to localhost and kanbancord.com. |
 | `KANBANCORD_SESSION_COOKIE_SECURE` | Optional: set to `false` for local development over plain HTTP. |
@@ -86,9 +90,6 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
 ### Planned
 
 - **Public documentation** of how KanbanCord works and how to use it.
-- **Lazy member storage.** Only people who use KanbanCord, or are assigned, are kept; others are looked up in Discord
-  when needed, such as when searching for someone to assign.
-- **Removing orphaned users**: people no longer in any server with the bot.
 - **Per-assignee completion.** For tasks everyone has to do individually, each assignee marks their own part done, and
   the task shows who is still pending.
 - **Import from other tools**: Trello, Jira and similar exports, and Excel files directly (lists, CSV and pasted

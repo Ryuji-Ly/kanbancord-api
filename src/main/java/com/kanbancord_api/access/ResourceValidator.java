@@ -16,6 +16,7 @@ import com.kanbancord_api.label.TaskLabelService;
 import com.kanbancord_api.notification.Notification;
 import com.kanbancord_api.permission.Permission;
 import com.kanbancord_api.permission.PermissionService;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.MemberRole;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
@@ -46,6 +47,7 @@ public class ResourceValidator {
     private final AuditLogService auditLogService;
     private final PermissionService permissionService;
     private final BusinessValidationService businessValidationService;
+    private final MemberDirectory memberDirectory;
 
     public ResourceValidator(
             BoardService boardService,
@@ -60,7 +62,8 @@ public class ResourceValidator {
             MemberRoleService memberRoleService,
             AuditLogService auditLogService,
             PermissionService permissionService,
-            BusinessValidationService businessValidationService) {
+            BusinessValidationService businessValidationService,
+            MemberDirectory memberDirectory) {
         this.boardService = boardService;
         this.boardColumnService = boardColumnService;
         this.taskService = taskService;
@@ -74,6 +77,7 @@ public class ResourceValidator {
         this.auditLogService = auditLogService;
         this.permissionService = permissionService;
         this.businessValidationService = businessValidationService;
+        this.memberDirectory = memberDirectory;
     }
 
     public void validatePathMatchesRequestId(String fieldName, Long pathId, Long requestId) {
@@ -203,7 +207,8 @@ public class ResourceValidator {
         }
 
         if ("USER".equalsIgnoreCase(subjectType)) {
-            boolean inServer = serverMemberService.existsByServerIdAndUserId(serverId, subjectId);
+            // Someone picked from Discord's member search is stored from here on.
+            boolean inServer = memberDirectory.ensure(serverId, subjectId);
             if (!inServer) {
                 throw new BadRequestException("User does not belong to the server");
             }
