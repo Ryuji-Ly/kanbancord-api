@@ -1,7 +1,10 @@
 package com.kanbancord_api.user;
 
 import com.kanbancord_api.access.Authorizer;
+import com.kanbancord_api.auth.DiscordGuildResponse;
+import com.kanbancord_api.auth.DiscordGuildService;
 import com.kanbancord_api.exception.ResourceNotFoundException;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.Server;
 import com.kanbancord_api.server.ServerResponse;
 import com.kanbancord_api.server.ServerService;
@@ -10,7 +13,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/me")
@@ -19,11 +24,16 @@ public class MeController {
     private final Authorizer authorizer;
     private final UserService userService;
     private final ServerService serverService;
+    private final MemberDirectory memberDirectory;
+    private final DiscordGuildService discordGuildService;
 
-    public MeController(Authorizer authorizer, UserService userService, ServerService serverService) {
+    public MeController(Authorizer authorizer, UserService userService, ServerService serverService,
+                        MemberDirectory memberDirectory, DiscordGuildService discordGuildService) {
         this.authorizer = authorizer;
         this.userService = userService;
         this.serverService = serverService;
+        this.memberDirectory = memberDirectory;
+        this.discordGuildService = discordGuildService;
     }
 
     @GetMapping
@@ -39,8 +49,25 @@ public class MeController {
     public ResponseEntity<List<ServerResponse>> getMyServers() {
         Long userId = authorizer.requireAuthenticatedUserId();
 
-        List<ServerResponse> responses = serverService.findByMemberUserId(userId)
-                .stream()
+        Map<Long, Server> servers = new LinkedHashMap<>();
+        serverService.findByMemberUserId(userId).forEach(server -> servers.put(server.getServerId(), server));
+        if (memberDirectory.lazy()) {
+            // People are only stored as members of servers they have used KanbanCord in, so the servers they are
+            // in on Discord (from their sign-in) that have the bot count too; opening one stores them.
+            List<Long> guildIds;
+            try {
+                guildIds = discordGuildService.guilds(userId).stream().map(DiscordGuildResponse::id)
+                        .map(Long::valueOf).toList();
+            } catch (RuntimeException ex) {
+                // Signed in through the bot, or Discord unavailable: the stored servers are what we know.
+                guildIds = List.of();
+            }
+            serverService.findAllById(guildIds).stream()
+                    .filter(server -> Boolean.TRUE.equals(server.getBotPresent()))
+                    .forEach(server -> servers.putIfAbsent(server.getServerId(), server));
+        }
+
+        List<ServerResponse> responses = servers.values().stream()
                 .map(this::toServerResponse)
                 .toList();
 

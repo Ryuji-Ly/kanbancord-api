@@ -31,6 +31,11 @@ public class ServerService {
     }
 
     @Transactional(readOnly = true)
+    public List<Server> findAllById(List<Long> serverIds) {
+        return serverRepository.findAllById(serverIds);
+    }
+
+    @Transactional(readOnly = true)
     public List<Server> findByMemberUserId(Long userId) {
         return serverRepository.findDistinctByMembers_User_UserId(userId);
     }

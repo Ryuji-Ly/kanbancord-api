@@ -12,6 +12,7 @@ import com.kanbancord_api.label.LabelService;
 import com.kanbancord_api.label.TaskLabelService;
 import com.kanbancord_api.permission.Permission;
 import com.kanbancord_api.permission.PermissionService;
+import com.kanbancord_api.server.MemberDirectory;
 import com.kanbancord_api.server.MemberRoleService;
 import com.kanbancord_api.server.Role;
 import com.kanbancord_api.server.RoleService;
@@ -64,6 +65,9 @@ class ResourceValidatorTest {
     @Mock
     private BusinessValidationService businessValidationService;
 
+    @Mock
+    private MemberDirectory memberDirectory;
+
     private ResourceValidator validator;
 
     @BeforeEach
@@ -81,7 +85,8 @@ class ResourceValidatorTest {
                 memberRoleService,
                 auditLogService,
                 permissionService,
-                businessValidationService);
+                businessValidationService,
+                memberDirectory);
     }
 
     @Test
@@ -133,7 +138,7 @@ class ResourceValidatorTest {
 
     @Test
     void validatePermissionSubjectBelongsToServer_throwsBadRequest_whenUserNotInServer() {
-        when(serverMemberService.existsByServerIdAndUserId(1L, 77L)).thenReturn(false);
+        when(memberDirectory.ensure(1L, 77L)).thenReturn(false);
 
         assertThrows(BadRequestException.class,
                 () -> validator.validatePermissionSubjectBelongsToServer("USER", 77L, 1L));

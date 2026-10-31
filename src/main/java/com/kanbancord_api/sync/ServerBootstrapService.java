@@ -1,6 +1,7 @@
 package com.kanbancord_api.sync;
 
 import com.kanbancord_api.permission.PermissionBootstrapService;
+import com.kanbancord_api.server.MemberDirectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,10 @@ import java.util.stream.Collectors;
  * transaction: the whole sync takes a handful of statements per thousand members rather than
  * several per member. Rows that have not changed are left alone, not rewritten: most of a resync is
  * the same as last time, and in PostgreSQL every rewritten row leaves a dead copy to vacuum.
+ *
+ * <p>With lazy member storage ({@link MemberDirectory#lazy()}) only members already stored, and the owner, are
+ * kept up to date; the others are not stored until they use KanbanCord or are picked for something. People in
+ * the list who are stored as users anyway (they made something) still get their names and avatars updated.
  */
 @Service
 public class ServerBootstrapService {
@@ -35,10 +41,13 @@ public class ServerBootstrapService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PermissionBootstrapService permissionBootstrapService;
+    private final MemberDirectory memberDirectory;
 
-    public ServerBootstrapService(JdbcTemplate jdbcTemplate, PermissionBootstrapService permissionBootstrapService) {
+    public ServerBootstrapService(JdbcTemplate jdbcTemplate, PermissionBootstrapService permissionBootstrapService,
+                                  MemberDirectory memberDirectory) {
         this.jdbcTemplate = jdbcTemplate;
         this.permissionBootstrapService = permissionBootstrapService;
+        this.memberDirectory = memberDirectory;
     }
 
     /** What changed, for the log. */
@@ -50,17 +59,34 @@ public class ServerBootstrapService {
         long started = System.currentTimeMillis();
 
         // Users first: the server's owner and every member must exist before anything refers to them.
-        Map<Long, InternalBootstrapRequest.MemberEntry> members = new LinkedHashMap<>();
+        Map<Long, InternalBootstrapRequest.MemberEntry> sent = new LinkedHashMap<>();
         for (InternalBootstrapRequest.MemberEntry entry : request.members()) {
-            members.put(entry.userId(), entry);
+            sent.put(entry.userId(), entry);
+        }
+        Map<Long, InternalBootstrapRequest.MemberEntry> members = sent;
+        Set<Long> knownUsers = Set.of();
+        if (memberDirectory.lazy()) {
+            Set<Long> stored = new HashSet<>(jdbcTemplate.queryForList(
+                    "SELECT user_id FROM server_members WHERE server_id = ?", Long.class, serverId));
+            stored.add(request.ownerId());
+            members = new LinkedHashMap<>();
+            for (InternalBootstrapRequest.MemberEntry entry : sent.values()) {
+                if (stored.contains(entry.userId())) {
+                    members.put(entry.userId(), entry);
+                }
+            }
+            knownUsers = existingUsers(sent.keySet());
         }
         List<Object[]> users = new ArrayList<>();
         if (!members.containsKey(request.ownerId())) {
             users.add(new Object[]{request.ownerId(), request.ownerUsername(), request.ownerGlobalName(),
                     request.ownerAvatarUrl()});
         }
-        members.values().forEach(entry -> users.add(new Object[]{entry.userId(), entry.username(),
-                entry.globalName(), entry.avatarUrl()}));
+        for (InternalBootstrapRequest.MemberEntry entry : sent.values()) {
+            if (members.containsKey(entry.userId()) || knownUsers.contains(entry.userId())) {
+                users.add(new Object[]{entry.userId(), entry.username(), entry.globalName(), entry.avatarUrl()});
+            }
+        }
         batch("""
                 INSERT INTO users (user_id, username, global_name, avatar_url) VALUES (?, ?, ?, ?)
                 ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, global_name = EXCLUDED.global_name,
@@ -109,9 +135,9 @@ public class ServerBootstrapService {
         // Removals. An empty list can only mean the bot could not read it (a server always has its
         // owner and its @everyone role), so nothing is removed on its word.
         int membersRemoved = 0;
-        if (!members.isEmpty()) {
+        if (!sent.isEmpty()) {
             membersRemoved = deleteNotIn("DELETE FROM server_members WHERE server_id = ? AND NOT (user_id = ANY (?))",
-                    serverId, members.keySet());
+                    serverId, sent.keySet());
         }
         int rolesRemoved = 0;
         if (!request.roles().isEmpty()) {
@@ -205,6 +231,19 @@ public class ServerBootstrapService {
                 FROM servers WHERE server_id = ?
                 """, row -> row.next() ? row.getBoolean(1) : Boolean.FALSE, fingerprint, FINGERPRINT_HOURS, serverId);
         return Boolean.TRUE.equals(same);
+    }
+
+    /** Which of these people are stored as users. */
+    private Set<Long> existingUsers(Set<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Set.of();
+        }
+        List<Long> found = jdbcTemplate.query(connection -> {
+            PreparedStatement statement = connection.prepareStatement("SELECT user_id FROM users WHERE user_id = ANY (?)");
+            statement.setArray(1, connection.createArrayOf("bigint", userIds.toArray()));
+            return statement;
+        }, (row, index) -> row.getLong(1));
+        return new HashSet<>(found);
     }
 
     private void batch(String sql, List<Object[]> rows) {

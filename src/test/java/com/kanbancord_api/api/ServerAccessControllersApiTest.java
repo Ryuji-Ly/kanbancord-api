@@ -68,6 +68,8 @@ class ServerAccessControllersApiTest {
     private ResourceValidator resourceValidator;
     @MockitoBean
     private NotificationService notificationService;
+    @MockitoBean
+    private com.kanbancord_api.server.MemberDirectory memberDirectory;
 
     @Test
     void getServerById_returnsOk_happyPath() throws Exception {
