@@ -2707,6 +2707,46 @@ class EndToEndApiIntegrationTest {
         return found.get(0);
     }
 
+    @Test
+    void timeZone_detectedByTheWebsite_unlessChosen_andForgottenOnRequest() throws Exception {
+        World w = bootstrapServer();
+        JsonNode none = call("GET", "/api/me/time-zone", MEMBER, null).expect(200).json();
+        assertTrue(none.get("timeZone").isNull());
+
+        // The website sends the device's own; it is stored, but not as a choice.
+        JsonNode detected = call("PUT", "/api/me/time-zone", MEMBER,
+                Map.of("timeZone", "europe/berlin", "detected", true)).expect(200).json();
+        assertEquals("Europe/Berlin", detected.get("timeZone").asText());
+        assertFalse(detected.get("chosen").asBoolean());
+
+        // From /notifications in Discord, the bot sets one for the person who ran it: a choice.
+        JsonNode chosen = asBot("PUT", "/api/me/time-zone", BOT_TOKEN, MEMBER, w.serverId,
+                Map.of("timeZone", "UTC+8")).expect(200).json();
+        assertEquals("+08:00", chosen.get("timeZone").asText());
+        assertTrue(chosen.get("chosen").asBoolean());
+        assertEquals("+08:00", asBot("GET", "/api/me/time-zone", BOT_TOKEN, MEMBER, w.serverId, null)
+                .expect(200).json().get("timeZone").asText());
+
+        // A device in another zone does not override a choice.
+        assertEquals("+08:00", call("PUT", "/api/me/time-zone", MEMBER,
+                Map.of("timeZone", "America/New_York", "detected", true)).expect(200).json().get("timeZone").asText());
+
+        assertEquals("-03:30", call("PUT", "/api/me/time-zone", MEMBER, Map.of("timeZone", "GMT-3:30"))
+                .expect(200).json().get("timeZone").asText());
+        assertEquals("UTC", call("PUT", "/api/me/time-zone", MEMBER, Map.of("timeZone", "utc+0"))
+                .expect(200).json().get("timeZone").asText());
+        assertEquals(400, call("PUT", "/api/me/time-zone", MEMBER, Map.of("timeZone", "Mars/Olympus")).status());
+        assertEquals(400, call("PUT", "/api/me/time-zone", MEMBER, Map.of("timeZone", "UTC+15")).status());
+
+        // Forgetting it lets the website set it from the device again.
+        Map<String, Object> forget = new java.util.HashMap<>();
+        forget.put("timeZone", null);
+        JsonNode forgotten = call("PUT", "/api/me/time-zone", MEMBER, forget).expect(200).json();
+        assertTrue(forgotten.get("timeZone").isNull());
+        assertEquals("Asia/Tokyo", call("PUT", "/api/me/time-zone", MEMBER,
+                Map.of("timeZone", "Asia/Tokyo", "detected", true)).expect(200).json().get("timeZone").asText());
+    }
+
     private int count(String sql) {
         Integer value = jdbcTemplate.queryForObject(sql, Integer.class);
         return value == null ? 0 : value;

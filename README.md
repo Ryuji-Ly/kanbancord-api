@@ -32,6 +32,8 @@ task and setting, decides who may do what, and works out who should hear about e
 - **Notifications.** Every change is recorded in an audit log and routed to update feeds, the audit log channel and
   direct messages, by each feed's events and mentions and each person's preferences. The bot claims and delivers them.
   Due-date reminders come at times the server, a board or each person chooses (a day before by default).
+  Due dates are stored in UTC. Each person's time zone (`/api/me/time-zone`), saved by the website from their
+  device or chosen with `/notifications`, is how the bot reads the times they type in Discord.
 - **Board posts and task threads**: boards shown live in a Discord message, and a thread per task, managed with the bot.
 - **Feature suggestions.** Boards in simple mode that do a feature by hand (tags like `[M]` in titles, `P1`, deadlines
   or names written into tasks) get a suggestion to switch that feature on, worked out from the board when asked. Only
