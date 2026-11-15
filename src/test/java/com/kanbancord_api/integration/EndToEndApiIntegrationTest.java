@@ -3151,8 +3151,10 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of("Issues", "To Do", "Done"), board.get("columns").findValuesAsText("name"));
         assertEquals(String.valueOf(w.column(ROADMAP_BOARD, "Issues")), board.get("issuesColumnId").asText());
         assertEquals(List.of("Public board", "Assigned"), board.get("tasks").findValuesAsText("title"));
-        assertFalse(board.toString().contains(String.valueOf(MEMBER)), "no assignees");
-        assertFalse(board.toString().contains(String.valueOf(OWNER)), "no creators");
+        // By field, not by searching for the ids' digits: a task or column id can be the same number.
+        for (String people : List.of("assignments", "roleAssignments", "userId", "createdBy", "comments")) {
+            assertTrue(board.findValues(people).isEmpty(), "nothing about people: " + people);
+        }
 
         // Adding an issue needs signing in; anyone signed in may, once an hour.
         assertEquals(401, callRaw("POST", roadmap + "/issues", null, Map.of("title", "Anonymous")).status());
