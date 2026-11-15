@@ -10,6 +10,8 @@ public record BoardColumnResponse(
         BigDecimal position,
         String color,
         Integer wipLimit,
+        /** Marked as done. Whether its tasks count as done also depends on the other columns: see DoneColumns. */
+        boolean countsAsDone,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -21,6 +23,7 @@ public record BoardColumnResponse(
                 column.getPosition(),
                 column.getColor(),
                 column.getWipLimit(),
+                column.isCountsAsDone(),
                 column.getCreatedAt(),
                 column.getUpdatedAt());
     }

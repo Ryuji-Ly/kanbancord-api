@@ -31,7 +31,7 @@ public final class TaskImportParser {
      * One task as read.
      *
      * @param column the column it names (a heading, or a table's column cell), or null
-     * @param done   a ticked checkbox: it goes to the board's last column
+     * @param done   a ticked checkbox: it goes to the board's first done column (see DoneColumns)
      */
     public record Item(String title, String description, String column, boolean done, String due, String priority,
                        List<String> labels) {

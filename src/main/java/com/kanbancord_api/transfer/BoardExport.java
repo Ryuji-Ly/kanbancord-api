@@ -58,8 +58,9 @@ public record BoardExport(
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    /** @param countsAsDone true when marked as done; left out otherwise (and in files from before it existed) */
     public record Column(@NotBlank String id, @NotBlank @Size(max = 50) String name, @Size(max = 7) String color,
-                         Integer wipLimit) {
+                         Integer wipLimit, Boolean countsAsDone) {
     }
 
     public record Label(@NotBlank String id, @NotBlank @Size(max = 50) String name, String color) {

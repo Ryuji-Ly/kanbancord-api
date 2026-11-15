@@ -1725,6 +1725,46 @@ class EndToEndApiIntegrationTest {
         return values;
     }
 
+    @Test
+    void doneColumns_markedOnesReplaceTheLastColumn_forReminders() throws Exception {
+        World w = bootstrapServer();
+        long board = w.createBoard(OWNER, "Done columns");
+        long todo = w.column(board, "Todo");
+        long doing = w.column(board, "Doing");
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).withNano(0);
+        long inTodo = dueTask(w, board, todo, "In todo", now.plusHours(2));
+        long inDoing = dueTask(w, board, doing, "In doing", now.plusHours(2));
+        drainPlans(w.serverId);
+
+        // Marking a column replaces the last-column rule: its tasks are done, the last column's are not.
+        JsonNode marked = call("PUT", w.boardPath(board, "/columns/" + todo), OWNER,
+                Map.of("boardId", board, "name", "Todo", "countsAsDone", true)).expect(200).json();
+        assertTrue(marked.get("countsAsDone").asBoolean());
+        assertEquals(403, call("PUT", w.boardPath(board, "/columns/" + doing), MEMBER,
+                Map.of("boardId", board, "name", "Doing", "countsAsDone", true)).status(), "needs EDIT_COLUMN");
+        dueReminderScheduler.remind();
+        assertEquals(Set.of(inDoing), remindedTasks(w.serverId));
+
+        // Renaming without the flag leaves it as it was; unmarking goes back to the last column.
+        assertTrue(call("PUT", w.boardPath(board, "/columns/" + todo), OWNER, Map.of("boardId", board, "name", "To do"))
+                .expect(200).json().get("countsAsDone").asBoolean());
+        call("PUT", w.boardPath(board, "/columns/" + todo), OWNER,
+                Map.of("boardId", board, "name", "To do", "countsAsDone", false)).expect(200);
+        call("PUT", w.boardPath(board, "/tasks/" + inTodo), MOD, Map.of("title", "In todo", "boardId", board,
+                "columnId", todo, "dueDate", now.plusHours(3).toString())).expect(200);
+        drainPlans(w.serverId);
+        dueReminderScheduler.remind();
+        assertEquals(Set.of(inTodo), remindedTasks(w.serverId), "the last column (Doing) counts as done again");
+    }
+
+    private Set<Long> remindedTasks(long serverId) throws Exception {
+        Set<Long> tasks = new java.util.HashSet<>();
+        for (JsonNode plan : drainPlans(serverId)) {
+            tasks.add(plan.get("task").get("taskId").asLong());
+        }
+        return tasks;
+    }
+
     private long dueTask(World w, long board, long column, String title, java.time.LocalDateTime due) throws Exception {
         return call("POST", w.boardPath(board, "/tasks"), MOD, Map.of("title", title, "boardId", board, "columnId", column,
                 "dueDate", due.toString())).expect(201).json().get("taskId").asLong();

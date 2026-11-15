@@ -5,6 +5,7 @@ import com.kanbancord_api.access.ResourceValidator;
 import com.kanbancord_api.board.Board;
 import com.kanbancord_api.board.BoardColumn;
 import com.kanbancord_api.board.BoardColumnRepository;
+import com.kanbancord_api.board.DoneColumns;
 import com.kanbancord_api.board.BoardColumnService;
 import com.kanbancord_api.event.DomainEvent;
 import com.kanbancord_api.event.EventType;
@@ -257,7 +258,7 @@ public class TaskImportCommands {
         BoardColumn fallback = columns.stream()
                 .filter(column -> column.getColumnId().equals(request.defaultColumnId()))
                 .findFirst().orElse(columns.get(0));
-        BoardColumn last = columns.get(columns.size() - 1);
+        BoardColumn done = DoneColumns.of(columns).get(0);
         Map<String, BoardColumn> byName = new HashMap<>();
         columns.forEach(column -> byName.putIfAbsent(key(column.getName()), column));
 
@@ -290,7 +291,7 @@ public class TaskImportCommands {
 
             Target target = new Target(fallback, fallback.getName());
             if (item.done()) {
-                target = new Target(last, last.getName());
+                target = new Target(done, done.getName());
             } else if (item.column() != null && !item.column().isBlank()) {
                 String name = shorten(item.column().strip(), COLUMN_NAME_MAX);
                 BoardColumn existing = byName.get(key(name));

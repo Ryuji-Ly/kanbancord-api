@@ -34,6 +34,8 @@ task and setting, decides who may do what, and works out who should hear about e
   Due-date reminders come at times the server, a board or each person chooses (a day before by default).
   Due dates are stored in UTC. Each person's time zone (`/api/me/time-zone`), saved by the website from their
   device or chosen with `/notifications`, is how the bot reads the times they type in Discord.
+  Tasks in a board's done columns get no reminders: the columns marked "counts as done", or the last column while
+  none is (`DoneColumns`). Archived tasks count as done too.
 - **Board posts and task threads**: boards shown live in a Discord message, and a thread per task, managed with the bot.
 - **Feature suggestions.** Boards in simple mode that do a feature by hand (tags like `[M]` in titles, `P1`, deadlines
   or names written into tasks) get a suggestion to switch that feature on, worked out from the board when asked. Only
@@ -101,7 +103,7 @@ Pushes to `main` build a Docker image and publish it to the GitHub Container Reg
   - *Repository issues:* new issues in a linked repository become tasks in the board's chosen issues column, and
     their title, body, labels (matched by name) and open or closed state follow them; a merged pull request that says
     "Fixes #12" closes the task too. Later both ways: editing, moving or closing the task updates the issue (closing it
-    in the last column, reopening it when moved back).
+    in a done column, reopening it when moved back).
   - *GitHub Projects:* a board kept in step with the contents of a GitHub Project that has a kanban board, or something
     like one. A Project's board, table and roadmap are only views of the same items and fields, so what is synced is
     the items (issues, pull requests and draft items, in their order) and the single-select field a board view groups
