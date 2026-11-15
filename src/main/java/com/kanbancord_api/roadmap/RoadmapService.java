@@ -15,6 +15,9 @@ import com.kanbancord_api.label.LabelService;
 import com.kanbancord_api.label.TaskLabelService;
 import com.kanbancord_api.priority.BoardPriorityService;
 import com.kanbancord_api.task.Task;
+import com.kanbancord_api.task.TaskComment;
+import com.kanbancord_api.task.TaskCommentResponse;
+import com.kanbancord_api.task.TaskCommentService;
 import com.kanbancord_api.task.TaskRepository;
 import com.kanbancord_api.task.TaskResponse;
 import com.kanbancord_api.task.TaskService;
@@ -43,9 +46,13 @@ import java.util.stream.Collectors;
  * is comes from configuration ({@code KANBANCORD_ROADMAP_BOARD_ID}), so it is a single exception for
  * the developer's board, not a setting servers have. Anyone may read it; anyone signed in may add an
  * issue to its first column, whatever it is called, at most {@code kanbancord.roadmap.issues-per-hour} an hour.
+ * With comments on for the board, anyone may read a task's comments and anyone signed in may comment, at most
+ * {@link #COMMENTS_PER_HOUR} an hour; comments show the writer's Discord name.
  */
 @Service
 public class RoadmapService {
+
+    static final int COMMENTS_PER_HOUR = 10;
 
     private final Long boardId;
     private final int issuesPerHour;
@@ -58,6 +65,7 @@ public class RoadmapService {
     private final BoardPriorityService priorityService;
     private final ServerFeatureService features;
     private final UserService userService;
+    private final TaskCommentService commentService;
     private final ApplicationEventPublisher events;
     private final JdbcTemplate jdbcTemplate;
 
@@ -73,6 +81,7 @@ public class RoadmapService {
             BoardPriorityService priorityService,
             ServerFeatureService features,
             UserService userService,
+            TaskCommentService commentService,
             ApplicationEventPublisher events,
             JdbcTemplate jdbcTemplate) {
         this.boardId = boardId == null || boardId.isBlank() ? null : Long.valueOf(boardId.trim());
@@ -86,6 +95,7 @@ public class RoadmapService {
         this.priorityService = priorityService;
         this.features = features;
         this.userService = userService;
+        this.commentService = commentService;
         this.events = events;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -125,6 +135,16 @@ public class RoadmapService {
                         .toList()
                 : List.of();
         boolean showPriorities = !priorities.isEmpty();
+        boolean commentsOn = on.contains(Feature.COMMENTS);
+        Map<Long, Integer> commentCounts = new java.util.HashMap<>();
+        if (commentsOn) {
+            jdbcTemplate.query("""
+                    SELECT c.task_id, COUNT(*) AS comments FROM task_comments c JOIN tasks t ON t.task_id = c.task_id
+                    WHERE t.board_id = ? AND c.deleted_at IS NULL GROUP BY c.task_id
+                    """, rs -> {
+                commentCounts.put(rs.getLong("task_id"), rs.getInt("comments"));
+            }, board.getBoardId());
+        }
 
         Map<Long, Integer> order = columns.stream().collect(Collectors.toMap(BoardColumn::getColumnId, columns::indexOf));
         List<RoadmapResponse.Task> tasks = taskService.findByBoardId(board.getBoardId()).stream()
@@ -139,7 +159,8 @@ public class RoadmapService {
                         task.getDescription(),
                         labelsByTask.getOrDefault(task.getTaskId(), List.of()),
                         showPriorities && task.getPriorityId() != null ? String.valueOf(task.getPriorityId()) : null,
-                        task.getCreatedAt()))
+                        task.getCreatedAt(),
+                        commentCounts.getOrDefault(task.getTaskId(), 0)))
                 .toList();
 
         return new RoadmapResponse(
@@ -150,7 +171,75 @@ public class RoadmapService {
                         column.getColor())).toList(),
                 labels,
                 priorities,
-                tasks);
+                tasks,
+                commentsOn);
+    }
+
+    /** Whether this is the roadmap's board. */
+    public boolean isRoadmapBoard(Long boardId) {
+        return this.boardId != null && this.boardId.equals(boardId);
+    }
+
+    /** A task's comments, oldest first; only for tasks on the roadmap, with comments on. */
+    @Transactional(readOnly = true)
+    public List<RoadmapResponse.Comment> comments(Long taskId) {
+        roadmapTask(taskId);
+        return commentService.findActiveByTaskId(taskId).stream()
+                .sorted(Comparator.comparing(TaskComment::getCreatedAt).thenComparing(TaskComment::getCommentId))
+                .map(RoadmapService::comment)
+                .toList();
+    }
+
+    /**
+     * A comment from someone signed in, recorded and announced like any other, so the board's feeds see it and
+     * the people taking part in the issue hear about it (see RoadmapReplies).
+     */
+    @Transactional
+    public RoadmapResponse.Comment addComment(Long userId, Long taskId, String content) {
+        Task task = roadmapTask(taskId);
+        User user = userService.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "userId", userId));
+        List<LocalDateTime> recent = jdbcTemplate.queryForList("""
+                SELECT c.created_at FROM task_comments c JOIN tasks t ON t.task_id = c.task_id
+                WHERE t.board_id = ? AND c.user_id = ? AND c.created_at > ? ORDER BY c.created_at
+                """, LocalDateTime.class, task.getBoard().getBoardId(), userId, LocalDateTime.now().minusHours(1));
+        if (recent.size() >= COMMENTS_PER_HOUR) {
+            Duration wait = Duration.between(LocalDateTime.now(), recent.get(0).plusHours(1));
+            throw new TooManyRequestsException("You can comment again in " + Math.max(1, wait.toMinutes() + 1)
+                    + " minutes", Math.max(1, wait.getSeconds()));
+        }
+
+        TaskComment comment = new TaskComment();
+        comment.setTask(task);
+        comment.setUser(user);
+        comment.setContent(content.trim());
+        TaskCommentResponse created = TaskCommentResponse.from(commentService.create(comment));
+        events.publishEvent(DomainEvent.created(EventType.TASK_COMMENT_CREATED, task.getBoard().getServer().getServerId(),
+                task.getBoard().getBoardId(), created.commentId(), userId, created));
+        return new RoadmapResponse.Comment(String.valueOf(created.commentId()), nameOf(user), created.content(),
+                created.createdAt(), false);
+    }
+
+    /** A task on the roadmap that is not archived, while comments are on; not found otherwise. */
+    private Task roadmapTask(Long taskId) {
+        Board board = board();
+        if (!features.enabled(board.getServer().getServerId(), board.getBoardId()).contains(Feature.COMMENTS)) {
+            throw new ResourceNotFoundException("Roadmap comments", "board", board.getBoardId());
+        }
+        return taskRepository.findById(taskId)
+                .filter(task -> task.getBoard().getBoardId().equals(board.getBoardId()))
+                .filter(task -> !Boolean.TRUE.equals(task.getIsArchived()))
+                .orElseThrow(() -> new ResourceNotFoundException("Roadmap task", "taskId", taskId));
+    }
+
+    private static RoadmapResponse.Comment comment(TaskComment comment) {
+        return new RoadmapResponse.Comment(String.valueOf(comment.getCommentId()), nameOf(comment.getUser()),
+                comment.getContent(), comment.getCreatedAt(), !comment.getEdits().isEmpty());
+    }
+
+    private static String nameOf(User user) {
+        String display = user.getGlobalName();
+        return display == null || display.isBlank() ? user.getUsername() : display.trim();
     }
 
     /**
@@ -189,7 +278,7 @@ public class RoadmapService {
         events.publishEvent(DomainEvent.created(EventType.TASK_CREATED, serverId, board.getBoardId(), saved.getTaskId(),
                 userId, TaskResponse.from(saved)));
         return new RoadmapResponse.Task(String.valueOf(saved.getTaskId()), String.valueOf(column.getColumnId()),
-                saved.getTitle(), saved.getDescription(), List.of(), null, saved.getCreatedAt());
+                saved.getTitle(), saved.getDescription(), List.of(), null, saved.getCreatedAt(), 0);
     }
 
     private BigDecimal endOf(Long columnId) {

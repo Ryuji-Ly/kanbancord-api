@@ -47,7 +47,9 @@ public class NotificationQueue {
         /** A task is due soon or overdue: no audit entries, nobody did anything. */
         REMINDER,
         /** Someone asks for the website in another language; for the developers only, about no server. */
-        LANGUAGE_REQUEST
+        LANGUAGE_REQUEST,
+        /** A comment on the public roadmap, for one person taking part in that issue; about no server. */
+        ROADMAP_REPLY
     }
 
     /** Who asked for which language, and what they added (may be null). */
@@ -58,13 +60,14 @@ public class NotificationQueue {
      * A claimed group: its id and kind. Changes have a server and audit entries; a reminder has a
      * server, the task it is about and why ({@code reminderKind} DUE_SOON, BEFORE_n (n minutes before) or OVERDUE, and
      * {@code reminderUserId} for a reminder at one person's own time); a language
-     * request has only the request.
+     * request has only the request; a roadmap reply has the comment and who it is for ({@code replyUserId}).
      */
     public record Batch(long batchId, Kind kind, Long serverId, List<Long> auditIds, String reminderKind,
-                        Long reminderTaskId, LocalDateTime reminderDue, Long reminderUserId, LanguageRequest request) {
+                        Long reminderTaskId, LocalDateTime reminderDue, Long reminderUserId, LanguageRequest request,
+                        Long commentId, Long replyUserId) {
 
         public Batch(long batchId, long serverId, List<Long> auditIds) {
-            this(batchId, Kind.CHANGES, serverId, auditIds, null, null, null, null, null);
+            this(batchId, Kind.CHANGES, serverId, auditIds, null, null, null, null, null, null, null);
         }
 
         public boolean isReminder() {
@@ -148,6 +151,15 @@ public class NotificationQueue {
         return true;
     }
 
+    /** Queues a roadmap comment for one person to hear about by direct message. */
+    public void enqueueRoadmapReply(long userId, long commentId) {
+        jdbcTemplate.update("""
+                INSERT INTO notification_queue (kind, server_id, group_key, audit_ids, deliver_after, request_user_id,
+                    comment_id)
+                VALUES ('ROADMAP_REPLY', NULL, ?, '{}', CURRENT_TIMESTAMP, ?, ?)
+                """, "roadmap-reply:" + commentId + ":" + userId, userId, commentId);
+    }
+
     /**
      * Claims up to {@code limit} due groups for delivery, oldest first. Groups claimed but never
      * reported back are due again after a while. Safe to call from several places at once: each
@@ -171,16 +183,24 @@ public class NotificationQueue {
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
                 RETURNING batch_id, kind, server_id, audit_ids, reminder_kind, reminder_task_id, reminder_due,
-                    reminder_user_id, request_user_id, request_language, request_note
-                """, (rs, row) -> new Batch(rs.getLong("batch_id"), Kind.valueOf(rs.getString("kind")),
-                        (Long) rs.getObject("server_id"),
-                        List.of((Long[]) rs.getArray("audit_ids").getArray()), rs.getString("reminder_kind"),
-                        (Long) rs.getObject("reminder_task_id"),
-                        rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime(),
-                        (Long) rs.getObject("reminder_user_id"),
-                        rs.getObject("request_user_id") == null ? null : new LanguageRequest(rs.getLong("request_user_id"),
-                                rs.getString("request_language"), rs.getString("request_note"))),
-                MAX_ATTEMPTS, CLAIM_TIMEOUT.toSeconds() + " seconds", limit);
+                    reminder_user_id, request_user_id, request_language, request_note, comment_id
+                """, (rs, row) -> batchOf(rs), MAX_ATTEMPTS, CLAIM_TIMEOUT.toSeconds() + " seconds", limit);
+    }
+
+    private static Batch batchOf(java.sql.ResultSet rs) throws java.sql.SQLException {
+        Kind kind = Kind.valueOf(rs.getString("kind"));
+        boolean reply = kind == Kind.ROADMAP_REPLY;
+        return new Batch(rs.getLong("batch_id"), kind, (Long) rs.getObject("server_id"),
+                List.of((Long[]) rs.getArray("audit_ids").getArray()), rs.getString("reminder_kind"),
+                (Long) rs.getObject("reminder_task_id"),
+                rs.getTimestamp("reminder_due") == null ? null : rs.getTimestamp("reminder_due").toLocalDateTime(),
+                (Long) rs.getObject("reminder_user_id"),
+                // For a reply, request_user_id is who it goes to, not someone asking for a language.
+                reply || rs.getObject("request_user_id") == null ? null
+                        : new LanguageRequest(rs.getLong("request_user_id"), rs.getString("request_language"),
+                                rs.getString("request_note")),
+                (Long) rs.getObject("comment_id"),
+                reply ? (Long) rs.getObject("request_user_id") : null);
     }
 
     /** The group was delivered (or there was nothing to deliver). */

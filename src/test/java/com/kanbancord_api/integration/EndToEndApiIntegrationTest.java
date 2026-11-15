@@ -3185,6 +3185,66 @@ class EndToEndApiIntegrationTest {
         assertEquals(404, callRaw("GET", roadmap, null, null).status());
     }
 
+    @Test
+    void roadmapComments_publicWithNames_fromAnyoneSignedIn_andTheIssuesPeopleHearOfThem() throws Exception {
+        World w = bootstrapServer();
+        String roadmap = "/api/public/roadmap";
+        jdbcTemplate.update("DELETE FROM boards WHERE board_id = ?", ROADMAP_BOARD);
+        jdbcTemplate.update("INSERT INTO boards (board_id, server_id, name, created_by) VALUES (?, ?, 'KanbanCord', ?)",
+                ROADMAP_BOARD, w.serverId, OWNER);
+        jdbcTemplate.update("INSERT INTO columns (board_id, name, position) VALUES (?, 'Issues', 1), (?, 'Done', 2)",
+                ROADMAP_BOARD, ROADMAP_BOARD);
+        long reporter = 4_343L;
+        long passerby = 4_444L;
+        long issue = call("POST", roadmap + "/issues", reporter, Map.of("title", "Dark mode")).expect(201).json()
+                .get("id").asLong();
+        String comments = roadmap + "/tasks/" + issue + "/comments";
+        drainAllPlans();
+
+        // Anyone can read them; writing needs signing in.
+        assertEquals(List.of(), List.copyOf(callRaw("GET", comments, null, null).expect(200).json().findValuesAsText("id")));
+        assertEquals(401, callRaw("POST", comments, null, Map.of("content", "Hi")).status());
+
+        // The developer answers from the board: the reporter, outside the server, hears of it by direct message.
+        call("POST", w.boardPath(ROADMAP_BOARD, "/tasks/" + issue + "/comments"), OWNER,
+                Map.of("taskId", issue, "content", "Planned for December")).expect(201);
+        List<JsonNode> replies = drainAllPlans().stream().filter(plan -> "ROADMAP_REPLY".equals(plan.get("kind").asText())).toList();
+        assertEquals(1, replies.size());
+        assertEquals(String.valueOf(reporter), replies.get(0).at("/reply/userId").asText());
+        assertEquals("Dark mode", replies.get(0).at("/reply/taskTitle").asText());
+        assertEquals("Planned for December", replies.get(0).at("/reply/content").asText());
+
+        // The reporter answers on the roadmap. The developer can see the board, so hears of it the usual way only.
+        call("POST", comments, reporter, Map.of("content", "Thanks!")).expect(201);
+        assertTrue(drainAllPlans().stream().noneMatch(plan -> "ROADMAP_REPLY".equals(plan.get("kind").asText())),
+                "nobody hears of their own comment, nor twice");
+
+        // Anyone signed in may join in; the reporter hears of it.
+        call("POST", comments, passerby, Map.of("content", "Me too")).expect(201);
+        assertEquals(List.of(String.valueOf(reporter)), drainAllPlans().stream()
+                .filter(plan -> "ROADMAP_REPLY".equals(plan.get("kind").asText()))
+                .map(plan -> plan.at("/reply/userId").asText()).toList());
+
+        JsonNode thread = callRaw("GET", comments, null, null).expect(200).json();
+        assertEquals(List.of("Planned for December", "Thanks!", "Me too"), thread.findValuesAsText("content"));
+        assertFalse(thread.get(0).get("authorName").asText().isBlank(), "comments show who wrote them");
+        assertEquals(3, callRaw("GET", roadmap, null, null).json().at("/tasks/0/commentCount").asInt());
+        assertTrue(callRaw("GET", roadmap, null, null).json().get("commentsOn").asBoolean());
+
+        // At most ten an hour, per person.
+        for (int i = 1; i < 10; i++) {
+            call("POST", comments, passerby, Map.of("content", "More " + i)).expect(201);
+        }
+        Response tooMany = call("POST", comments, passerby, Map.of("content", "Eleven"));
+        assertEquals(429, tooMany.status());
+        assertTrue(tooMany.body().contains("comment again in"), tooMany.body());
+
+        // Tasks on other boards are not the roadmap's.
+        long privateBoard = w.createBoard(OWNER, "Private");
+        long other = w.createTask(OWNER, privateBoard, w.column(privateBoard, "Todo"), "Secret");
+        assertEquals(404, callRaw("GET", roadmap + "/tasks/" + other + "/comments", null, null).status());
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private World bootstrapServer() throws Exception {

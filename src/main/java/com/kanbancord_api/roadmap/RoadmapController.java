@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +26,11 @@ public class RoadmapController {
             @Size(max = 2000, message = "Description must not exceed 2000 characters") String description) {
     }
 
+    /** A comment on a roadmap task. */
+    public record CommentRequest(
+            @NotBlank(message = "Content is required") @Size(max = 2000, message = "Content must not exceed 2000 characters") String content) {
+    }
+
     private final RoadmapService roadmap;
 
     public RoadmapController(RoadmapService roadmap) {
@@ -39,5 +45,16 @@ public class RoadmapController {
     @PostMapping("/issues")
     public ResponseEntity<RoadmapResponse.Task> addIssue(@Valid @RequestBody IssueRequest request, @CurrentUser Long userId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(roadmap.addIssue(userId, request.title(), request.description()));
+    }
+
+    @GetMapping("/tasks/{taskId}/comments")
+    public ResponseEntity<java.util.List<RoadmapResponse.Comment>> comments(@PathVariable Long taskId) {
+        return ResponseEntity.ok(roadmap.comments(taskId));
+    }
+
+    @PostMapping("/tasks/{taskId}/comments")
+    public ResponseEntity<RoadmapResponse.Comment> addComment(@PathVariable Long taskId,
+            @Valid @RequestBody CommentRequest request, @CurrentUser Long userId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(roadmap.addComment(userId, taskId, request.content()));
     }
 }
