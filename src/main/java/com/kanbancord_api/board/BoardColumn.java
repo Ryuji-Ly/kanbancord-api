@@ -35,6 +35,10 @@ public class BoardColumn {
     @Column(name = "wip_limit")
     private Integer wipLimit;
 
+    /** Marked as done; see {@link DoneColumns} for what counts when no column on the board is. */
+    @Column(name = "counts_as_done", nullable = false)
+    private boolean countsAsDone;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -63,6 +67,14 @@ public class BoardColumn {
 
     public Long getColumnId() {
         return columnId;
+    }
+
+    public boolean isCountsAsDone() {
+        return countsAsDone;
+    }
+
+    public void setCountsAsDone(boolean countsAsDone) {
+        this.countsAsDone = countsAsDone;
     }
 
     public void setColumnId(Long columnId) {

@@ -81,6 +81,9 @@ public class ColumnCommands {
         if (request.wipLimit() != null) {
             column.setWipLimit(request.wipLimit());
         }
+        if (request.countsAsDone() != null) {
+            column.setCountsAsDone(request.countsAsDone());
+        }
 
         BoardColumnResponse after = BoardColumnResponse.from(boardColumnService.update(column));
         events.publishEvent(DomainEvent.changed(EventType.COLUMN_UPDATED, serverId, boardId, columnId, actorUserId,

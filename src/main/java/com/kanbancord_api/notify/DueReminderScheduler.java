@@ -1,5 +1,6 @@
 package com.kanbancord_api.notify;
 
+import com.kanbancord_api.board.DoneColumns;
 import com.kanbancord_api.feature.Feature;
 import com.kanbancord_api.feature.ServerFeatureService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,7 +31,7 @@ import java.util.Set;
  * <p>A time is skipped once a later reminder went out for the same due date, so changing the times does not
  * send an early reminder after a later one.
  *
- * <p>Only for tasks that are not done (a task in its board's last column counts as done), on boards in use, with
+ * <p>Only for tasks that are not done (in a column that counts as done, see DoneColumns), on boards in use, with
  * due dates switched on, in servers the bot is in. Each reminder is sent once per due date; changing the due date
  * brings new reminders. Overdue reminders are only for tasks that became overdue in the last hour, so nothing long
  * past is suddenly announced.
@@ -184,11 +185,10 @@ public class DueReminderScheduler {
                 JOIN servers s ON s.server_id = b.server_id
                 WHERE t.due_date IS NOT NULL AND %s
                   AND NOT t.is_archived AND NOT b.is_archived AND s.bot_present
-                  AND t.column_id <> (SELECT c.column_id FROM columns c WHERE c.board_id = t.board_id
-                                      ORDER BY c.position DESC LIMIT 1)
+                  AND NOT %s
                 ORDER BY t.due_date
                 LIMIT %d
-                """.formatted(NOW_UTC, window, BATCH), (rs, row) -> new Candidate(rs.getLong("task_id"),
+                """.formatted(NOW_UTC, window, DoneColumns.sqlTaskIsDone("t"), BATCH), (rs, row) -> new Candidate(rs.getLong("task_id"),
                 rs.getLong("board_id"), rs.getLong("server_id"), rs.getTimestamp("due_date").toLocalDateTime(),
                 rs.getDouble("minutes_left")));
     }

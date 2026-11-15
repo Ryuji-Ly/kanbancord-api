@@ -237,7 +237,7 @@ public class BoardImportCommands {
     private Map<String, BoardColumn> createColumns(Board board, List<BoardExport.Column> items) {
         Map<String, BoardColumn> columns = new LinkedHashMap<>();
         List<BoardExport.Column> source = items.isEmpty()
-                ? DEFAULT_COLUMNS.stream().map(name -> new BoardExport.Column(name, name, null, null)).toList()
+                ? DEFAULT_COLUMNS.stream().map(name -> new BoardExport.Column(name, name, null, null, null)).toList()
                 : items;
         for (BoardExport.Column item : source) {
             if (columns.containsKey(item.id())) {
@@ -249,6 +249,7 @@ public class BoardImportCommands {
             column.setPosition(BigDecimal.valueOf(columns.size() + 1L).setScale(2));
             column.setColor(item.color() != null && HEX_COLOR.matcher(item.color()).matches() ? item.color() : null);
             column.setWipLimit(item.wipLimit() != null && item.wipLimit() > 0 ? item.wipLimit() : null);
+            column.setCountsAsDone(Boolean.TRUE.equals(item.countsAsDone()));
             columns.put(item.id(), columnRepository.save(column));
         }
         return columns;

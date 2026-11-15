@@ -11,5 +11,7 @@ public record BoardColumnRequest(
         @NotNull(message = "Board ID is required") Long boardId,
         BigDecimal position,
         @Size(max = 7, message = "Color must be a valid hex color") String color,
-        Integer wipLimit) {
+        Integer wipLimit,
+        /** Whether tasks in it count as done; left out, it does not change. */
+        Boolean countsAsDone) {
 }

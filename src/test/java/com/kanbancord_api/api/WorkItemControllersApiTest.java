@@ -204,7 +204,7 @@ class WorkItemControllersApiTest {
 
     @Test
     void boardColumnEndpoints_coverHappyAndUnhappy() throws Exception {
-        BoardColumnRequest request = new BoardColumnRequest("Todo", 100L, new BigDecimal("1.00"), "#111111", 5);
+        BoardColumnRequest request = new BoardColumnRequest("Todo", 100L, new BigDecimal("1.00"), "#111111", 5, null);
 
         Board board = board(100L);
         BoardColumn column = column(200L, board);
@@ -234,7 +234,7 @@ class WorkItemControllersApiTest {
         mockMvc.perform(delete("/api/servers/1/boards/100/columns/200").with(asUser(10L)))
                 .andExpect(status().isNoContent());
 
-        request = new BoardColumnRequest("", request.boardId(), request.position(), request.color(), request.wipLimit());
+        request = new BoardColumnRequest("", request.boardId(), request.position(), request.color(), request.wipLimit(), null);
         mockMvc.perform(post("/api/servers/1/boards/100/columns").with(asUser(10L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))

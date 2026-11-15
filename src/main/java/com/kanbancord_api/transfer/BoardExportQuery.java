@@ -170,7 +170,7 @@ public class BoardExportQuery {
                 parts,
                 new BoardExport.Board(board.getName(), board.getDescription()),
                 columns.stream().map(column -> new BoardExport.Column(id(column.getColumnId()), column.getName(),
-                        column.getColor(), column.getWipLimit())).toList(),
+                        column.getColor(), column.getWipLimit(), column.isCountsAsDone() ? true : null)).toList(),
                 labels ? labelService.findByBoardId(boardId).stream()
                         .map(label -> new BoardExport.Label(id(label.getLabelId()), label.getName(), label.getColor()))
                         .toList() : null,

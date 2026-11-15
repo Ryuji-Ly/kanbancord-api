@@ -1,6 +1,7 @@
 package com.kanbancord_api.notify;
 
 import com.kanbancord_api.audit.AuditLog;
+import com.kanbancord_api.board.DoneColumns;
 import com.kanbancord_api.audit.AuditLogRepository;
 import com.kanbancord_api.audit.AuditLogResponse;
 import com.kanbancord_api.permission.PermissionEvaluationService;
@@ -223,17 +224,16 @@ public class NotificationRouter {
     /**
      * A reminder as an entry: made up, since nobody did anything, and only while it still applies (the
      * task exists, still has that due date, is not done, and its board is in use with due dates on).
-     * A task in its board's last column counts as done.
+     * A task in a column that counts as done (see DoneColumns) is done.
      */
     private java.util.Optional<AuditLogResponse> reminderEntry(NotificationQueue.Batch batch) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
                 SELECT t.board_id, b.name AS board_name, t.due_date,
-                       t.column_id = (SELECT c.column_id FROM columns c WHERE c.board_id = t.board_id
-                                      ORDER BY c.position DESC LIMIT 1) AS done,
+                       %s AS done,
                        b.is_archived
                 FROM tasks t JOIN boards b ON b.board_id = t.board_id
                 WHERE t.task_id = ?
-                """, batch.reminderTaskId());
+                """.formatted(DoneColumns.sqlTaskIsDone("t")), batch.reminderTaskId());
         if (rows.isEmpty()) {
             return java.util.Optional.empty();
         }
