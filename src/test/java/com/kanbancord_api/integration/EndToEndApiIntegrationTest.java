@@ -864,6 +864,8 @@ class EndToEndApiIntegrationTest {
         assertEquals(List.of("Todo", "Doing"), snapshot.get("columns").findValuesAsText("name"));
         assertEquals(List.of("Visible"), snapshot.get("tasks").findValuesAsText("title"));
         assertEquals(MEMBER, snapshot.at("/assignments/0/userId").asLong());
+        assertEquals(String.valueOf(MOD), snapshot.at("/creators/0/userId").asText(), "who created the tasks, by name");
+        assertFalse(snapshot.at("/creators/0/name").asText().isBlank());
         assertTrue(snapshot.at("/permissions/VIEW_BOARD/allowed").asBoolean());
         assertTrue(snapshot.at("/permissions/CREATE_TASK/allowed").asBoolean());
         assertFalse(snapshot.at("/permissions/DELETE_BOARD/allowed").asBoolean());

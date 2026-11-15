@@ -23,6 +23,8 @@ import java.util.Map;
  *                       switch off what is on here
  * @param threads        whether the board's tasks can have threads, whether they are on, and the
  *                       tasks that have one
+ * @param creators       who created the board's tasks (archived ones too), with the name to show: they need not be
+ *                       members of the server, such as people who reported an issue on the roadmap
  */
 public record BoardSnapshotResponse(
         BoardResponse board,
@@ -40,7 +42,12 @@ public record BoardSnapshotResponse(
         List<Long> followedTaskIds,
         /** Whether the person asking follows the whole board; always false for a board post. */
         boolean followingBoard,
-        TaskThreads threads) {
+        TaskThreads threads,
+        List<Creator> creators) {
+
+    /** @param name their display name, or their username without one */
+    public record Creator(String userId, String name) {
+    }
 
     /**
      * {@code available}: a feed covers the board, so its tasks can have threads; {@code enabled}: threads

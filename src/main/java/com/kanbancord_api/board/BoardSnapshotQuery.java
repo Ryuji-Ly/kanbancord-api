@@ -153,7 +153,17 @@ public class BoardSnapshotQuery {
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
                 taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds, followingBoard,
-                taskThreads(serverId, boardId, canViewTasks));
+                taskThreads(serverId, boardId, canViewTasks), canViewTasks ? creators(boardId) : List.of());
+    }
+
+    private List<BoardSnapshotResponse.Creator> creators(Long boardId) {
+        return jdbcTemplate.query("""
+                SELECT DISTINCT u.user_id, COALESCE(NULLIF(TRIM(u.global_name), ''), u.username) AS name
+                FROM tasks t JOIN users u ON u.user_id = t.created_by
+                WHERE t.board_id = ?
+                ORDER BY u.user_id
+                """, (rs, row) -> new BoardSnapshotResponse.Creator(String.valueOf(rs.getLong("user_id")),
+                rs.getString("name")), boardId);
     }
 
     /** Whether a feed covers the board, whether threads are on and working, and the tasks' threads. */
