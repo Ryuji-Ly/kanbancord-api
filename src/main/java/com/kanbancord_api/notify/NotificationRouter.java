@@ -91,6 +91,10 @@ public class NotificationRouter {
     public record LanguageRequestPlan(String userId, String userName, String language, String note) {
     }
 
+    /** A comment on a roadmap issue, for one person: who wrote what on which issue. */
+    public record RoadmapReplyPlan(String userId, String taskId, String taskTitle, String authorName, String content) {
+    }
+
     /**
      * What to deliver for one queued group. {@code kind} is that of the group (CHANGES, REMINDER or
      * LANGUAGE_REQUEST); the bot delivers each kind its own way, and refuses kinds it does not know.
@@ -98,10 +102,11 @@ public class NotificationRouter {
      */
     public record Plan(long batchId, String kind, String serverId, BoardRef board, TaskRef task,
                        List<AuditLogResponse> entries, Names names, List<ChannelDelivery> channels,
-                       List<DirectMessage> directMessages, ThreadPlan thread, LanguageRequestPlan request) {
+                       List<DirectMessage> directMessages, ThreadPlan thread, LanguageRequestPlan request,
+                       RoadmapReplyPlan reply) {
 
         public boolean isEmpty() {
-            return channels.isEmpty() && directMessages.isEmpty() && thread == null && request == null;
+            return channels.isEmpty() && directMessages.isEmpty() && thread == null && request == null && reply == null;
         }
     }
 
@@ -118,6 +123,7 @@ public class NotificationRouter {
     public Plan route(NotificationQueue.Batch batch) {
         return switch (batch.kind()) {
             case LANGUAGE_REQUEST -> languageRequest(batch);
+            case ROADMAP_REPLY -> roadmapReply(batch);
             case CHANGES, REMINDER -> serverChanges(batch);
         };
     }
@@ -130,7 +136,23 @@ public class NotificationRouter {
         return new Plan(batch.batchId(), batch.kind().name(), null, null, null, List.of(),
                 new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null,
                 new LanguageRequestPlan(String.valueOf(request.userId()), names.isEmpty() ? null : names.get(0),
-                        request.language(), request.note()));
+                        request.language(), request.note()), null);
+    }
+
+    /** Nothing to send once the comment is gone, or the issue was deleted or archived. */
+    private Plan roadmapReply(NotificationQueue.Batch batch) {
+        List<RoadmapReplyPlan> found = jdbcTemplate.query("""
+                SELECT t.task_id, t.title, c.content, COALESCE(NULLIF(TRIM(u.global_name), ''), u.username) AS author
+                FROM task_comments c
+                JOIN tasks t ON t.task_id = c.task_id
+                JOIN users u ON u.user_id = c.user_id
+                WHERE c.comment_id = ? AND c.deleted_at IS NULL AND NOT t.is_archived
+                """, (rs, row) -> new RoadmapReplyPlan(String.valueOf(batch.replyUserId()),
+                String.valueOf(rs.getLong("task_id")), rs.getString("title"), rs.getString("author"),
+                rs.getString("content")), batch.commentId());
+        return new Plan(batch.batchId(), batch.kind().name(), null, null, null, List.of(),
+                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null, null,
+                found.isEmpty() ? null : found.get(0));
     }
 
     private Plan serverChanges(NotificationQueue.Batch batch) {
@@ -182,7 +204,7 @@ public class NotificationRouter {
                 task == null ? null : new TaskRef(taskId, task.title(), task.deleted()),
                 entries.stream().map(Entry::log).toList(),
                 boardId == null ? new Names(Map.of(), Map.of(), Map.of()) : names(boardId),
-                channels, directMessages, personal ? null : threadPlan(serverId, boardId, taskId, task), null);
+                channels, directMessages, personal ? null : threadPlan(serverId, boardId, taskId, task), null, null);
     }
 
     // ── Task threads ─────────────────────────────────────────────────────────
@@ -265,7 +287,7 @@ public class NotificationRouter {
 
     private Plan empty(NotificationQueue.Batch batch) {
         return new Plan(batch.batchId(), batch.kind().name(), String.valueOf(batch.serverId()), null, null, List.of(),
-                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null, null);
+                new Names(Map.of(), Map.of(), Map.of()), List.of(), List.of(), null, null, null);
     }
 
     // ── Feeds ────────────────────────────────────────────────────────────────
