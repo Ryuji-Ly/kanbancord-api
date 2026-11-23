@@ -348,8 +348,12 @@ public class NotificationRouter {
     // ── Direct messages ──────────────────────────────────────────────────────
 
     private List<DirectMessage> directMessages(Long serverId, Long boardId, List<Entry> entries, TaskContext task) {
-        // Everyone who might want to hear: the task's people, and whoever was (un)assigned.
+        // Everyone who might want to hear: the task's people, those following its whole board, and whoever was
+        // (un)assigned. Following the board counts as following each of its tasks.
+        Set<Long> boardFollowers = new LinkedHashSet<>(jdbcTemplate.queryForList(
+                "SELECT user_id FROM board_followers WHERE board_id = ?", Long.class, boardId));
         Set<Long> candidates = new LinkedHashSet<>(task.related());
+        candidates.addAll(boardFollowers);
         entries.stream().filter(entry -> entry.events().stream().anyMatch(NotificationEvent::isAboutAssignee))
                 .map(Entry::subjectId).filter(Objects::nonNull).forEach(candidates::add);
         if (candidates.isEmpty()) {
@@ -362,7 +366,7 @@ public class NotificationRouter {
             NotificationSettingsService.UserSettings mine = preferences.get(userId);
             boolean related = task.assignees().contains(userId) || userId.equals(task.creatorId())
                     || (mine.includeCommented() && task.commenters().contains(userId))
-                    || (mine.includeFollowed() && task.followers().contains(userId));
+                    || (mine.includeFollowed() && (task.followers().contains(userId) || boardFollowers.contains(userId)));
             List<Long> ids = new ArrayList<>();
             for (Entry entry : entries) {
                 if (userId.equals(entry.actorId())) {

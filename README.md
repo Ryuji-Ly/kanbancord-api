@@ -32,6 +32,8 @@ task and setting, decides who may do what, and works out who should hear about e
 - **Notifications.** Every change is recorded in an audit log and routed to update feeds, the audit log channel and
   direct messages, by each feed's events and mentions and each person's preferences. The bot claims and delivers them.
   Due-date reminders come at times the server, a board or each person chooses (a day before by default).
+  Direct messages go to the people connected to a task (assigned, its creator, followers, and optionally commenters);
+  following a board (`/boards/{id}/follow`) counts as following each of its tasks.
   Due dates are stored in UTC. Each person's time zone (`/api/me/time-zone`), saved by the website from their
   device or chosen with `/notifications`, is how the bot reads the times they type in Discord.
   Tasks in a board's done columns get no reminders: the columns marked "counts as done", or the last column while

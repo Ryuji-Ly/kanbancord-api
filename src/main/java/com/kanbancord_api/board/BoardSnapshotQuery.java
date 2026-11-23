@@ -97,7 +97,10 @@ public class BoardSnapshotQuery {
                         WHERE t.board_id = ? AND f.user_id = ? ORDER BY f.task_id
                         """, Long.class, boardId, actorUserId)
                 : List.of();
-        return build(serverId, boardId, board, permissions, canViewTasks, followed);
+        boolean followingBoard = !jdbcTemplate.queryForList(
+                "SELECT 1 FROM board_followers WHERE board_id = ? AND user_id = ?", Integer.class, boardId, actorUserId)
+                .isEmpty();
+        return build(serverId, boardId, board, permissions, canViewTasks, followed, followingBoard);
     }
 
     /**
@@ -107,12 +110,12 @@ public class BoardSnapshotQuery {
      */
     public BoardSnapshotResponse loadComplete(Long serverId, Long boardId) {
         Board board = resourceValidator.requireBoardInServer(boardId, serverId);
-        return build(serverId, boardId, board, Map.of(), true, List.of());
+        return build(serverId, boardId, board, Map.of(), true, List.of(), false);
     }
 
     private BoardSnapshotResponse build(Long serverId, Long boardId, Board board,
                                         Map<String, PermissionDecisionResponse> permissions, boolean canViewTasks,
-                                        List<Long> followedTaskIds) {
+                                        List<Long> followedTaskIds, boolean followingBoard) {
         List<BoardColumnResponse> columns = boardColumnService.findByBoardIdOrdered(boardId).stream()
                 .map(BoardColumnResponse::from)
                 .toList();
@@ -149,7 +152,7 @@ public class BoardSnapshotQuery {
         }
 
         return new BoardSnapshotResponse(BoardResponse.from(board), columns, tasks, assignments, roleAssignments, labels,
-                taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds,
+                taskLabels, priorities, permissions, features, serverFeatures, followedTaskIds, followingBoard,
                 taskThreads(serverId, boardId, canViewTasks));
     }
 

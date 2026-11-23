@@ -64,6 +64,8 @@ public class MemberCleanup {
                   AND NOT EXISTS (SELECT 1 FROM task_followers f JOIN tasks t ON t.task_id = f.task_id
                                   JOIN boards b ON b.board_id = t.board_id
                                   WHERE f.user_id = sm.user_id AND b.server_id = sm.server_id)
+                  AND NOT EXISTS (SELECT 1 FROM board_followers f JOIN boards b ON b.board_id = f.board_id
+                                  WHERE f.user_id = sm.user_id AND b.server_id = sm.server_id)
                   AND NOT EXISTS (SELECT 1 FROM permissions p
                                   WHERE p.subject_type = 'USER' AND p.subject_id = sm.user_id
                                     AND ((p.scope_type = 'SERVER' AND p.scope_id = sm.server_id)
