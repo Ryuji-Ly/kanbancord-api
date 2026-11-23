@@ -231,12 +231,14 @@ public class DueReminderScheduler {
                 SELECT task_id, user_id FROM task_assignments WHERE task_id = ANY (?) AND user_id = ANY (?)
                 UNION SELECT task_id, created_by FROM tasks WHERE task_id = ANY (?) AND created_by = ANY (?)
                 UNION SELECT task_id, user_id FROM task_followers WHERE task_id = ANY (?) AND user_id = ANY (?)
+                UNION SELECT t.task_id, f.user_id FROM tasks t JOIN board_followers f ON f.board_id = t.board_id
+                      WHERE t.task_id = ANY (?) AND f.user_id = ANY (?)
                 UNION SELECT task_id, user_id FROM task_comments
                       WHERE task_id = ANY (?) AND user_id = ANY (?) AND deleted_at IS NULL
                 """, rs -> {
             people.computeIfAbsent(rs.getLong(1), id -> new LinkedHashSet<>()).add(rs.getLong(2));
         }, ids(taskIds), ids(userIds), ids(taskIds), ids(userIds), ids(taskIds), ids(userIds), ids(taskIds),
-                ids(userIds));
+                ids(userIds), ids(taskIds), ids(userIds));
         return people;
     }
 

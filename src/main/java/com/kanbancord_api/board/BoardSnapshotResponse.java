@@ -38,6 +38,8 @@ public record BoardSnapshotResponse(
         Map<String, Boolean> serverFeatures,
         /** Tasks on this board the person asking follows; always empty for a board post. */
         List<Long> followedTaskIds,
+        /** Whether the person asking follows the whole board; always false for a board post. */
+        boolean followingBoard,
         TaskThreads threads) {
 
     /**

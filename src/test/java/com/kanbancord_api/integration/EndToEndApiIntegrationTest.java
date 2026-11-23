@@ -2324,6 +2324,36 @@ class EndToEndApiIntegrationTest {
         return null;
     }
 
+    @Test
+    void boardFollowing_bringsEveryTasksNews_onThatBoardOnly() throws Exception {
+        World w = bootstrapServer();
+        long followed = w.createBoard(OWNER, "Followed");
+        long other = w.createBoard(OWNER, "Other");
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("events", Map.of("TASK_CREATED", true), "dmMode", "ALWAYS"))
+                .expect(200);
+        assertEquals(true, call("PUT", w.boardPath(followed, "/follow"), MEMBER, null).expect(200).json()
+                .get("following").asBoolean());
+        assertTrue(w.snapshot(MEMBER, followed).get("followingBoard").asBoolean());
+        assertFalse(w.snapshot(MOD, followed).get("followingBoard").asBoolean(), "following is personal");
+        drainPlans(w.serverId);
+
+        // A new task on the followed board reaches them, though they have nothing else to do with it.
+        w.createTask(MOD, followed, w.column(followed, "Todo"), "New here");
+        assertNotNull(directMessage(drainPlans(w.serverId).get(0), MEMBER));
+        w.createTask(MOD, other, w.column(other, "Todo"), "Elsewhere");
+        assertNull(directMessage(drainPlans(w.serverId).get(0), MEMBER), "only the board they follow");
+
+        // It is part of "tasks I follow": switching that off, or unfollowing, stops it.
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("includeFollowed", false)).expect(200);
+        w.createTask(MOD, followed, w.column(followed, "Todo"), "Quiet");
+        assertNull(directMessage(drainPlans(w.serverId).get(0), MEMBER));
+        call("PUT", "/api/me/notifications", MEMBER, Map.of("includeFollowed", true)).expect(200);
+        call("DELETE", w.boardPath(followed, "/follow"), MEMBER, null).expect(200);
+        w.createTask(MOD, followed, w.column(followed, "Todo"), "After");
+        assertNull(directMessage(drainPlans(w.serverId).get(0), MEMBER));
+        assertFalse(w.snapshot(MEMBER, followed).get("followingBoard").asBoolean());
+    }
+
     private static JsonNode directMessage(JsonNode plan, long userId) {
         for (JsonNode message : plan.get("directMessages")) {
             if (message.get("userId").asText().equals(String.valueOf(userId))) {
